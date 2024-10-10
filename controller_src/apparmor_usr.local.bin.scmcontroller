@@ -1,0 +1,41 @@
+### Apparmor Profile for the Secure Configuration Management Controller
+## This is a very locked down profile made for Debian 12 systems
+
+## Variables
+@{exelocation}=/usr/local/bin/scmcontroller
+@{repolocations}={/root/RepoTest,/opt/Net2Repo}
+@{configlocations}={/root/RepoTest/scmpc.yaml,/opt/Net2Repo/scmpc.yaml}
+@{serverkeylocations}={/root/RepoTest/.ssh.key,/opt/Net2Repo/.ssh.key}
+
+@{profilelocation}=/etc/apparmor.d/usr.local.bin.scmcontroller
+@{pid}={[1-9],[1-9][0-9],[1-9][0-9][0-9],[1-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9][0-9],[1-4][0-9][0-9][0-9][0-9][0-9][0-9]}
+@{home}={/root,/home/*}
+
+## Profile Begin
+profile SCMController @{exelocation} flags=(enforce) {
+  # Receive signals
+  signal receive set=(stop term kill quit int, urg),
+  # Send signals to self
+  signal send set=(urg) peer=SCMController,
+
+  # Capabilities
+  network netlink raw,
+  network inet stream,
+  network inet6 stream,
+
+  ## Startup Configurations needed
+  @{configlocations} r,
+  @{serverkeylocations} r,
+
+  ## Program Accesses
+  /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+  @{home}/.ssh/known_hosts rw,
+
+  ## Repository access
+  # allow read only for files in repository
+  @{repolocations}/** r,
+  # allow writing to git's info directory (for commit rollback on early error)
+  @{repolocations}/.git/** w,
+  # allow read write to fail tracker 
+  @{repolocations}/.failtracker.meta rw,
+}

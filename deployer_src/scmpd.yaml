@@ -1,0 +1,7 @@
+SSHServer:
+  ListenAddress: "127.0.0.1"
+  ListenPort: "2022"
+  SSHPrivKeyFile: "template-ssh-key-DO_NOT_USE.key"
+  AuthorizedUser: "deployer"
+  AuthorizedKeys:
+    - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIO+ihRIlkJ5/q0EY1USntGsx9BUh/H6wEEQ4sp+Gmg64"
