@@ -39,7 +39,7 @@ profile SCMDeployer @{exelocation} flags=(enforce) {
   owner /tmp/scmpdbuffer rw,
 }
 
-profile SCMDsudo /usr/bin/sudo flags=(enforce) {
+profile SCMDsudo flags=(enforce) {
   # Read self
   /usr/bin/sudo r,
   / r,
@@ -49,6 +49,7 @@ profile SCMDsudo /usr/bin/sudo flags=(enforce) {
   capability setuid,
   capability setgid,
   capability audit_write,
+  capability chown,
   network netlink raw,
   network unix stream,
   network unix dgram,

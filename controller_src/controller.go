@@ -234,7 +234,7 @@ func main() {
 
 	// Meta info print out
 	if *versionFlagExists {
-		fmt.Printf("Controller v1.0.0 compiled using GO(%s) v1.23.1 on %s architecture %s\n", runtime.Compiler, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("Controller v1.0.1 compiled using GO(%s) v1.23.1 on %s architecture %s\n", runtime.Compiler, runtime.GOOS, runtime.GOARCH)
 		fmt.Printf("First party packages:\n")
 		fmt.Printf("runtime bufio crypto/hmac crypto/rand crypto/sha1 crypto/sha256 encoding/base64 encoding/hex encoding/json flag context fmt io net os path/filepath regexp strconv strings sync time\n")
 		fmt.Printf("Third party packages:\n")
@@ -1302,6 +1302,7 @@ func RunSSHCommand(client *ssh.Client, commandStr string, SudoPassword string) (
 	if err != nil {
 		return "", fmt.Errorf("failed to get stdout pipe: %v", err)
 	}
+
 	// Command Error
 	stderr, err := session.StderrPipe()
 	if err != nil {
@@ -1325,9 +1326,9 @@ func RunSSHCommand(client *ssh.Client, commandStr string, SudoPassword string) (
 	}
 
 	// Write sudo password to stdin
-	_, err = io.WriteString(stdin, SudoPassword)
+	_, err = stdin.Write([]byte(SudoPassword))
 	if err != nil {
-		return "", fmt.Errorf("failed to write to stdin pipe: %v", err)
+		return "", fmt.Errorf("failed to write to command stdin: %v", err)
 	}
 
 	// Close stdin to signal no more writing

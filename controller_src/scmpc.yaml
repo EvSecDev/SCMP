@@ -1,9 +1,8 @@
 Controller:
-#  RepositoryPath: "/tmp/TestGit"
-  RepositoryPath: "/home/admin/Documents/gitRepo/TestGit"
+  RepositoryPath: "~/.gitRepo/TestGit"
   LogtoJournald: false
 SSHClient:
-  SSHIdentityFile: "/home/admin/Documents/gitRepo/SCMPusher/controller/template-SSH-Key-DO_NOT_USE.key"
+  SSHIdentityFile: "/home/admin/Documents/gitRepo/SCMPusher/controller/example-ssh.key"
   UseSSHAgent: false
   MaximumConnectionsAtOnce: 5
   SudoPassword: "changeme"
@@ -11,22 +10,6 @@ SSHClient:
 TemplateDirectory: "goldentemplate"
 # List of available hosts to deploy configs to
 DeployerEndpoints:
-  efw:
-    - endpoint: "fd01::a:172:20:0:1"
-    - endpointPort: 22
-    - endpointUser: "deployer"
-  rproxy:
-    - endpoint: "fd01::1:172:20:20:6"
-    - endpointPort: 22
-    - endpointUser: "deployer"
-  dns:
-    - endpoint: "fd01::1:172:20:20:2"
-    - endpointPort: 22
-    - endpointUser: "deployer"
-  mail:
-    - endpoint: "fd01::1:172:20:20:3"
-    - endpointPort: 22
-    - endpointUser: "deployer"
   local:
     - endpoint: "127.0.0.1"
     - endpointPort: 2022

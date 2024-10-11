@@ -64,7 +64,7 @@ func main() {
 
 	// Meta info print out
 	if *versionFlagExists {
-		fmt.Printf("Controller v0.2.0 compiled using GO(%s) v1.23.1 on %s architecture %s\n", runtime.Compiler, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("Controller v1.0.0 compiled using GO(%s) v1.23.1 on %s architecture %s\n", runtime.Compiler, runtime.GOOS, runtime.GOARCH)
 		os.Exit(0)
 	}
 
@@ -276,23 +276,36 @@ func executeCommand(channel ssh.Channel, receivedCommand string) error {
 	// Prep command and args for execution
 	cmd := exec.Command(commandBinary, commandArray[1:]...)
 
-	// Init command output buffers
-	var stdout, stderr, stdin bytes.Buffer
+	// Init command buffers
+	var stdout, stderr, channelBuff bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
-	cmd.Stdin = &stdin
-
-	// Run the command and set exit code
-	err := cmd.Start()
-	if err != nil {
-		return err
-	}
 
 	// Get stdin from client
-	_, err = io.Copy(&stdin, channel)
+	_, err := io.Copy(&channelBuff, channel)
 	if err != nil {
 		return err
 	}
+
+	// Prepare stdin
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	defer stdin.Close()
+
+	// Run the command
+	err = cmd.Start()
+	if err != nil {
+		return err
+	}
+
+	// Write channel contents to stdin and close input
+	_, err = stdin.Write(channelBuff.Bytes())
+	if err != nil {
+		return err
+	}
+	stdin.Close()
 
 	// Wait for command to finish
 	err = cmd.Wait()

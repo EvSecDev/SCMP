@@ -5,9 +5,6 @@ function logError {
 	exit 1
 }
 
-# Quick fix for dev box only
-gobin='/usr/local/go/bin/go'
-
 # Quick checks
 command -v go >/dev/null || logError "go command not found."
 command -v tar >/dev/null || logError "tar command not found."
@@ -19,7 +16,7 @@ buildArchitecture="amd64"
 export CGO_ENABLED=0
 export GOARCH=$buildArchitecture
 export GOOS=linux
-$gobin build -o deployer -a -ldflags '-s -w -buildid= -extldflags "-static"' deployer.go || logError "failed to compile binary"
+go build -o deployer -a -ldflags '-s -w -buildid= -extldflags "-static"' deployer.go || logError "failed to compile binary"
 
 # Create packaged install script
 cp ../install_deployer.sh . || logError "failed to copy install script to pwd"

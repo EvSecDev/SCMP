@@ -4,7 +4,7 @@
 
 A secure and automated configuration management terminal-based tool backed by git to centrally control and push configuration files to Linux servers.
 
-This program is designed to assist and automate a Linux administrators job functions by centrally allowing them to both edit, version control, and deploy changes to configuration files of remote Linux systems.
+This program is designed to assist and automate a Linux administrators job functions by centrally allowing them to edit, version control, and deploy changes to configuration files of remote Linux systems.
 
 The controller utilizes a local git repository of a specific structure to track configuration files that should be applied to every host administered, and specific config overrides as well as host-specific configurations.
 Using the GO x/crypto/ssh package, this program will SSH into the hosts defined in the configuration file and write the relevant configurations as well as handle the reloading of the associated service/program if required.
@@ -41,7 +41,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - Removing empty 'managed' directories
 - Run a linear series of commands to enable/reload/start services associated with files
 
-## What it **can't** do: Deployer (Remote Host Actions)
+### What it **can't** do: Deployer (Remote Host Actions)
 
 - Removing files not previously in repository
 - Removing directories no previously in repository
