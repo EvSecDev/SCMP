@@ -24,7 +24,8 @@ import (
 
 // Main Yaml config format
 type Config struct {
-	SSHServer struct {
+	UpdaterProgram string `yaml:"UpdaterProgram"`
+	SSHServer      struct {
 		ListenAddress  string   `yaml:"ListenAddress"`
 		ListenPort     string   `yaml:"ListenPort"`
 		SSHPrivKeyFile string   `yaml:"SSHPrivKeyFile"`
@@ -55,16 +56,53 @@ func logError(errorDescription string, errorMessage error, FatalError bool) {
 //      MAIN - START
 // ###################################
 
+func HelpMenu() {
+	fmt.Printf("Usage: %s [OPTIONS]...\n%s", os.Args[0], usage)
+}
+
+const usage = `
+Options:
+    -c, --config </path/to/yaml>       Path to the configuration file [default: scmpd.yaml]
+    -s, --start-server                 Start the Deployer SSH Server
+    -h, --help                         Show this help menu
+    -V, --version                      Show version and packages
+    -v, --versionid                    Show only version number
+
+Documentation: <https://github.com/EvSecDev/SCMPusher>
+`
+
 func main() {
+	progVersion := "v1.0.0"
+
+	// Program Argument Variables
 	var configFilePath string
-	flag.StringVar(&configFilePath, "c", "scmpd.yaml", "Path to the configuration file")
-	startServerFlagExists := flag.Bool("start-server", false, "Start the Deployer SSH Server (Requires '-c [/path/to/scmpd.yaml])")
-	versionFlagExists := flag.Bool("V", false, "Print Version Information")
+	var startServerFlagExists bool
+	var versionFlagExists bool
+	var versionNumberFlagExists bool
+
+	// Read Program Arguments
+	flag.StringVar(&configFilePath, "c", "scmpd.yaml", "")
+	flag.StringVar(&configFilePath, "config", "scmpd.yaml", "")
+	flag.BoolVar(&startServerFlagExists, "s", false, "")
+	flag.BoolVar(&startServerFlagExists, "start-server", false, "")
+	flag.BoolVar(&versionFlagExists, "V", false, "")
+	flag.BoolVar(&versionFlagExists, "version", false, "")
+	flag.BoolVar(&versionNumberFlagExists, "v", false, "")
+	flag.BoolVar(&versionNumberFlagExists, "versionid", false, "")
+
+	// Custom help menu
+	flag.Usage = HelpMenu
 	flag.Parse()
 
 	// Meta info print out
-	if *versionFlagExists {
-		fmt.Printf("Controller v1.0.0 compiled using GO(%s) v1.23.1 on %s architecture %s\n", runtime.Compiler, runtime.GOOS, runtime.GOARCH)
+	if versionFlagExists {
+		fmt.Printf("Deployer %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("First party packages: bytes encoding/base64 encoding/binary flag fmt io net os os/exec runtime strings\n")
+		fmt.Printf("Third party packages: github.com/pkg/sftp golang.org/x/crypto/ssh gopkg.in/yaml.v2\n")
+		os.Exit(0)
+	}
+	if versionNumberFlagExists {
+		fmt.Println(progVersion)
 		os.Exit(0)
 	}
 
@@ -82,21 +120,20 @@ func main() {
 	logError("Error unmarshaling config file", err, true)
 
 	// Start ssh server
-	if *startServerFlagExists {
-		RunSSHServer(config.SSHServer.ListenAddress, config.SSHServer.ListenPort, config.SSHServer.AuthorizedUser, config.SSHServer.SSHPrivKeyFile, config.SSHServer.AuthorizedKeys)
+	if startServerFlagExists {
+		RunSSHServer(config.SSHServer.ListenAddress, config.SSHServer.ListenPort, config.SSHServer.AuthorizedUser, config.SSHServer.SSHPrivKeyFile, config.SSHServer.AuthorizedKeys, progVersion, config.UpdaterProgram)
 		os.Exit(0)
 	}
 
 	// Exit program without any arguments
 	fmt.Printf("No arguments specified! Use '-h' or '--help' to guide your way.\n")
-	os.Exit(0)
 }
 
 // ###################################
 //      CONNECTION FUNCTIONS
 // ###################################
 
-func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string, SSHPrivKeyFile string, AuthorizedKeys []string) {
+func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string, SSHPrivKeyFile string, AuthorizedKeys []string, progVersion string, UpdaterProgram string) {
 	fmt.Printf("Starting SCM Deployer SSH server...\n")
 
 	// Load SSH private key
@@ -115,8 +152,9 @@ func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string
 	}
 
 	// Set up SSH server config and authentication function
+	sshServerVersion := "SSH-2.0-OpenSSH_" + progVersion // embed current deployer version in SSH version
 	sshConfig := &ssh.ServerConfig{
-		ServerVersion: "SSH-2.0-OpenSSH_9.8p1",
+		ServerVersion: sshServerVersion,
 		PublicKeyAuthAlgorithms: []string{
 			ssh.KeyAlgoED25519,
 		},
@@ -192,7 +230,7 @@ func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string
 			}
 
 			// Handle the channel (e.g., execute commands, etc.)
-			handleChannel(newChannel)
+			handleChannel(newChannel, UpdaterProgram)
 		}
 		fmt.Printf("Closed connection from %s for user %s\n", sshConn.RemoteAddr(), sshConn.User())
 	}
@@ -203,7 +241,7 @@ func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string
 // ###################################
 
 // Define a handler for SSH connections
-func handleChannel(newChannel ssh.NewChannel) {
+func handleChannel(newChannel ssh.NewChannel, UpdaterProgram string) {
 	// Recover from panic
 	defer func() {
 		if r := recover(); r != nil {
@@ -256,6 +294,12 @@ func handleChannel(newChannel ssh.NewChannel) {
 				logError("SSH request error", fmt.Errorf("failed sftp: %v", err), false)
 				break
 			}
+		case "update":
+			req.Reply(true, nil)
+			// Hard coded source file (as determined by controller sftp)
+			command := UpdaterProgram + " -src /tmp/scmpdbuffer"
+			fmt.Printf("Received update request, running update program\n")
+			err = executeCommand(channel, command)
 		default:
 			logError("SSH request error", fmt.Errorf("unauthorized request type %s received", req.Type), false)
 			req.Reply(false, nil) // Reject unknown requests

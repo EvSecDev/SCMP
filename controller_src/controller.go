@@ -48,15 +48,16 @@ type Config struct {
 	} `yaml:"Controller"`
 	SSHClient struct {
 		SSHIdentityFile    string `yaml:"SSHIdentityFile"`
-                UseSSHAgent	   bool   `yaml:"UseSSHAgent"`
+		UseSSHAgent        bool   `yaml:"UseSSHAgent"`
 		MaximumConcurrency int    `yaml:"MaximumConnectionsAtOnce"`
 		SudoPassword       string `yaml:"SudoPassword"`
 	} `yaml:"SSHClient"`
 	TemplateDirectory string `yaml:"TemplateDirectory"`
 	DeployerEndpoints map[string][]struct {
-		Endpoint     string `yaml:"endpoint"`
-		EndpointPort int    `yaml:"endpointPort"`
-		EndpointUser string `yaml:"endpointUser"`
+		Endpoint        string `yaml:"endpoint"`
+		EndpointPort    int    `yaml:"endpointPort"`
+		EndpointUser    string `yaml:"endpointUser"`
+		IgnoreTemplates bool   `yaml:"ignoreTemplates"`
 	} `yaml:"DeployerEndpoints"`
 }
 
@@ -83,9 +84,6 @@ var LogToJournald bool
 
 // Used for rolling back commit upon early failure
 var RepositoryPath string
-
-// Used for storing the current OS path separator
-var OSPathSeparator string
 
 // Used for metrics - counting post deployment
 var postDeployedConfigs int
@@ -214,37 +212,89 @@ func hostDeployFailCleanup(endpointName string, filePath string, errorMessage er
 }
 
 // ###################################
-//      MAIN - START
+//	MAIN - START
 // ###################################
 
+func HelpMenu() {
+	fmt.Printf("Usage: %s [OPTIONS]...\n%s", os.Args[0], usage)
+}
+
+const usage = `
+Examples:
+    controller --config </etc/scmpc.yaml> --manual-deploy --commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>
+    controller --config </etc/scmpc.yaml> --manual-deploy --use-failtracker-only
+    controller --config </etc/scmpc.yaml> --deploy-all --remote-hosts <www,proxy,db01> [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
+    controller --config </etc/scmpc.yaml> --deployer-versions [--remote-hosts <www,proxy,db01>]
+    controller --config </etc/scmpc.yaml> --deployer-update-file <~/Downloads/deployer> [--remote-hosts <www,proxy,db01>]
+
+Options:
+    -c, --config </path/to/yaml>                    Path to the configuration file [default: scmpc.yaml]
+    -a, --auto-deploy                               Use latest commit for deployment, normally used by git post-commit hook
+    -m, --manual-deploy                             Use specified commit ID for deployment (Requires '--commitid')
+    -d, --deploy-all                                Deploy all files in specified commit to specific hosts (Requires '--remote-hosts')
+    -r, --remote-hosts <host1,host2,host3...>       Override hosts for deployment
+    -C, --commitid <hash>                           Commit ID (hash) of the commit to deploy configurations from
+    -f, --use-failtracker-only                      If previous deployment failed, use the failtracker to retry (Requires '--manual-deploy')
+        --deployer-versions                         Query remote host deployer executable versions and print to stdout
+        --deployer-update-file </path/to/binary>    Upload and update deployer executable with supplied signed ELF file
+    -h, --help                                      Show this help menu
+    -V, --version                                   Show version and packages
+    -v, --versionid                                 Show only version number
+
+Documentation: <https://github.com/EvSecDev/SCMPusher>
+`
+
 func main() {
+	progVersion := "v1.1.0"
+
+	// Program Argument Variables
 	var configFilePath string
 	var manualCommitID string
 	var hostOverride string
-	// TODO: Add example prompts
-	flag.StringVar(&configFilePath, "c", "scmpc.yaml", "Path to the configuration file")
-	autoDeployFlagExists := flag.Bool("auto-deploy", false, "Automatically uses latest commit and deploys configuration files from it (Requires '-c [/path/to/scmpc.yaml]')")
-	manualDeployFlagExists := flag.Bool("manual-deploy", false, "Manually use supplied commit ID to deploy configs for repository (Requires '--commitid [hash]'")
-	flag.StringVar(&manualCommitID, "commitid", "", "Commit ID (hash) of the commit to deploy configurations from (Requires '-c [/path/to/scmpc.yaml]')")
-	flag.StringVar(&hostOverride, "remote-hosts", "", "Override hosts (by name in comma separated values) which will be deployed to (Requires '--commitid [hash]')")
-	useAllRepoFilesFlag := flag.Bool("deploy-all", false, "Ignores changed files, and deploys all relevant files in repo to specified hosts (Requires '--remote-hosts [hostname]')")
-	useFailTrackerFlag := flag.Bool("use-failtracker-only", false, "Use the fail tracker file in the given commit to manually deploy failed files (Requires '--manual-deploy'")
-	versionFlagExists := flag.Bool("V", false, "Print Version Information")
+	var deployerUpdateFile string
+	var manualDeployFlagExists bool
+	var useAllRepoFilesFlag bool
+	var useFailTracker bool
+	var checkDeployerVersions bool
+	var versionFlagExists bool
+	var versionNumberFlagExists bool
+
+	// Read Program Arguments
+	flag.StringVar(&configFilePath, "c", "scmpc.yaml", "")
+	flag.StringVar(&configFilePath, "config", "scmpc.yaml", "")
+	flag.BoolVar(&CalledByGitHook, "a", false, "")
+	flag.BoolVar(&CalledByGitHook, "auto-deploy", false, "")
+	flag.BoolVar(&manualDeployFlagExists, "m", false, "")
+	flag.BoolVar(&manualDeployFlagExists, "manual-deploy", false, "")
+	flag.StringVar(&manualCommitID, "C", "", "")
+	flag.StringVar(&manualCommitID, "commitid", "", "")
+	flag.StringVar(&hostOverride, "r", "", "")
+	flag.StringVar(&hostOverride, "remote-hosts", "", "")
+	flag.BoolVar(&useAllRepoFilesFlag, "d", false, "")
+	flag.BoolVar(&useAllRepoFilesFlag, "deploy-all", false, "")
+	flag.BoolVar(&useFailTracker, "f", false, "")
+	flag.BoolVar(&useFailTracker, "use-failtracker-only", false, "")
+	flag.BoolVar(&checkDeployerVersions, "deployer-versions", false, "")
+	flag.StringVar(&deployerUpdateFile, "deployer-update-file", "", "")
+	flag.BoolVar(&versionFlagExists, "V", false, "")
+	flag.BoolVar(&versionFlagExists, "version", false, "")
+	flag.BoolVar(&versionNumberFlagExists, "v", false, "")
+	flag.BoolVar(&versionNumberFlagExists, "versionid", false, "")
+
+	// Custom help menu
+	flag.Usage = HelpMenu
 	flag.Parse()
 
 	// Meta info print out
-	if *versionFlagExists {
-		fmt.Printf("Controller v1.0.1 compiled using GO(%s) v1.23.1 on %s architecture %s\n", runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Printf("First party packages:\n")
-		fmt.Printf("runtime bufio crypto/hmac crypto/rand crypto/sha1 crypto/sha256 encoding/base64 encoding/hex encoding/json flag context fmt io net os path/filepath regexp strconv strings sync time\n")
-		fmt.Printf("Third party packages:\n")
-		fmt.Printf("github.com/coreos/go-systemd/v22/journal github.com/go-git/go-git/v5 github.com/go-git/go-git/v5/plumbing github.com/go-git/go-git/v5/plumbing/object github.com/pkg/sftp golang.org/x/crypto/ssh golang.org/x/crypto/ssh/agent gopkg.in/yaml.v2\n")
+	if versionFlagExists {
+		fmt.Printf("Controller %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
+		fmt.Printf("First party packages: runtime bufio crypto/hmac crypto/rand crypto/sha1 crypto/sha256 encoding/base64 encoding/hex encoding/json flag context fmt io net os path/filepath regexp strconv strings sync time\n")
+		fmt.Printf("Third party packages: github.com/coreos/go-systemd/v22/journal github.com/go-git/go-git/v5 github.com/go-git/go-git/v5/plumbing github.com/go-git/go-git/v5/plumbing/object github.com/pkg/sftp golang.org/x/crypto/ssh golang.org/x/crypto/ssh/agent gopkg.in/yaml.v2\n")
 		os.Exit(0)
 	}
-
-	// Global, for awareness (and for early error logging in main)
-	if *autoDeployFlagExists {
-		CalledByGitHook = true
+	if versionNumberFlagExists {
+		fmt.Println(progVersion)
+		os.Exit(0)
 	}
 
 	// Grab config file
@@ -261,70 +311,61 @@ func main() {
 		LogToJournald = true
 	}
 
-	// Get the OS path separator for later use (global var)
-	OSPathSeparator = string(os.PathSeparator)
-
-	// Manual deployment if requested
-	if *manualDeployFlagExists {
-		// Deference pointer
-		var useFailTracker bool
-		if useFailTrackerFlag != nil {
-			useFailTracker = *useFailTrackerFlag
-		} else {
-			useFailTracker = false
-		}
-
-		// Refuse manual without commitid (for non fail tracker deployments)
-		if manualCommitID == "" && !useFailTracker {
-			fmt.Printf("Please specify a commit ID if you want to initiate a manual deployment\n")
-			os.Exit(0)
-		}
-
-		// Verify commit ID string content (exception: failtracker arg with no commitid)
-		SHA1RegEx, err := regexp.Compile(`^[0-9a-fA-F]{40}$`)
-		logError("Failed to compile commit hash regex patterns", err, true)
-		if !SHA1RegEx.MatchString(manualCommitID) && !useFailTracker {
-			logError("Error with supplied commit ID", fmt.Errorf("hash is not 40 characters and/or is not hexadecimal"), true)
-		}
-
-		// Dereference pointer
-		var useAllRepoFiles bool
-		if useAllRepoFilesFlag != nil {
-			useAllRepoFiles = *useAllRepoFilesFlag
-		} else {
-			useAllRepoFiles = false
-		}
-
-		// Show progress to user
-		fmt.Printf("==== Secure Configuration Management Pusher ====\n")
-		fmt.Printf("Starting manual deployment for commit %s\n", manualCommitID)
-
-		// Run deployment
-		Deployment(config, manualCommitID, useFailTracker, hostOverride, useAllRepoFiles, configFilePath)
-		os.Exit(0)
-	}
-
-	// Automatic Deployment via git hooks
+	// Automatic Deployment via git post-commit hook
 	if CalledByGitHook {
 		// Run deployment
 		fmt.Printf("==== Secure Configuration Management Pusher ====\n")
 		fmt.Printf("Starting automatic deployment\n")
 
-		useFailTracker := false
-		Deployment(config, "", useFailTracker, "", false, configFilePath)
+		Deployment(config, false, "", false, hostOverride, useAllRepoFilesFlag, configFilePath)
+		fmt.Printf("================================================\n")
+		os.Exit(0)
+	}
+
+	// Manual deployment if requested
+	if manualDeployFlagExists {
+		// Show progress to user
+		fmt.Printf("==== Secure Configuration Management Pusher ====\n")
+		fmt.Printf("Starting manual deployment for commit %s\n", manualCommitID)
+
+		// Run deployment
+		Deployment(config, manualDeployFlagExists, manualCommitID, useFailTracker, hostOverride, useAllRepoFilesFlag, configFilePath)
+		fmt.Printf("================================================\n")
+		os.Exit(0)
+	}
+
+	// Get version of remote host deployer binary if requested
+	if checkDeployerVersions {
+		fmt.Printf("==== Secure Configuration Management Deployer Version Check ====\n")
+		fmt.Printf("Deployer executable versions:\n")
+
+		simpleLoopHosts(config, "", hostOverride, true)
+
+		fmt.Printf("================================================================\n")
+		os.Exit(0)
+	}
+
+	// Push update file for deployer if requested
+	if deployerUpdateFile != "" {
+		fmt.Printf("==== Secure Configuration Management Deployer Updater  ====\n")
+		fmt.Printf("Pushing update for deployer using new executable at %s\n", deployerUpdateFile)
+
+		simpleLoopHosts(config, deployerUpdateFile, hostOverride, false)
+
+		fmt.Printf("               COMPLETE: Updates Pushed\n")
+		fmt.Printf("===========================================================\n")
 		os.Exit(0)
 	}
 
 	// Exit program without any arguments
 	fmt.Printf("No arguments specified! Use '-h' or '--help' to guide your way.\n")
-	os.Exit(0)
 }
 
 // ###################################
 //      DEPLOYMENT FUNCTION
 // ###################################
 
-func Deployment(config Config, commitID string, useFailTracker bool, hostOverride string, useAllRepoFiles bool, configFilePath string) {
+func Deployment(config Config, manualDeploy bool, commitID string, useFailTracker bool, hostOverride string, useAllRepoFiles bool, configFilePath string) {
 	// For git rollback when parsing error
 	RepositoryPath = config.Controller.RepositoryPath
 
@@ -340,16 +381,12 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 
 	// Ensure current working directory is root of git repository from config
 	pwd, err := os.Getwd()
-	if err != nil {
-		logError("failed to obtain current working directory", err, true)
-	}
+	logError("failed to obtain current working directory", err, true)
 
 	// If current dir is not repo, change to it
 	if filepath.Clean(pwd) != filepath.Clean(RepositoryPath) {
 		err := os.Chdir(RepositoryPath)
-		if err != nil {
-			logError("failed to change directory to repository path", err, true)
-		}
+		logError("failed to change directory to repository path", err, true)
 	}
 
 	// Get list of system network interfaces
@@ -370,100 +407,16 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 		logError("No active network interfaces found", fmt.Errorf("refusing to attempt configuration deployment"), false)
 	}
 
-	// Load SSH private key
-	// Parse out which is which here and if pub key use as id for agent keychain
-	var SSHKeyType string
-	var PrivateKey ssh.Signer
-	var PublicKey ssh.PublicKey
-
-	// Load identity from file
-	SSHIdentity, err := os.ReadFile(config.SSHClient.SSHIdentityFile)
-	logError("Error loading SSH identity file", err, true)
-
-	// Determine key type
-	_, err = ssh.ParsePrivateKey(SSHIdentity)
-	if err == nil {
-		SSHKeyType = "private"
-	}
-
-	_, _, _, _, err = ssh.ParseAuthorizedKey(SSHIdentity)
-	if err == nil {
-		SSHKeyType = "public"
-	}
-
-	// Load key from keyring if requested
-	if config.SSHClient.UseSSHAgent {
-		if SSHKeyType != "public" {
-			logError("SSH Identity is not a public key", fmt.Errorf("refusing to use user supplied private key with ssh agent option"), true)
-		}
-
-		// Find auth socket for agent
-		agentSock := os.Getenv("SSH_AUTH_SOCK")
-		if agentSock == "" {
-			logError("Unable to use SSH agent", fmt.Errorf("SSH_AUTH_SOCK environment variable is not set"), true)
-		}
-
-		// Connect to agent socket
-		AgentConn, err := net.Dial("unix", agentSock)
-		logError("Error connecting to SSH agent socket", err, true)
-
-		// New Client to agent socket
-		sshAgent := agent.NewClient(AgentConn)
-
-		// Get list of keys in agent
-		sshAgentKeys, err := sshAgent.List()
-		logError("Error reading from SSH agent", err, true)
-
-		// Ensure keys are already loaded
-		if len(sshAgentKeys) == 0 {
-			logError("Error reading keys from SSH agent", fmt.Errorf("no keys found in agent"), true)
-		}
-
-		PublicKey, err = ssh.ParsePublicKey(SSHIdentity)
-		logError("Failed to parse SSH public key", err, true)
-
-		// Get signers
-		signers, err := sshAgent.Signers()
-		logError("Error getting signers from SSH agent", err, true)
-
-		// Find matching private key to local pub key
-		for _, sshAgentKey := range signers {
-			// Obtain public key from private key in keyring
-			sshAgentPubKey := sshAgentKey.PublicKey()
-
-			// Check against user supplied public key
-			if bytes.Equal(sshAgentPubKey.Marshal(), PublicKey.Marshal()) {
-				PrivateKey = sshAgentKey
-				break
-			}
-		}
-	} else {
-		if SSHKeyType != "private" {
-			logError("SSH Identity is not a private key", fmt.Errorf("refusing to use user supplied public key without ssh agent option"), true)
-		}
-
-		PrivateKey, err = ssh.ParsePrivateKey(SSHIdentity)
-		logError("Error parsing SSH Private Key", err, true)
-	}
-
-	// Get known_hosts from environment
-	knownHostsPath := filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
-	if knownHostsPath == "" {
-		logError("Error known_hosts", fmt.Errorf("no path found from environment variable"), true)
-	}
-
-	// Read in file
-	knownHostFile, err := os.ReadFile(knownHostsPath)
-	logError("Error reading known_hosts", err, true)
-	// Store as array
-	knownhosts := strings.Split(string(knownHostFile), "\n")
+	// Get SSH Private Key
+	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
+	logError("Error retrieving SSH private key", err, true)
 
 	// Regex Vars
-	SHA256RegEx, err := regexp.Compile(`^[a-fA-F0-9]{64}`)
-	logError("Failed to compile hash regex patterns", err, true)
+	SHA256RegEx := regexp.MustCompile(`^[a-fA-F0-9]{64}`)
+	SHA1RegEx := regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 
-	IPv4RegEx, err := regexp.Compile(`^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$`)
-	logError("Failed to compile IPv4 regex patterns", err, true)
+	// Get the OS path separator for parsing local config files
+	OSPathSeparator := string(os.PathSeparator)
 
 	// If fail tracker choice, read in the file for later usage
 	var FailTrackerPath string
@@ -490,11 +443,17 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 	logError("Failed to get HEAD reference", err, true)
 	headID := ref.Hash()
 
-	// Use latest head or manually specified hash or one from fail tracker
+	// Figure out what commit ID to use for this deployment
 	var commitHash plumbing.Hash
-	if commitID != "" {
+	if commitID != "" { // User supplied commit
+		// Verify commit ID string content
+		if !SHA1RegEx.MatchString(commitID) && !useFailTracker {
+			logError("Error with supplied commit ID", fmt.Errorf("hash is not 40 characters and/or is not hexadecimal"), true)
+		}
+
+		// Set hash
 		commitHash = plumbing.NewHash(commitID)
-	} else if commitID == "" && useFailTracker {
+	} else if commitID == "" && useFailTracker { // Failtracker supplied commit
 		// Regex to match commitid line from fail tracker
 		FailCommitRegEx, err := regexp.Compile(`commitid:([0-9a-fA-F]+)\n`)
 		logError("Failed to compile FailTracker CommitID regex patterns", err, true)
@@ -508,7 +467,10 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 
 		// Remove commit line from the failtracker contents
 		LastFailTracker = FailCommitRegEx.ReplaceAllString(LastFailTracker, "")
-	} else {
+	} else if commitID == "" && !useFailTracker && manualDeploy { // User attempted manual deploy without commit
+		fmt.Printf("Please specify a commit ID if you want to initiate a manual deployment\n")
+		return
+	} else { // Automatic deploy - using head commit
 		commitHash = plumbing.NewHash(headID.String())
 		// string version for fail tracker output
 		commitID = headID.String()
@@ -525,7 +487,7 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 	}
 
 	// Parse out git commit hosts and files
-	HostsAndFiles, gitCommitTree, AllRepoFiles, FilteredCommitHostNames, err := parseGitCommit(commit, config.TemplateDirectory, DeployerHosts)
+	HostsAndFiles, gitCommitTree, AllRepoFiles, FilteredCommitHostNames, err := parseGitCommit(commit, config.TemplateDirectory, DeployerHosts, OSPathSeparator)
 	logError("Error parsing commit files", err, true)
 
 	// Parse out all files in repo for use in dedup'ing
@@ -596,7 +558,7 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 		HostsAndFiles = AllRepoFiles
 	}
 
-	// The Maps - All the information and data needed parsed into maps per host
+	// The Maps - All the information and data needed, parsed into maps per host
 	var targetEndpoints []string                                               // Array of hosts to connect to
 	HostsAndFilePaths := make(map[string]map[string]string)                    // Map of hosts and their arrays of target file paths and associated tagged actions
 	HostsAndEndpointInfo := make(map[string][]string)                          // Map of hosts and their associated endpoint information ([0]=Socket, [1]=User)
@@ -643,30 +605,17 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 
 		// Process network info
 
-		// Network Pre-Checks and Setup
-
-		// Extract vars for endpoint information
-		endpointIP := endpointInfo[0].Endpoint
-		endpointPort := endpointInfo[1].EndpointPort
+		// Extract var for endpoint information
 		endpointUser := endpointInfo[2].EndpointUser
 
-		// Verify endpoint Port
-		if endpointPort <= 0 || endpointPort > 65535 {
-			logError(fmt.Sprintf("Error: host %s endpoint port %d", endpointName, endpointPort), fmt.Errorf("port number out of range"), true)
-		}
+		// Network Pre-Checks and Setup
+		endpoint, err := ParseEndpointAddress(endpointInfo[0].Endpoint, endpointInfo[1].EndpointPort)
+		logError(fmt.Sprintf("Error parsing host '%s' network address", endpointName), err, true)
 
-		// Verify IP address
-		IPCheck := net.ParseIP(endpointIP)
-		if IPCheck == nil && !IPv4RegEx.MatchString(endpointIP) {
-			logError(fmt.Sprintf("Error: host %s endpoint IP %s", endpointName, endpointIP), fmt.Errorf("no regex match for given IP"), true)
-		}
-
-		// Get endpoint socket by ipv6 or ipv4
-		var endpoint string
-		if strings.Contains(endpointIP, ":") {
-			endpoint = "[" + endpointIP + "]" + ":" + strconv.Itoa(endpointPort)
-		} else {
-			endpoint = endpointIP + ":" + strconv.Itoa(endpointPort)
+		// If the ignore index is present, read in bool
+		var ignoreTemplates bool
+		if len(endpointInfo) == 4 {
+			ignoreTemplates = endpointInfo[3].IgnoreTemplates
 		}
 
 		// Add endpoint info to The Maps
@@ -676,7 +625,7 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 
 		// Find and remove duplicate conf files between Template and specific host directory, then exclude those dups in the template directory
 		// IMPORTANT to ensure config files for certain hosts are not blown away by the equivalent template config, even if the specific host conf wasn't edited in this commit
-		FilteredHostsAndFiles := deDupsHostsandTemplateCommits(HostsAndFiles, config.TemplateDirectory, AllHostsAndFilesMap, endpointName)
+		FilteredHostsAndFiles := deDupsHostsandTemplateCommits(HostsAndFiles, config.TemplateDirectory, AllHostsAndFilesMap, endpointName, OSPathSeparator)
 
 		// Re-check if there are any configs to deploy after dedup, skip this host if so
 		if len(FilteredHostsAndFiles) == 0 {
@@ -696,6 +645,11 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 			commitSplit := strings.SplitN(path, "/", 2)
 			commitPath := commitSplit[1]
 			AbsolutePath := "/" + commitPath
+
+			// Skip loading template dir files if configured
+			if ignoreTemplates == true {
+				continue
+			}
 
 			// Skip loading if file will be deleted
 			if HostsAndFiles[filePath] == "delete" {
@@ -719,16 +673,12 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 
 			// Open reader for file contents
 			reader, err := file.Reader()
-			if err != nil {
-				logError("Error loading file contents when retrieving file reader", err, true)
-			}
+			logError("Error loading file contents when retrieving file reader", err, true)
 			defer reader.Close()
 
 			// Read file contents (as bytes)
 			content, err := io.ReadAll(reader)
-			if err != nil {
-				logError("Error loading file contents when reading file content", err, true)
-			}
+			logError("Error loading file contents when reading file content", err, true)
 
 			// Store the content in the map
 			ConfigFileContents[filePath] = string(content)
@@ -743,9 +693,7 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 		for filePath, content := range ConfigFileContents {
 			// Grab metadata out of contents
 			metadata, configContent, err := extractMetadata(content)
-			if err != nil {
-				logError("Error extracting metadata header from file contents", err, true)
-			}
+			logError("Error extracting metadata header from file contents", err, true)
 
 			// Make key in maps reference-able in other maps - using expected target paths (no longer using local os paths - hardcoded to /
 			path := strings.ReplaceAll(filePath, OSPathSeparator, "/")
@@ -756,9 +704,7 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 			// Parse JSON into a generic map
 			var jsonMetadata MetaHeader
 			err = json.Unmarshal([]byte(metadata), &jsonMetadata)
-			if err != nil {
-				logError(fmt.Sprintf("Error parsing JSON metadata header for %s", path), err, true)
-			}
+			logError(fmt.Sprintf("Error parsing JSON metadata header for %s", path), err, true)
 
 			// Initialize inner map
 			HostsAndFileMetadata[endpointName][AbsolutePath] = make(map[string]interface{})
@@ -799,9 +745,6 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 	// Wait group for SSH host go routines
 	var wg sync.WaitGroup
 
-	// Function when SSH is connecting during handshake
-	hostKeyCallback := createCustomHostKeyCallback(knownHostsPath, knownhosts)
-
 	// Start go routines for each remote host ssh
 	for _, endpointName := range targetEndpoints {
 		// Retrieve info for this host from The Maps
@@ -816,14 +759,14 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 		// Start go routine for specific host
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, TargetFilePaths, endpointSocket, endpointUser, ConfigFileData, ConfigMetadata, ConfigDataHashes, PrivateKey, config.SSHClient.SudoPassword, hostKeyCallback, SHA256RegEx)
+		go deployConfigs(&wg, semaphore, endpointName, TargetFilePaths, endpointSocket, endpointUser, ConfigFileData, ConfigMetadata, ConfigDataHashes, PrivateKey, config.SSHClient.SudoPassword, SHA256RegEx)
 	}
 
 	// Block until all SSH connections are finished
 	wg.Wait()
 
 	// Tell user about error and how to redeploy, writing fails to file in repo
-	PathToExe, _ := os.Executable()
+	PathToExe := os.Args[0]
 	if FailTracker != "" {
 		fmt.Printf("\nPARTIAL COMPLETE: %d configuration(s) deployed to %d host(s)\n", postDeployedConfigs, postDeploymentHosts)
 		fmt.Printf("Failure(s) in deployment:\n")
@@ -847,10 +790,7 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 		_, err = FailTrackerFile.WriteString(FailTrackerAndCommit)
 		if err != nil {
 			fmt.Printf("Failed to write FailTracker to file - manual redeploy using '--use-failtracker-only' will not work. Please use the above errors to create a new commit with just those files: %v\n", err)
-			return
 		}
-
-		fmt.Printf("============================================================\n")
 		return
 	}
 
@@ -861,7 +801,6 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 			fmt.Printf("Better find out why there are none, then use this command to try again:\n")
 			fmt.Printf("%s --manual-deploy --commitid %s --use-failtracker-only\n", PathToExe, commitID)
 		}
-		fmt.Printf("====================================\n")
 		return
 	}
 
@@ -869,20 +808,18 @@ func Deployment(config Config, commitID string, useFailTracker bool, hostOverrid
 	if useFailTracker {
 		_ = os.Remove(FailTrackerPath)
 	}
-
 	fmt.Printf("\nCOMPLETE: %d configuration(s) deployed to %d host(s)\n", postDeployedConfigs, postDeploymentHosts)
-	fmt.Printf("=====================================================\n")
 }
 
 // ###################################
 //      HOST DEPLOYMENT HANDLING
 // ###################################
 
-func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName string, TargetFilePaths map[string]string, endpointSocket string, endpointUser string, ConfigFileData map[string]string, ConfigMetadata map[string]map[string]interface{}, ConfigDataHashes map[string]string, PrivateKey ssh.Signer, SudoPassword string, hostKeyCallback ssh.HostKeyCallback, SHA256RegEx *regexp.Regexp) {
+func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName string, TargetFilePaths map[string]string, endpointSocket string, endpointUser string, ConfigFileData map[string]string, ConfigMetadata map[string]map[string]interface{}, ConfigDataHashes map[string]string, PrivateKey ssh.Signer, SudoPassword string, SHA256RegEx *regexp.Regexp) {
 	// Recover from panic
 	defer func() {
 		if r := recover(); r != nil {
-			logError(fmt.Sprintf("Controller panic during deployment to host '%s'", endpointName), fmt.Errorf("%v", r), true)
+			logError(fmt.Sprintf("Controller panic during deployment to host '%s'", endpointName), fmt.Errorf("%v", r), false)
 		}
 	}()
 
@@ -893,28 +830,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 	semaphore <- struct{}{}
 	defer func() { <-semaphore }() // Release the token when the goroutine finishes
 
-	// Vars
-	backupConfCreated := false
-
 	// SSH Client Connect Conf
-	//      Need to only use a single key algorithm type to avoid getting wrong public key back from the server for the local known_hosts check
-	//  Supposedly 'fixed' by allowing the client to specify which algo to use when connecting in https://github.com/golang/go/issues/11722
-	//  Yeah bud, totally. Let me just create 3 connections per host just to try and find a match in known_hosts... fucking stupid.
-	//  Its ed25519 for my env, change it if you want... Beware it must be the same algo used across all of your ssh servers
-	SSHconfig := &ssh.ClientConfig{
-		User: endpointUser,
-		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(PrivateKey),
-		},
-		// Some IPS rules flag on GO's ssh client string
-		ClientVersion: "SSH-2.0-OpenSSH_9.8p1",
-		// Don't add multiple values here, you will experience handshake errors when verifying some server pub keys
-		HostKeyAlgorithms: []string{
-			ssh.KeyAlgoED25519,
-		},
-		HostKeyCallback: hostKeyCallback,
-		Timeout:         30 * time.Second,
-	}
+	SSHconfig := CreateSSHClientConfig(endpointUser, PrivateKey)
 
 	// Connect to the SSH server
 	// fix: retry connect if reason is no route to host
@@ -926,6 +843,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 	defer client.Close()
 
 	// Loop through target files and deploy
+	backupConfCreated := false
 	for targetFilePath, targetFileAction := range TargetFilePaths {
 		var command string
 		var CommandOutput string
@@ -1147,13 +1065,13 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 			}
 		}
 
-		// Lock and write to metric var - increment suc configs by 1
+		// Lock and write to metric var - increment success configs by 1
 		MetricCountMutex.Lock()
 		postDeployedConfigs++
 		MetricCountMutex.Unlock()
 	}
 
-	// Lock and write to metric var - increment suc hosts by 1
+	// Lock and write to metric var - increment success hosts by 1
 	MetricCountMutex.Lock()
 	postDeploymentHosts++
 	MetricCountMutex.Unlock()
@@ -1213,9 +1131,6 @@ func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath st
 	var err error
 	var command string
 
-	// temp file for unpriv sftp writing
-	tmpRemoteFilePath := "/tmp/scmpdbuffer"
-
 	// Check if remote dir exists, if not create
 	dir := filepath.Dir(remoteFilePath)
 	command = "ls -d " + dir
@@ -1232,6 +1147,192 @@ func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath st
 		}
 	}
 
+	// temp file for unpriv sftp writing
+	tmpRemoteFilePath := "/tmp/scmpdbuffer"
+
+	// SFTP to temp file
+	err = RunSFTP(client, []byte(localFileContent), tmpRemoteFilePath)
+	if err != nil {
+		return err
+	}
+
+	// Move file from tmp dir to actual deployment path
+	command = "mv " + tmpRemoteFilePath + " " + remoteFilePath
+	_, err = RunSSHCommand(client, command, SudoPassword)
+	if err != nil {
+		return fmt.Errorf("failed to move new file into place: %v", err)
+	}
+
+	return nil
+}
+
+// ###########################################
+//      SSH/Connection HANDLING
+// ###########################################
+
+func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (ssh.Signer, error) {
+	// Load SSH private key
+	// Parse out which is which here and if pub key use as id for agent keychain
+	var SSHKeyType string
+	var PrivateKey ssh.Signer
+	var PublicKey ssh.PublicKey
+
+	// Load identity from file
+	SSHIdentity, err := os.ReadFile(SSHIdentityFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read ssh identity file: %v", err)
+	}
+
+	// Determine key type
+	_, err = ssh.ParsePrivateKey(SSHIdentity)
+	if err == nil {
+		SSHKeyType = "private"
+	}
+
+	_, _, _, _, err = ssh.ParseAuthorizedKey(SSHIdentity)
+	if err == nil {
+		SSHKeyType = "public"
+	}
+
+	// Load key from keyring if requested
+	if UseSSHAgent {
+		if SSHKeyType != "public" {
+			return nil, fmt.Errorf("identity file is not a public key, cannot use agent without public key")
+		}
+
+		// Find auth socket for agent
+		agentSock := os.Getenv("SSH_AUTH_SOCK")
+		if agentSock == "" {
+			return nil, fmt.Errorf("cannot use agent, '%s' environment variable is not set", agentSock)
+		}
+
+		// Connect to agent socket
+		AgentConn, err := net.Dial("unix", agentSock)
+		if err != nil {
+			return nil, fmt.Errorf("failed to connect to agent: %v", err)
+		}
+
+		// New Client to agent socket
+		sshAgent := agent.NewClient(AgentConn)
+
+		// Get list of keys in agent
+		sshAgentKeys, err := sshAgent.List()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get list of keys from agent: %v", err)
+		}
+
+		// Ensure keys are already loaded
+		if len(sshAgentKeys) == 0 {
+			return nil, fmt.Errorf("no keys found in agent")
+		}
+
+		PublicKey, _, _, _, err = ssh.ParseAuthorizedKey(SSHIdentity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse public key from identity file: %v", err)
+		}
+
+		// Get signers
+		signers, err := sshAgent.Signers()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get signers from agent: %v", err)
+		}
+
+		// Find matching private key to local pub key
+		for _, sshAgentKey := range signers {
+			// Obtain public key from private key in keyring
+			sshAgentPubKey := sshAgentKey.PublicKey()
+
+			// Check against user supplied public key
+			if bytes.Equal(sshAgentPubKey.Marshal(), PublicKey.Marshal()) {
+				PrivateKey = sshAgentKey
+				break
+			}
+		}
+	} else {
+		if SSHKeyType != "private" {
+			return nil, fmt.Errorf("identity is not private key, you must use agent mode with a public key")
+		}
+
+		PrivateKey, err = ssh.ParsePrivateKey(SSHIdentity)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse private key from identity file: %v", err)
+		}
+	}
+
+	return PrivateKey, nil
+}
+
+func ParseEndpointAddress(endpointIP string, endpointPort int) (string, error) {
+	IPv4RegEx := regexp.MustCompile(`^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$`)
+
+	// Verify endpoint Port
+	if endpointPort <= 0 || endpointPort > 65535 {
+		return "", fmt.Errorf("endpoint port number '%d' out of range", endpointPort)
+	}
+
+	// Verify IP address
+	IPCheck := net.ParseIP(endpointIP)
+	if IPCheck == nil && !IPv4RegEx.MatchString(endpointIP) {
+		return "", fmt.Errorf("endpoint ip '%s' is not valid", endpointIP)
+	}
+
+	// Get endpoint socket by ipv6 or ipv4
+	var endpoint string
+	if strings.Contains(endpointIP, ":") {
+		endpoint = "[" + endpointIP + "]" + ":" + strconv.Itoa(endpointPort)
+	} else {
+		endpoint = endpointIP + ":" + strconv.Itoa(endpointPort)
+	}
+
+	return endpoint, nil
+}
+
+func SSHEnvSetup() ssh.HostKeyCallback {
+	// Get known_hosts from environment
+	knownHostsPath := filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
+	if knownHostsPath == "" {
+		logError("Error known_hosts", fmt.Errorf("no path found from environment variable"), true)
+	}
+
+	// Read in file
+	knownHostFile, err := os.ReadFile(knownHostsPath)
+	logError("Error reading known_hosts", err, true)
+	// Store as array
+	knownhosts := strings.Split(string(knownHostFile), "\n")
+
+	// Function when SSH is connecting during handshake
+	hostKeyCallback := createCustomHostKeyCallback(knownHostsPath, knownhosts)
+	return hostKeyCallback
+}
+
+func CreateSSHClientConfig(endpointUser string, PrivateKey ssh.Signer) *ssh.ClientConfig {
+	// Setup host key callback function
+	hostKeyCallback := SSHEnvSetup()
+
+	// Setup config for client
+	//      Need to only use a single key algorithm type to avoid getting wrong public key back from the server for the local known_hosts check
+	//  Supposedly 'fixed' by allowing the client to specify which algo to use when connecting in https://github.com/golang/go/issues/11722
+	//  Yeah bud, totally. Let me just create 3 connections per host just to try and find a match in known_hosts... fucking stupid.
+	//  Its ed25519 for my env, change it if you want... Beware it must be the same algo used across all of your ssh servers
+	SSHconfig := &ssh.ClientConfig{
+		User: endpointUser,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(PrivateKey),
+		},
+		// Some IPS rules flag on GO's ssh client string
+		ClientVersion: "SSH-2.0-OpenSSH_9.8p1",
+		// Don't add multiple values here, you will experience handshake errors when verifying some server pub keys
+		HostKeyAlgorithms: []string{
+			ssh.KeyAlgoED25519,
+		},
+		HostKeyCallback: hostKeyCallback,
+		Timeout:         30 * time.Second,
+	}
+
+	return SSHconfig
+}
+
+func RunSFTP(client *ssh.Client, localFileContent []byte, tmpRemoteFilePath string) error {
 	// Open new session with ssh client
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
@@ -1239,9 +1340,14 @@ func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath st
 	}
 	defer sftpClient.Close()
 
-	// Context for SFTP wait - 60 second timeout
+	// Context for SFTP wait - add timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
+
+	// Use default tmp if not provided
+	if tmpRemoteFilePath == "" {
+		tmpRemoteFilePath = "/tmp/scmpdbuffer"
+	}
 
 	// Wait for the file transfer
 	errChannel := make(chan error)
@@ -1274,16 +1380,6 @@ func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath st
 	case <-ctx.Done():
 		sftpClient.Close()
 		return fmt.Errorf("closed ssh session, file transfer timed out")
-	}
-
-	// Ensure sftp request is closed out before ssh request is started
-	sftpClient.Close()
-
-	// Move file from tmp dir to actual deployment path
-	command = "mv " + tmpRemoteFilePath + " " + remoteFilePath
-	_, err = RunSSHCommand(client, command, SudoPassword)
-	if err != nil {
-		return fmt.Errorf("failed to move new file into place: %v", err)
 	}
 
 	return nil
@@ -1493,7 +1589,7 @@ func createCustomHostKeyCallback(knownHostsPath string, knownhosts []string) ssh
 //      PARSING FUNCTIONS
 // ###################################
 
-func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHosts []string) (map[string]string, *object.Tree, map[string]string, []string, error) {
+func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHosts []string, OSPathSeparator string) (map[string]string, *object.Tree, map[string]string, []string, error) {
 	tree, err := commit.Tree()
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to get tree: %v", err)
@@ -1563,7 +1659,6 @@ func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHos
 			if toPath != "" {
 				commitPathsArray = strings.SplitN(toPath, OSPathSeparator, 2)
 			}
-
 
 			// Get on disk file info if present
 			_, err := os.Stat(toPath)
@@ -1708,7 +1803,7 @@ func removeValueFromMapSlice(HostsAndFilesMap map[string][]string, key, valueToR
 	}
 }
 
-func deDupsHostsandTemplateCommits(HostsAndFiles map[string]string, TemplateDirectory string, AllHostsAndFilesMap map[string][]string, endpointName string) []string {
+func deDupsHostsandTemplateCommits(HostsAndFiles map[string]string, TemplateDirectory string, AllHostsAndFilesMap map[string][]string, endpointName string, OSPathSeparator string) []string {
 	// Filter down committed files to only ones that are allowed for this host and create map for deduping
 	HostsAndFilesMap := make(map[string][]string)
 	for filePath := range HostsAndFiles {
@@ -1810,4 +1905,128 @@ func extractMetadata(fileContents string) (string, string, error) {
 	remainingContent := fileContents[:startIndex-len(StartDelimiter)] + fileContents[endIndex+len(EndDelimiter):]
 
 	return metadataSection, remainingContent, nil
+}
+
+// ###################################
+//      UPDATE FUNCTIONS
+// ###################################
+
+func simpleLoopHosts(config Config, deployerUpdateFile string, hostOverride string, checkVersion bool) {
+	// Load Binary if updating
+	var deployerUpdateBinary []byte
+	var err error
+	if !checkVersion {
+		// Load binary from file
+		deployerUpdateBinary, err = os.ReadFile(deployerUpdateFile)
+		logError("failed loading deployer executable file", err, true)
+	}
+
+	// Get SSH Private Key
+	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
+	logError("Error retrieving SSH private key", err, true)
+
+	for endpointName, endpointInfo := range config.DeployerEndpoints {
+		// Allow user override hosts
+		var SkipHost bool
+		if hostOverride != "" {
+			hostChoices := strings.Split(hostOverride, ",")
+			for _, host := range hostChoices {
+				if host == endpointName {
+					break
+				}
+				SkipHost = true
+			}
+		}
+		if SkipHost {
+			continue
+		}
+
+		// Extract vars for endpoint information
+		endpointIP := endpointInfo[0].Endpoint
+		endpointPort := endpointInfo[1].EndpointPort
+		endpointUser := endpointInfo[2].EndpointUser
+
+		// Run update
+		returnedData, err := DeployerUpdater(deployerUpdateBinary, PrivateKey, config.SSHClient.SudoPassword, checkVersion, endpointUser, endpointIP, endpointPort)
+		if err != nil {
+			logError(fmt.Sprintf("Error: host '%s'", endpointName), err, true)
+			continue
+		}
+
+		// If just checking version, Print
+		if checkVersion {
+			fmt.Printf("%s:%s\n", endpointName, returnedData)
+		}
+	}
+}
+
+func DeployerUpdater(deployerUpdateBinary []byte, PrivateKey ssh.Signer, SudoPassword string, checkVersion bool, endpointUser string, endpointIP string, endpointPort int) (string, error) {
+	// Set client configuration
+	SSHconfig := CreateSSHClientConfig(endpointUser, PrivateKey)
+
+	// Network info checks
+	endpointSocket, err := ParseEndpointAddress(endpointIP, endpointPort)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse network address: %v", err)
+	}
+
+	// Connect to the SSH server
+	// TODO: retry connect if reason is no route to host
+	client, err := ssh.Dial("tcp", endpointSocket, SSHconfig)
+	if err != nil {
+		return "", fmt.Errorf("failed connect: %v", err)
+	}
+	defer client.Close()
+
+	if checkVersion {
+		// Get remote host deployer version
+		deployerSSHVersion := string(client.Conn.ServerVersion())
+		deployerVersion := strings.Replace(deployerSSHVersion, "SSH-2.0-OpenSSH_", "", 1)
+		return deployerVersion, nil
+	}
+
+	// SFTP to default temp file
+	err = RunSFTP(client, deployerUpdateBinary, "")
+	if err != nil {
+		return "", err
+	}
+
+	// Open new session
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	// Set custom request and payload
+	requestType := "update"
+	wantReply := true
+	reqAccepted, err := session.SendRequest(requestType, wantReply, nil)
+	if err != nil {
+		return "", fmt.Errorf("failed to create update session: %v", err)
+	}
+	if !reqAccepted {
+		return "", fmt.Errorf("server did not accept request type '%s'", requestType)
+	}
+
+	// Command stdin
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to get stdin pipe: %v", err)
+	}
+	defer stdin.Close()
+
+	// Write sudo password to stdin
+	_, err = stdin.Write([]byte(SudoPassword))
+	if err != nil {
+		return "", fmt.Errorf("failed to write to command stdin: %v", err)
+	}
+
+	// Close stdin to signal no more writing
+	err = stdin.Close()
+	if err != nil {
+		return "", fmt.Errorf("failed to close stdin: %v", err)
+	}
+
+	return "", nil
 }

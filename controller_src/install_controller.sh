@@ -1,4 +1,10 @@
 #!/bin/bash
+# Ensure script is run in bash
+if [ -z "$BASH_VERSION" ]
+then
+	echo "This script must be run in Bash."
+fi
+
 #### Error handling
 
 logError() {
@@ -14,12 +20,6 @@ logError() {
 
 #### Pre Checks
 
-# Ensure script is run in bash
-if [ -z "$BASH_VERSION" ]
-then
-	logError "This script must be run in Bash." "true"
-fi
-
 # Check for commands
 command -v git >/dev/null || logError "git command not found." "true"
 command -v egrep >/dev/null || logError "egrep command not found." "true"
@@ -32,15 +32,15 @@ command -v mv >/dev/null || logError "mv command not found." "true"
 command -v rm >/dev/null || logError "rm command not found." "true"
 command -v cat >/dev/null || logError "cat command not found." "true"
 command -v chmod >/dev/null || logError "chmod command not found." "true"
+command -v tail >/dev/null || logError "tail command not found." "true"
 command -v ls >/dev/null || logError "ls command not found." "true"
 command -v tr >/dev/null || logError "tr command not found." "true"
 command -v ssh-keygen >/dev/null || logError "ssh-keygen command not found." "true"
 
 #### Installation
-
+echo "========================================"
 echo "     SCMPusher Controller Installer     "
 echo "========================================"
-
 read -p "Press enter to begin the installation"
 echo "========================================"
 
@@ -157,6 +157,14 @@ echo "[*] Log controller errors to journald?"
 read -e -p "    [y/N]: " LogJournalBoolConfirmation
 LogJournalBoolConfirmation=$(echo $LogJournalBoolConfirmation | tr [:upper:] [:lower:])
 
+echo "[*] Do you want to install the apparmor profile?"
+read -e -p " [y/N]: " installAAProfileConfirmation
+installAAProfileConfirmation=$(echo $installAAProfileConfirmation | tr [:upper:] [:lower:])
+if [[ $installAAProfileConfirmation == "y" ]]
+then
+	command -v apparmor_parser >/dev/null || logError "apparmor_parser command not found, please install and retry." "true"
+fi
+
 echo "[*] Use your SSH agent to retrieve private keys?"
 read -e -p "    [y/N]: " SSHAgentBoolConfirmation
 SSHAgentBoolConfirmation=$(echo $SSHAgentBoolConfirmation | tr [:upper:] [:lower:])
@@ -225,7 +233,8 @@ else
 fi
 
 # Put config in user choosen location
-echo "Controller:
+cat > "$configFilePath" <<EOF
+Controller:
   # Path to the root of the git repository
   RepositoryPath: "$repositoryPath"
   LogtoJournald: $LogJournalBool
@@ -245,9 +254,15 @@ TemplateDirectory: "$TemplateDirectory"
 DeployerEndpoints:
   # name of each endpoint must have a matching directory name in the root of the git repo
   #examplehost:
-  #  - endpoint: 127.0.0.1
+  #  - endpoint: "127.0.0.1"
   #  - endpointPort: 2022
-  #  - endpointUser: "deployer"" > $configFilePath || logError "failed to write configuration to %configFilePath" "true"
+  #  - endpointUser: "deployer"
+  #examplehost2:
+  #  - endpoint: "127.0.0.2"
+  #  - endpointPort: 2022
+  #  - endpointUser: "deployer"
+  #  - ignoreTemplates: true
+EOF
 echo "[+] Successfully created controller configuration  in '$configFilePath'"
 
 if [[ $AddSSHConfigHostsConfirmation == "y" ]]
@@ -265,9 +280,9 @@ then
 			endpointUser="deployer"
 		fi
 		echo "  $endpointName:
-    - endpoint: "$endpoint"
+    - endpoint: \"$endpoint\"
     - endpointPort: $endpointPort
-    - endpointUser: "$endpointUser"" >> $configFilePath
+    - endpointUser: \"$endpointUser\"" >> $configFilePath
 		mkdir $RepositoryPath/$endpointName 2>/dev/null || logError "failed to create host $endpointName directory in git repository" "false"
 	done
 	echo "[+] Successfully added SSH client config hosts to '$configFilePath'"
@@ -276,7 +291,9 @@ fi
 # Add metadata example files
 if [[ $CreateExamplesConfirmation == "y" ]]
 then
-	echo "#|^^^|#
+	#
+	cat > "$RepositoryPath/.example-metadata-header.txt" <<EOF
+#|^^^|#
 {
   "FileOwnerGroup": "root:root",
   "FilePermissions": 644,
@@ -286,15 +303,19 @@ then
     "systemctl is-active systemd-timesyncd"
   ]
 }
-#|^^^|#" > $RepositoryPath/.example-metadata-header.txt
-
-	echo "#|^^^|#
+#|^^^|#
+EOF
+	#
+	cat > "$RepositoryPath/.example-metadata-header-noreload.txt" <<EOF
+#|^^^|#
 {
   "FileOwnerGroup": "root:root",
   "FilePermissions": 644,
   "ReloadRequired": false
 }
-#|^^^|#" > $RepositoryPath/.example-metadata-header-noreload.txt
+#|^^^|#
+EOF
+	#
 	chmod 640 $RepositoryPath/.example-metadata-header.txt || logError "failed to change permissions for example metadata file" "false"
 	chmod 640 $RepositoryPath/.example-metadata-header-noreload.txt || logError "failed to change permissions for example metadata file" "false"
 fi
@@ -314,6 +335,57 @@ $executablePath --auto-deploy -c $configFilePath
 " > $RepositoryPath/.git/hooks/post-commit || logError "failed to write post-commit hook to git repository" "true"
 	chmod 750 $RepositoryPath/.git/hooks/post-commit
 	echo "[+] Successfully created git post-commit hook in git repository"
+fi
+
+if [[ $installAAProfileConfirmation == "y" ]] then
+	# Identify apparmor profile path
+	ApparmorProfilePath=/etc/apparmor.d/$(echo $executablePath | sed 's|/|.|')
+	#
+	cat > "$ApparmorProfilePath" <<EOF
+### Apparmor Profile for the Secure Configuration Management Controller
+## This is a very locked down profile made for Debian systems
+## Variables - add to if required
+@{exelocation}=$executablePath
+@{repolocations}={$RepositoryPath}
+@{configlocations}={$configFilePath}
+@{serverkeylocations}={$SSHIdentityPath}
+
+@{profilelocation}=$ApparmorProfilePath
+@{pid}={[1-9],[1-9][0-9],[1-9][0-9][0-9],[1-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9][0-9],[1-4][0-9][0-9][0-9][0-9][0-9][0-9]}
+@{home}={/root,/home/*}
+
+## Profile Begin
+profile SCMController @{exelocation} flags=(enforce) {
+  # Receive signals
+  signal receive set=(stop term kill quit int, urg),
+  # Send signals to self
+  signal send set=(urg) peer=SCMController,
+
+  # Capabilities
+  network netlink raw,
+  network inet stream,
+  network inet6 stream,
+
+  ## Startup Configurations needed
+  @{configlocations} r,
+  @{serverkeylocations} r,
+
+  ## Program Accesses
+  /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+  @{home}/.ssh/known_hosts rw,
+
+  ## Repository access
+  # allow read only for files in repository
+  @{repolocations}/** r,
+  # allow writing to git's directory (for commit rollback on early error)
+  @{repolocations}/.git/** wk,
+  # allow read write to fail tracker
+  @{repolocations}/.failtracker.meta rw,
+}
+EOF
+	#
+	apparmor_parser -r $ApparmorProfilePath
+	#
 fi
 
 echo "[+] New git repository created in $RepositoryPath with initial branch $BranchName and template directory $TemplateDirectory"

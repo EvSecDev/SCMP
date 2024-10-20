@@ -1,28 +1,33 @@
 #!/bin/bash
-
-function logError {
-	echo "Error: $1"
-	exit 1
-}
+set -e
 
 # Quick checks
-command -v go >/dev/null || logError "go command not found."
-command -v tar >/dev/null || logError "tar command not found."
-command -v base64 >/dev/null || logError "base64 command not found."
+command -v go >/dev/null
+command -v tar >/dev/null
+command -v base64 >/dev/null
+command -v sha256sum >/dev/null
 
-# Build go binary - dont change output name, its hard coded in install script
+# Vars
 buildArchitecture="amd64"
 export CGO_ENABLED=0
 export GOARCH=$buildArchitecture
 export GOOS=linux
-go build -o controller -a -ldflags '-s -w -buildid= -extldflags "-static"' controller.go || logError "failed to compile binary"
+
+# Build go binary - dont change output name, its hard coded in install script
+go build -o controller -a -ldflags '-s -w -buildid= -extldflags "-static"' controller.go
+
+# Exit if just building binary
+if [[ $1 == "build" ]]
+then
+	exit 0
+fi
 
 # Create packaged install script
-cp ../install_controller.sh . || logError "failed to copy install script to pwd"
-tar -cvzf controller.tar.gz controller || logError "failed to compress binary"
-cat controller.tar.gz | base64 >> install_controller.sh
-mv install_controller.sh controller_package_$GOOS-$GOARCH.sh || logError "failed to rename new install script"
-rm controller.tar.gz || "failed to remove gz tar"
-rm controller || "failed to remove binary"
+tar -cvzf controller.tar.gz controller
+cp install_controller.sh controller_package_$GOOS-$GOARCH.sh
+cat controller.tar.gz | base64 >> controller_package_$GOOS-$GOARCH.sh
+rm controller.tar.gz
+rm controller
+sha256sum controller_package_$GOOS-$GOARCH.sh > controller_package_$GOOS-$GOARCH.sh.sha256
 
 exit 0

@@ -23,6 +23,7 @@ It is recommended to use sudo with a password with either a standard SSH server 
   - If using the custom Deployer SSH server, also consider:
     - Running as a non-login, non-root, system user.
     - Using the supplied apparmor profile for the supplied custom Deployer SSH server (with modifications for your reload commands).
+    - Using the supplied updater program to update the Deployer executable from the controller (This verifies the new Deployer binary by digital signature prior to update)
 Below you can find the recommended setup for the remote servers, and how to configure the remote host to have the least privileges possible to fulfill the functions of this program.
 
 This is a prototype and may have unintended consequences to managed systems as development is ongoing. Use at your own risk.
@@ -44,11 +45,11 @@ If you like what this program can do or want to expand functionality yourself, f
 ### What it **can't** do: Deployer (Remote Host Actions)
 
 - Removing files not previously in repository
-- Removing directories no previously in repository
+- Removing directories not previously in repository
 - Changing owner and group of directories
 - Changing permissions of directories
 - Manage executables or shared objects
-- Deploy without existing commandlets (ls, rm, mv, ect.)
+- Deploy without existing commandlets on remote system (ls, rm, mv, ect.)
 
 ### What it **can** do: Controller
 
@@ -75,42 +76,68 @@ If you like what this program can do or want to expand functionality yourself, f
 ### Controller Help Menu
 
 ```
-Usage of scmcontroller:
--V 			Print Version Information
--auto-deploy 		Automatically uses latest commit and deploys configuration files from it (Requires '-c [/path/to/scmpc.yaml]')
--c [string] 		Path to the configuration file (default "scmpc.yaml")
--commitid [string] 	Commit ID (hash) of the commit to deploy configurations from (Requires '-c [/path/to/scmpc.yaml]')
--deploy-all 		Ignores changed files, and deploys all relevant files in repo to specified hosts (Requires '--remote-hosts [hostname]')
--manual-deploy 		Manually use supplied commit ID to deploy configs for repository (Requires '--commitid [hash]'
--remote-hosts [string] 	Override hosts (by name in comma separated values) which will be deployed to (Requires '--commitid [hash]')
--use-failtracker-only 	Use the fail tracker file in the given commit to manually deploy failed files (Requires '--manual-deploy'
+Usage: scmcontroller [OPTIONS]...
+
+Examples:
+    controller --config </etc/scmpc.yaml> --manual-deploy --commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>
+    controller --config </etc/scmpc.yaml> --manual-deploy --use-failtracker-only
+    controller --config </etc/scmpc.yaml> --deploy-all --remote-hosts <www,proxy,db01> [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
+    controller --config </etc/scmpc.yaml> --deployer-versions [--remote-hosts <www,proxy,db01>]
+    controller --config </etc/scmpc.yaml> --deployer-update-file <~/Downloads/deployer> [--remote-hosts <www,proxy,db01>]
+
+Options:
+    -c, --config </path/to/yaml>                    Path to the configuration file [default: scmpc.yaml]
+    -a, --auto-deploy                               Use latest commit for deployment, normally used by git post-commit hook
+    -m, --manual-deploy                             Use specified commit ID for deployment (Requires '--commitid')
+    -d, --deploy-all                                Deploy all files in specified commit to specific hosts (Requires '--remote-hosts')
+    -r, --remote-hosts <host1,host2,host3...>       Override hosts for deployment
+    -C, --commitid <hash>                           Commit ID (hash) of the commit to deploy configurations from
+    -f, --use-failtracker-only                      If previous deployment failed, use the failtracker to retry (Requires '--manual-deploy')
+        --deployer-versions                         Query remote host deployer executable versions and print to stdout
+        --deployer-update-file </path/to/binary>    Upload and update deployer executable with supplied signed ELF file
+    -h, --help                                      Show this help menu
+    -V, --version                                   Show version and packages
+    -v, --versionid                                 Show only version number
 ```
 
 ### Deployer Help Menu
 
 ```
-Usage of scmdeployer:
--V 		Print Version Information
--c [string] 	Path to the configuration file (default "scmpd.yaml")
--start-server	Start the Deployer SSH Server (Requires '-c [/path/to/scmpd.yaml])
+Usage: scmdeployer [OPTIONS]...
+
+Options:
+    -c, --config </path/to/yaml>       Path to the configuration file [default: scmpd.yaml]
+    -s, --start-server                 Start the Deployer SSH Server
+    -h, --help                         Show this help menu
+    -V, --version                      Show version and packages
+    -v, --versionid                    Show only version number
 ```
 
 ## Setup walk-through
 
-### Controller (local) setup
-
-1. Create an ED25519 SSH private key (Yes, that specific algo, otherwise you'll have to change the source code - read the note at the bottom), and copy public key to desired hosts
-2. Start the controller binary and the supplied template yaml configuration on your workstation or deployment source of choice with the '--newrepo' argument.
-3. Follow the prompts to initialize a new repository.
-4. Configure the template yaml file for all the remote Linux hosts you wish to manage, with their IP, Port, and username
-5. Copy all the remote configuration files you wish to manage into the repository under the desired template or host directory, then git add and commit to test functionality.
-
 ### Remote Hosts Setup
 
-1. Run the supplied installer shell script for your architecture
-2. Answer the questions as it applies to your environment
-3. If on Debian, copy supplied PAM Apparmor template to remote host
-4. Add the public key for the user/Deployer to the controller's configuration file for that particular host
+**If using the Deployer SSH server:**
+1. Copy the install archive to the installation host
+2. Extract the archive with tar
+3. Run the installation shell script, answer the prompts
+4. Done! Proceed to controller installation
+
+**If not using the Deployer SSH server:**
+1. Create a user that can log into SSH and use Sudo
+2. Modify `/etc/sudoers` to allow your new user to run Sudo commands with a password
+  - Optionally, restrict the commands your new user can run to the following:
+    - ls, rm, cp, ln, rmdir, mkdir, chown, chmod, sha256sum, and any reload commands you need (systemctl, sysctl, ect.)
+3. Done! Proceed to controller installation
+
+### Controller (local) setup
+
+1. Create an ED25519 SSH key (Yes, that specific algo, otherwise you'll have to change the source code - read the note at the bottom)
+2. Copy the public key of your new SSH key to the desired hosts
+3. Start the installer script and follow the prompts
+4. Configure the template yaml file for all the remote Linux hosts you wish to manage, with their IP, Port, and username (and indicate true if you don't want a specific host to use the templates directory)
+5. Copy all the remote configuration files you wish to manage into the repository under the desired template or host directory
+6. Then, git add and commit to test functionality.
 
 ## NOTES
 
@@ -124,7 +151,7 @@ If this does not fit your environment, feel free to adjust the source code and b
 
 ### Reason for a separate SSH server (the Deployer)
 
-You might be asking yourself, "Why is there a custom SSH server for this program? I already have an OpenSSH server".
+You might be asking yourself, "Why is there a custom SSH server for this program? I already have an SSH server".
 That is a good question, and if you don't care to read why, the controller fully supports a regular SSH server and you can ignore the Deployer program altogether.
 
 But as for why, I wanted extra security measures around this program that can read and write to almost everything on a given system. 
@@ -136,7 +163,7 @@ The Deployer program only supports:
   - one authentication method (username+key)
   - one channel at a time
   - one request at a time
-  - two request types, exec and sftp
+  - three request types, exec, update, and sftp
 
 But don't worry (too much), I didn't make an SSH server from scratch.
 I am using the library x/crypto/ssh, and while I am creating my own implementation, it is so featureless that the risk of an high impact RCE is unlikely (in my own code, not the source library).
@@ -150,3 +177,29 @@ For example, the apparmor profile:
   - confines every command run by sudo to a dedicated profile, and restricts the allowed scope of deployment.
   - confines every reload command to a dedicated profile, and restricts the allowed scope of reloads.
 
+You might also question how you would update all these Deployer executables since it doesn't use your systemd package manager. 
+Well, good news! The controller can push updated Deployer executables for you. 
+When a new Deployer executable is released, simply download and use the controller and whichever remote hosts (or all of them) to update.
+The controller will transfer the new file over, and the old Deployer will launch the dedicated updater program. 
+This updater program will verify the embedded digital signature inside the new Deployer executable. 
+Then (based on it's parent process) will kill the Deployer process, move the new executable in place, and the new Deployer will start automatically (Because of the systemd auto-restart feature).
+
+### How the updater works
+
+Design requirements for the Deployer updater system:
+- Ensure that the Deployer process cannot write to its own executable file or configuration file
+- Ensure that the Deployer process cannot alter received updated executables
+- Ensure that the updater program itself is robust and rarely needs updating itself
+
+With those requirements, the Updater operates in the following manner:
+1. User initiates an updater from the controller by passing the file path on the controller machine and specifying which remote hosts to update.
+2. Controller SFTP transfers the new Deployer binary to all the remote hosts (using the `/tmp` buffer file).
+3. Controller issues SSH request type `update` to each remote host along with the Sudo password via standard in.
+  - Note: `update` is a custom request type not present in normal SSH servers and will fail at this stage if you accidentally try to update a host without Deployer installed
+4. The Deployer process on the remote host recognizes the custom request type and uses the updater executable file path in its own configuration file.
+5. The Deployer process launches the updater process as a child process running as its own user and passes the Sudo password via standard in.
+6. The Updater process will retrieve the embedded digital signature in the new updated Deployer executable and use the embedded public key to verify the new file.
+7. The Updater process will assume its parent PID is the Deployer process and kill that PID.
+8. The Updater process will copy the Deployer buffer file from `/tmp` to the executable location of the old Deployer process keeping the destination permissions.
+9. The Updater process will remote the buffer file from `/tmp` and then exit.
+10. Systemd will auto-restart the Deployer process (now updated) after 60 seconds.

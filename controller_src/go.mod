@@ -1,6 +1,6 @@
-module controller
+module controller/m/v2
 
-go 1.19
+go 1.23.2
 
 require (
 	github.com/coreos/go-systemd/v22 v22.5.0
