@@ -58,7 +58,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - Easy recovery from partial deployment failures
 - One-time manual deployment to specific hosts
 - Deploy all relevant files (even unchanged) to a newly created remote host 
-- Fail-safe file deployment - automatic restore if any remote failure is encountered
+- Fail-safe file deployment - automatic restore if any remote failure is encountered (with the failtracker option)
 - Concurrent SSH Connections to handle a large number of remote hosts (and option to limit concurrency)
 - Support for regular SSH servers (if you don't want to use the Deployer program)
 - Key-based SSH authentication (by file or ssh-agent)

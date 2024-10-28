@@ -49,6 +49,7 @@ type Config struct {
 	SSHClient struct {
 		SSHIdentityFile    string `yaml:"SSHIdentityFile"`
 		UseSSHAgent        bool   `yaml:"UseSSHAgent"`
+		KnownHostsFile     string `yaml:"KnownHostsFile"`
 		MaximumConcurrency int    `yaml:"MaximumConnectionsAtOnce"`
 		SudoPassword       string `yaml:"SudoPassword"`
 	} `yaml:"SSHClient"`
@@ -112,68 +113,86 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 			fmt.Printf("Failed to create journald entry: %v\n", err)
 		}
 	}
+
+	// Print the error
+	fmt.Printf("\n\n%s: %v\n", errorDescription, errorMessage)
+
 	// Only roll back commit if the program was started by a hook and if the commit rollback is requested
+	// Reset commit because the current commit should reflect what is deployed in the network
+	// Conceptually, the rough equivalent of this command: git reset --soft HEAD~1
 	if CalledByGitHook && CleanupNeeded {
-		// Reset commit because the current commit should reflect what is deployed in the network
-		fmt.Printf("Warning: Encountered processing error, rolling commit back 1 revision.\n")
-		fmt.Printf("Working directory is **NOT** affected.\n")
-		// Conceptually, equivalent of this command: git reset --soft HEAD~1
+		// Warn user
+		fmt.Printf("WARNING: Removing current repository commit due to processing error.\n")
+		fmt.Printf("         Working directory is **NOT** affected.\n")
+
+		// Open the repo
 		repo, err := git.PlainOpen(RepositoryPath)
 		if err != nil {
 			fmt.Printf("Error rolling back commit. Failed to open repository: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Get the reference for HEAD
-		headRef, err := repo.Head()
+		// Get the current branch reference
+		currentBranchReference, err := repo.Reference(plumbing.ReferenceName("HEAD"), true)
 		if err != nil {
-			fmt.Printf("Error rolling back commit. Failed to get HEAD: %v\n", err)
+			fmt.Printf("Error rolling back commit. Failed to get branch name from HEAD commit: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Get the HEAD commit
-		headCommit, err := repo.CommitObject(headRef.Hash())
+		// Get the branch HEAD commit
+		currentBranchHeadCommit, err := repo.CommitObject(currentBranchReference.Hash())
 		if err != nil {
 			fmt.Printf("Error rolling back commit. Failed to get HEAD commit: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Find the parent commit of HEAD
-		parentHashes := headCommit.ParentHashes
-		if len(parentHashes) == 0 {
-			fmt.Printf("Error rolling back commit. HEAD does not have a parent commit\n")
+		// Ensure a previous commit exists before retrieve the hash
+		if len(currentBranchHeadCommit.ParentHashes) == 0 {
+			fmt.Printf("Error rolling back commit. HEAD does not have a previous commit\n")
 			os.Exit(1)
 		}
-		parentHash := headCommit.ParentHashes[0]
 
-		err = repo.Storer.SetReference(plumbing.NewHashReference(plumbing.HEAD, parentHash))
+		// Get the previous commit hash
+		previousCommitHash := currentBranchHeadCommit.ParentHashes[0]
+
+		// Get the branch short name
+		currentBranchNameString := currentBranchReference.Name()
+
+		// Create new reference with the current branch and previous commit hash
+		newBranchReference := plumbing.NewHashReference(plumbing.ReferenceName(currentBranchNameString), previousCommitHash)
+
+		// Reset HEAD of current branch to previous commit
+		err = repo.Storer.SetReference(newBranchReference)
 		if err != nil {
-			fmt.Printf("Error rolling back commit. Failed to update HEAD reference: %v\n", err)
+			fmt.Printf("Failed to roll back current commit to previous commit: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Printf("Please fix the below error then add and commit to restart deployment process.\n")
+
+		// Tell user how to continue
+		fmt.Printf("Please fix the above error then `git add .` and `git commit` to restart deployment process.\n")
 	}
-	fmt.Printf("\n%s: %v\n", errorDescription, errorMessage)
+
 	fmt.Printf("================================================\n")
 	os.Exit(1)
 }
 
 // Create log entry in journald
-func CreateJournaldLog(endpointName string, filePath string, errorMessage string) error {
+func CreateJournaldLog(endpointName string, filePath string, errorMessage string) (err error) {
 	// Send entry to journald
-	err := journal.Send(errorMessage, journal.PriErr, map[string]string{
+	err = journal.Send(errorMessage, journal.PriErr, map[string]string{
 		"endpointName": endpointName,
 		"filePath":     filePath,
 	})
 	if err != nil {
-		return err
+		return
 	}
 
-	return nil
+	return
 }
 
 // Called from within go routines
 func hostDeployFailCleanup(endpointName string, filePath string, errorMessage error) {
+	// Set file path to N/A if a host failed before any files were deployed
 	if filePath == "" {
 		filePath = "N/A"
 	}
@@ -205,7 +224,7 @@ func hostDeployFailCleanup(endpointName string, filePath string, errorMessage er
 		return
 	}
 
-	// Write (append) fail info for this go routine to global failures
+	// Write (append) fail info for this go routine to global failures - dont conflict with other host go routines
 	FailTrackerMutex.Lock()
 	FailTracker += string(FailedInfo) + "\n"
 	FailTrackerMutex.Unlock()
@@ -245,7 +264,7 @@ Documentation: <https://github.com/EvSecDev/SCMPusher>
 `
 
 func main() {
-	progVersion := "v1.1.0"
+	progVersion := "v1.2.0"
 
 	// Program Argument Variables
 	var configFilePath string
@@ -259,7 +278,7 @@ func main() {
 	var versionFlagExists bool
 	var versionNumberFlagExists bool
 
-	// Read Program Arguments
+	// Read Program Arguments - allowing both short and long args
 	flag.StringVar(&configFilePath, "c", "scmpc.yaml", "")
 	flag.StringVar(&configFilePath, "config", "scmpc.yaml", "")
 	flag.BoolVar(&CalledByGitHook, "a", false, "")
@@ -297,26 +316,27 @@ func main() {
 		os.Exit(0)
 	}
 
-	// Grab config file
+	// Read config file from argument/default option
 	yamlConfigFile, err := os.ReadFile(configFilePath)
 	logError("Error reading config file", err, false)
 
-	// Parse all configuration options
+	// Parse yaml fields into struct
 	var config Config
 	err = yaml.Unmarshal(yamlConfigFile, &config)
 	logError("Error unmarshaling config file: %v", err, false)
 
-	// Global for awareness (for log func)
+	// Global for awareness (for error handling functions)
 	if config.Controller.LogtoJournald {
 		LogToJournald = true
 	}
 
-	// Automatic Deployment via git post-commit hook
+	// Automatic Deployment via git post-commit hook or by user choice
 	if CalledByGitHook {
-		// Run deployment
+		// Show progress to user
 		fmt.Printf("==== Secure Configuration Management Pusher ====\n")
 		fmt.Printf("Starting automatic deployment\n")
 
+		// Run deployment
 		Deployment(config, false, "", false, hostOverride, useAllRepoFilesFlag, configFilePath)
 		fmt.Printf("================================================\n")
 		os.Exit(0)
@@ -337,9 +357,12 @@ func main() {
 	// Get version of remote host deployer binary if requested
 	if checkDeployerVersions {
 		fmt.Printf("==== Secure Configuration Management Deployer Version Check ====\n")
-		fmt.Printf("Deployer executable versions:\n")
 
-		simpleLoopHosts(config, "", hostOverride, true)
+		// Run generic loop over config deployerendpoints or user choice
+		deployerVersions := simpleLoopHosts(config, "", hostOverride, true)
+
+		// Print the versions retrieved
+		fmt.Printf("Deployer executable versions:\n%s", deployerVersions)
 
 		fmt.Printf("================================================================\n")
 		os.Exit(0)
@@ -350,9 +373,11 @@ func main() {
 		fmt.Printf("==== Secure Configuration Management Deployer Updater  ====\n")
 		fmt.Printf("Pushing update for deployer using new executable at %s\n", deployerUpdateFile)
 
+		// Run generic loop over config deployerendpoints or user choice
 		simpleLoopHosts(config, deployerUpdateFile, hostOverride, false)
 
 		fmt.Printf("               COMPLETE: Updates Pushed\n")
+		fmt.Printf(" Please wait for deployer services to auto-restart (1 min)\n")
 		fmt.Printf("===========================================================\n")
 		os.Exit(0)
 	}
@@ -366,13 +391,13 @@ func main() {
 // ###################################
 
 func Deployment(config Config, manualDeploy bool, commitID string, useFailTracker bool, hostOverride string, useAllRepoFiles bool, configFilePath string) {
-	// For git rollback when parsing error
+	// Set global var for git rollback when parsing error and requested rollback
 	RepositoryPath = config.Controller.RepositoryPath
 
 	// Recover from panic
 	defer func() {
-		if r := recover(); r != nil {
-			logError("Controller panic while processing deployment", fmt.Errorf("%v", r), true)
+		if fatalError := recover(); fatalError != nil {
+			logError("Controller panic while processing deployment", fmt.Errorf("%v", fatalError), true)
 		}
 	}()
 
@@ -383,13 +408,13 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 	pwd, err := os.Getwd()
 	logError("failed to obtain current working directory", err, true)
 
-	// If current dir is not repo, change to it
+	// If current directory is not repo, change to it
 	if filepath.Clean(pwd) != filepath.Clean(RepositoryPath) {
 		err := os.Chdir(RepositoryPath)
 		logError("failed to change directory to repository path", err, true)
 	}
 
-	// Get list of system network interfaces
+	// Get list of local systems network interfaces
 	systemNetInterfaces, err := net.Interfaces()
 	logError("failed to obtain system network interfaces", err, false)
 
@@ -407,7 +432,7 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 		logError("No active network interfaces found", fmt.Errorf("refusing to attempt configuration deployment"), false)
 	}
 
-	// Get SSH Private Key
+	// Get SSH Private Key from the supplied identity file
 	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
 	logError("Error retrieving SSH private key", err, true)
 
@@ -415,24 +440,25 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 	SHA256RegEx := regexp.MustCompile(`^[a-fA-F0-9]{64}`)
 	SHA1RegEx := regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 
-	// Get the OS path separator for parsing local config files
+	// Get the OS path separator for parsing local files
 	OSPathSeparator := string(os.PathSeparator)
 
-	// If fail tracker choice, read in the file for later usage
+	// If fail tracker use is requested, read in the fail tracker file for later usage
 	var FailTrackerPath string
 	var LastFailTracker string
 	if useFailTracker {
+		// Assume path to fail tracker from current yaml config and hard coded file name
 		FailTrackerPath = config.Controller.RepositoryPath + OSPathSeparator + ".failtracker.meta"
 
-		// Read in contents of fail tracker
+		// Read in contents of fail tracker file
 		LastFailTrackerBytes, err := os.ReadFile(FailTrackerPath)
 		LastFailTracker = string(LastFailTrackerBytes)
 		logError("Failed to read last fail tracker file", err, false)
 	}
 
 	// Show progress to user
-	fmt.Printf("Checks Complete.\n")
-	fmt.Printf("Parsing committed configuration files... ")
+	fmt.Printf("Complete.\n")
+	fmt.Printf("Parsing committed files... ")
 
 	// Open the repository
 	repo, err := git.PlainOpen(config.Controller.RepositoryPath)
@@ -446,28 +472,33 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 	// Figure out what commit ID to use for this deployment
 	var commitHash plumbing.Hash
 	if commitID != "" { // User supplied commit
-		// Verify commit ID string content
-		if !SHA1RegEx.MatchString(commitID) && !useFailTracker {
+		// Verify commit ID string content - only truly required when user specifies it - but verify anyways
+		if !SHA1RegEx.MatchString(commitID) {
 			logError("Error with supplied commit ID", fmt.Errorf("hash is not 40 characters and/or is not hexadecimal"), true)
 		}
 
 		// Set hash
 		commitHash = plumbing.NewHash(commitID)
+	} else if commitID != "" && useFailTracker { // User attempting to supply commit ID with failtrack - not allowed (user could potentially supply a commit id that doesnt have the correct files)
+		// Return to main with error to user
+		fmt.Printf("Refusing to use user supplied commit ID and fail tracker at the same time (commit ID is already in the fail tracker, do not specify it manually)\n")
+		return
 	} else if commitID == "" && useFailTracker { // Failtracker supplied commit
 		// Regex to match commitid line from fail tracker
 		FailCommitRegEx, err := regexp.Compile(`commitid:([0-9a-fA-F]+)\n`)
 		logError("Failed to compile FailTracker CommitID regex patterns", err, true)
 
-		// Use regex to extract commit hash from line in fail tracker
+		// Use regex to extract commit hash from line in fail tracker (should be the first line)
 		commitRegexMatches := FailCommitRegEx.FindStringSubmatch(LastFailTracker)
 
 		// Save the retrieved ID to the string and the raw hash
 		commitID = commitRegexMatches[1]
 		commitHash = plumbing.NewHash(commitRegexMatches[1])
 
-		// Remove commit line from the failtracker contents
+		// Remove commit line from the failtracker contents using the commit regex
 		LastFailTracker = FailCommitRegEx.ReplaceAllString(LastFailTracker, "")
-	} else if commitID == "" && !useFailTracker && manualDeploy { // User attempted manual deploy without commit
+	} else if commitID == "" && !useFailTracker && manualDeploy { // User attempted manual deploy without commit id
+		// Return to main with error to user
 		fmt.Printf("Please specify a commit ID if you want to initiate a manual deployment\n")
 		return
 	} else { // Automatic deploy - using head commit
@@ -480,7 +511,7 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 	commit, err := repo.CommitObject(commitHash)
 	logError("Failed to get commit object", err, true)
 
-	// Array of hosts in config
+	// Create an array of host names from the yaml deployendpoints section
 	var DeployerHosts []string
 	for host := range config.DeployerEndpoints {
 		DeployerHosts = append(DeployerHosts, host)
@@ -502,10 +533,14 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 		AllHostsAndFilesMap[commitHost] = append(AllHostsAndFilesMap[commitHost], commitPath)
 	}
 
+	// Show progress to user
+	fmt.Printf("Complete.\n")
+	fmt.Printf("Filtering deployment hosts... ")
+
 	// Override deployment for hosts for fail tracker use
 	var RemoteHostOverride []string
 	if useFailTracker {
-		// Create new HostsAndFiles
+		// Create new map HostsAndFiles
 		CommitFileOverride := make(map[string]string)
 		FailLines := strings.Split(LastFailTracker, "\n")
 		for _, fail := range FailLines {
@@ -527,7 +562,7 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 				commitSplit := strings.SplitN(commitfile, OSPathSeparator, 2)
 				commitPath := OSPathSeparator + commitSplit[1]
 
-				// Only add files that error'd out last time (add them all if an entire host failed)
+				// Only add files that error'd out last time (add them all if an entire host failed - as evident by N/A)
 				if errorInfo.FilePath == commitPath || errorInfo.FilePath == "N/A" {
 					// Add it to array in the format of repo file paths
 					CommitFileOverride[commitfile] = HostsAndFiles[commitfile]
@@ -542,8 +577,9 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 		HostsAndFiles = CommitFileOverride
 	}
 
-	// If user specified a host, overwrite choice to override
+	// If user requested deployment of all current files, check host choices and override hosts/files
 	if useAllRepoFiles {
+		// Do not allow all files to be deployed to all hosts
 		if hostOverride == "" {
 			logError("Must specify hosts when deploying all repository files", fmt.Errorf("illegal: will not deploy every file to all remotes"), false)
 		}
@@ -558,24 +594,22 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 		HostsAndFiles = AllRepoFiles
 	}
 
-	// The Maps - All the information and data needed, parsed into maps per host
-	var targetEndpoints []string                                               // Array of hosts to connect to
-	HostsAndFilePaths := make(map[string]map[string]string)                    // Map of hosts and their arrays of target file paths and associated tagged actions
-	HostsAndEndpointInfo := make(map[string][]string)                          // Map of hosts and their associated endpoint information ([0]=Socket, [1]=User)
-	HostsAndFileData := make(map[string]map[string]string)                     // Map of hosts and their arrays of file paths and associated contents
-	HostsAndFileMetadata := make(map[string]map[string]map[string]interface{}) // Map of hosts and their arrays of file paths and associated metadata headers
-	HostsAndFileDataHashes := make(map[string]map[string]string)               // Map of hosts and their arrays of file paths and associated content hashes
-
-	// Loop hosts in config and prepare all relevant information for deployment per host
-	var preDeployedConfigs int
+	// Counters for metrics
 	var preDeploymentHosts int
-	for endpointName, endpointInfo := range config.DeployerEndpoints {
-		// Process host names
+	var preDeployedConfigs int
 
+	// The Maps - by host (and extra for file processing)
+	HostsAndFilePaths := make(map[string][]string)    // Map of hosts and their arrays of file paths
+	HostsAndEndpointInfo := make(map[string][]string) // Map of hosts and their associated endpoint information ([0]=Socket, [1]=User)
+	var targetEndpoints []string                      // Array of hosts to connect to
+	var AllLocalFiles []string                        // Array of all files that will get deployed to all hosts
+
+	// Loop hosts in config and prepare relevant host information for deployment
+	for endpointName, endpointInfo := range config.DeployerEndpoints {
 		// Used for fail tracker manual deployments - if host overrides exists
 		if len(RemoteHostOverride) > 0 {
-			var HostInOverride bool
 			// Identify if host is in the override or not
+			var HostInOverride bool
 			for _, overridehost := range RemoteHostOverride {
 				if overridehost == endpointName {
 					HostInOverride = true
@@ -590,11 +624,11 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 			}
 		}
 
-		// Ensure processing is only done for hosts which might have a config deployed
+		// Ensure processing is only done for hosts which might have a config deployed - as identified by parse git commit function
 		var noHostMatchFound bool
 		for _, targetHost := range FilteredCommitHostNames {
-			noHostMatchFound = false
 			if endpointName == targetHost || targetHost == config.TemplateDirectory {
+				noHostMatchFound = false
 				break
 			}
 			noHostMatchFound = true
@@ -603,143 +637,134 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 			continue
 		}
 
-		// Process network info
-
 		// Extract var for endpoint information
 		endpointUser := endpointInfo[2].EndpointUser
 
-		// Network Pre-Checks and Setup
+		// Network Pre-Checks and Parsing
 		endpoint, err := ParseEndpointAddress(endpointInfo[0].Endpoint, endpointInfo[1].EndpointPort)
 		logError(fmt.Sprintf("Error parsing host '%s' network address", endpointName), err, true)
 
-		// If the ignore index is present, read in bool
+		// Add endpoint info to The Maps
+		HostsAndEndpointInfo[endpointName] = append(HostsAndEndpointInfo[endpointName], endpoint, endpointUser)
+
+		// If the ignore index of the host is present, read in bool - for use in deduping
 		var ignoreTemplates bool
 		if len(endpointInfo) == 4 {
 			ignoreTemplates = endpointInfo[3].IgnoreTemplates
 		}
 
-		// Add endpoint info to The Maps
-		HostsAndEndpointInfo[endpointName] = append(HostsAndEndpointInfo[endpointName], endpoint, endpointUser)
-
-		// Process configs
-
-		// Find and remove duplicate conf files between Template and specific host directory, then exclude those dups in the template directory
+		// Find and remove duplicate conf files between Template and specific host directory, then exclude duplicates in the template directory from that host
 		// IMPORTANT to ensure config files for certain hosts are not blown away by the equivalent template config, even if the specific host conf wasn't edited in this commit
-		FilteredHostsAndFiles := deDupsHostsandTemplateCommits(HostsAndFiles, config.TemplateDirectory, AllHostsAndFilesMap, endpointName, OSPathSeparator)
+		FilteredCommitFilePaths := deDupsHostsandTemplateCommits(HostsAndFiles, config.TemplateDirectory, AllHostsAndFilesMap, endpointName, OSPathSeparator, ignoreTemplates)
 
 		// Re-check if there are any configs to deploy after dedup, skip this host if so
-		if len(FilteredHostsAndFiles) == 0 {
+		if len(FilteredCommitFilePaths) == 0 {
 			continue
 		}
 
-		// Add filtered endpoints to The Maps (but its just an array)
+		// Add the filtered paths to host specific map and the combined all files map
+		for _, commitPath := range FilteredCommitFilePaths {
+			// Paths as is for local os for loading the files
+			AllLocalFiles = append(AllLocalFiles, commitPath)
+
+			// Paths in correct format for deployment to remote linux host
+			hostCommitPath := strings.ReplaceAll(commitPath, OSPathSeparator, "/")
+			HostsAndFilePaths[endpointName] = append(HostsAndFilePaths[endpointName], hostCommitPath)
+		}
+
+		// Add filtered endpoints to The Maps (array) - this is the main reference for which hosts will have a routine spawned
 		targetEndpoints = append(targetEndpoints, endpointName)
-
-		// Init inner map for paths
-		HostsAndFilePaths[endpointName] = make(map[string]string)
-
-		// Load file contents into memory
-		ConfigFileContents := make(map[string]string)
-		for _, filePath := range FilteredHostsAndFiles {
-			path := strings.ReplaceAll(filePath, OSPathSeparator, "/")
-			commitSplit := strings.SplitN(path, "/", 2)
-			commitPath := commitSplit[1]
-			AbsolutePath := "/" + commitPath
-
-			// Skip loading template dir files if configured
-			if ignoreTemplates == true {
-				continue
-			}
-
-			// Skip loading if file will be deleted
-			if HostsAndFiles[filePath] == "delete" {
-				// But, add it to the deploy target files so it can be deleted during ssh
-				HostsAndFilePaths[endpointName][AbsolutePath] = HostsAndFiles[filePath]
-				continue
-			}
-
-			// Skip loading if file is sym link
-			if strings.Contains(HostsAndFiles[filePath], "symlinkcreate") {
-				// But, add it to the deploy target files so it can be ln'd during ssh
-				HostsAndFilePaths[endpointName][AbsolutePath] = HostsAndFiles[filePath]
-				continue
-			}
-
-			// Get file from git tree
-			file, err := gitCommitTree.File(filePath)
-			if err != nil {
-				logError("Error loading file contents when retrieving file from git tree", err, true)
-			}
-
-			// Open reader for file contents
-			reader, err := file.Reader()
-			logError("Error loading file contents when retrieving file reader", err, true)
-			defer reader.Close()
-
-			// Read file contents (as bytes)
-			content, err := io.ReadAll(reader)
-			logError("Error loading file contents when reading file content", err, true)
-
-			// Store the content in the map
-			ConfigFileContents[filePath] = string(content)
-		}
-
-		// Initialize inner maps for The Maps
-		HostsAndFileData[endpointName] = make(map[string]string)
-		HostsAndFileMetadata[endpointName] = make(map[string]map[string]interface{})
-		HostsAndFileDataHashes[endpointName] = make(map[string]string)
-
-		// Extract Absolute Paths, Metadata, Content, and Hash contents then store in The Maps
-		for filePath, content := range ConfigFileContents {
-			// Grab metadata out of contents
-			metadata, configContent, err := extractMetadata(content)
-			logError("Error extracting metadata header from file contents", err, true)
-
-			// Make key in maps reference-able in other maps - using expected target paths (no longer using local os paths - hardcoded to /
-			path := strings.ReplaceAll(filePath, OSPathSeparator, "/")
-			commitSplit := strings.SplitN(path, "/", 2)
-			commitPath := commitSplit[1]
-			AbsolutePath := "/" + commitPath
-
-			// Parse JSON into a generic map
-			var jsonMetadata MetaHeader
-			err = json.Unmarshal([]byte(metadata), &jsonMetadata)
-			logError(fmt.Sprintf("Error parsing JSON metadata header for %s", path), err, true)
-
-			// Initialize inner map
-			HostsAndFileMetadata[endpointName][AbsolutePath] = make(map[string]interface{})
-			// Save metadata into its own map inside The Maps
-			HostsAndFileMetadata[endpointName][AbsolutePath]["FileOwnerGroup"] = jsonMetadata.TargetFileOwnerGroup
-			HostsAndFileMetadata[endpointName][AbsolutePath]["FilePermissions"] = jsonMetadata.TargetFilePermissions
-			HostsAndFileMetadata[endpointName][AbsolutePath]["ReloadRequired"] = jsonMetadata.ReloadRequired
-			HostsAndFileMetadata[endpointName][AbsolutePath]["Reload"] = jsonMetadata.ReloadCommands
-
-			// SHA256 Hash the contents and store in its own map inside The Maps
-			contentBytes := []byte(configContent)
-			hash := sha256.New()
-			hash.Write(contentBytes)
-			hashedBytes := hash.Sum(nil)
-			HostsAndFileDataHashes[endpointName][AbsolutePath] = hex.EncodeToString(hashedBytes)
-
-			// Overwrite file contents with metadataless content in its own map inside The Maps
-			HostsAndFileData[endpointName][AbsolutePath] = configContent
-
-			// Target file paths with the corresponding tag value
-			HostsAndFilePaths[endpointName][AbsolutePath] = HostsAndFiles[filePath]
-
-			// Increment config metric counter by 1
-			preDeployedConfigs++
-		}
 
 		// Increment count of hosts to be deployed for metrics
 		preDeploymentHosts++
 	}
 
 	// Show progress to user
-	fmt.Printf("Parsing Complete.\n")
+	fmt.Printf("Complete.\n")
+	fmt.Printf("Loading deployment files... ")
+
+	// The Maps for target files - agnostic of host - keys are commit file paths (like host1/etc/resolv.conf)
+	HostsAndFileData := make(map[string]string)                     // Map of target file paths and their associated content
+	HostsAndFileMetadata := make(map[string]map[string]interface{}) // Map of target file paths and their associated extracted metadata
+	HostsAndFileDataHashes := make(map[string]string)               // Map of target file paths and their associated content hashes
+	HostsAndFileActions := make(map[string]string)                  // Map of target file paths and their associated file actions
+
+	// Load file contents, metadata, hashes, and actions into their own maps
+	for _, commitFilePath := range AllLocalFiles {
+		// Ensure paths for deployment have correct separate for linux
+		filePath := strings.ReplaceAll(commitFilePath, OSPathSeparator, "/")
+		// As a reminder
+		// filePath		should be identical to the full path of files in the repo except hard coded to forward slash path separators
+		// commitFilePath	should be identical to the full path of files in the repo (meaning following the build OS file path separators)
+
+		// Skip loading if file will be deleted
+		if HostsAndFiles[commitFilePath] == "delete" {
+			// But, add it to the deploy target files so it can be deleted during ssh
+			HostsAndFileActions[filePath] = HostsAndFiles[commitFilePath]
+			continue
+		}
+
+		// Skip loading if file is sym link
+		if strings.Contains(HostsAndFiles[commitFilePath], "symlinkcreate") {
+			// But, add it to the deploy target files so it can be ln'd during ssh
+			HostsAndFileActions[filePath] = HostsAndFiles[commitFilePath]
+			continue
+		}
+
+		// Get file from git tree
+		file, err := gitCommitTree.File(commitFilePath)
+		if err != nil {
+			logError("Error loading file contents when retrieving file from git tree", err, true)
+		}
+
+		// Open reader for file contents
+		reader, err := file.Reader()
+		logError("Error loading file contents when retrieving file reader", err, true)
+		defer reader.Close()
+
+		// Read file contents (as bytes)
+		content, err := io.ReadAll(reader)
+		logError("Error loading file contents when reading file content", err, true)
+
+		// Grab metadata out of contents
+		metadata, configContent, err := extractMetadata(string(content))
+		logError("Error extracting metadata header from file contents", err, true)
+
+		// SHA256 Hash the metadata-less contents
+		contentBytes := []byte(configContent)
+		hash := sha256.New()
+		hash.Write(contentBytes)
+		hashedBytes := hash.Sum(nil)
+
+		// Parse JSON into a generic map
+		var jsonMetadata MetaHeader
+		err = json.Unmarshal([]byte(metadata), &jsonMetadata)
+		logError(fmt.Sprintf("Error parsing JSON metadata header for %s", commitFilePath), err, true)
+
+		// Initialize inner map for metadata
+		HostsAndFileMetadata[filePath] = make(map[string]interface{})
+
+		// Save metadata into its own map
+		HostsAndFileMetadata[filePath]["FileOwnerGroup"] = jsonMetadata.TargetFileOwnerGroup
+		HostsAndFileMetadata[filePath]["FilePermissions"] = jsonMetadata.TargetFilePermissions
+		HostsAndFileMetadata[filePath]["ReloadRequired"] = jsonMetadata.ReloadRequired
+		HostsAndFileMetadata[filePath]["Reload"] = jsonMetadata.ReloadCommands
+
+		// Save Hashes into its own map
+		HostsAndFileDataHashes[filePath] = hex.EncodeToString(hashedBytes)
+
+		// Save content into its own map
+		HostsAndFileData[filePath] = configContent
+
+		// Increment config metric counter
+		preDeployedConfigs++
+	}
+
+	// Show progress to user - using the metrics
+	fmt.Printf("Complete.\n")
 	fmt.Printf("Beginning deployment of %d configuration(s) to %d host(s)\n", preDeployedConfigs, preDeploymentHosts)
 
-	// Semaphore to limit concurrency of host deployment go routines
+	// Semaphore to limit concurrency of host deployment go routines as specified in main config
 	semaphore := make(chan struct{}, config.SSHClient.MaximumConcurrency)
 
 	// Wait group for SSH host go routines
@@ -748,18 +773,15 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 	// Start go routines for each remote host ssh
 	for _, endpointName := range targetEndpoints {
 		// Retrieve info for this host from The Maps
-		TargetFilePaths := HostsAndFilePaths[endpointName]
+		commitFilePaths := HostsAndFilePaths[endpointName]
 		endpointInfo := HostsAndEndpointInfo[endpointName]
 		endpointSocket := endpointInfo[0]
 		endpointUser := endpointInfo[1]
-		ConfigFileData := HostsAndFileData[endpointName]
-		ConfigMetadata := HostsAndFileMetadata[endpointName]
-		ConfigDataHashes := HostsAndFileDataHashes[endpointName]
 
 		// Start go routine for specific host
-		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker
+		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, TargetFilePaths, endpointSocket, endpointUser, ConfigFileData, ConfigMetadata, ConfigDataHashes, PrivateKey, config.SSHClient.SudoPassword, SHA256RegEx)
+		go deployConfigs(&wg, semaphore, endpointName, commitFilePaths, endpointSocket, endpointUser, HostsAndFileData, HostsAndFileMetadata, HostsAndFileDataHashes, HostsAndFileActions, PrivateKey, config.SSHClient.KnownHostsFile, config.SSHClient.SudoPassword, SHA256RegEx)
 	}
 
 	// Block until all SSH connections are finished
@@ -771,14 +793,14 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 		fmt.Printf("\nPARTIAL COMPLETE: %d configuration(s) deployed to %d host(s)\n", postDeployedConfigs, postDeploymentHosts)
 		fmt.Printf("Failure(s) in deployment:\n")
 		fmt.Printf("%s\n", FailTracker)
-		fmt.Printf("Please fix the errors, then run the following command to redeploy:\n")
+		fmt.Printf("Please fix the errors, then run the following command to redeploy (or create new commit if file corrections are needed):\n")
 		fmt.Printf("%s -c %s --manual-deploy --use-failtracker-only\n", PathToExe, configFilePath)
 
 		// Add FailTracker string to repo working directory as .failtracker.meta
 		FailTrackerPath := config.Controller.RepositoryPath + OSPathSeparator + ".failtracker.meta"
 		FailTrackerFile, err := os.Create(FailTrackerPath)
 		if err != nil {
-			fmt.Printf("Failed to create FailTracker File - manual redeploy using '--use-failtracker-only' will not work. Please use the above errors to create a new commit with just those files: %v\n", err)
+			fmt.Printf("Failed to create FailTracker File - manual redeploy using '--use-failtracker-only' will not work. Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A): %v\n", err)
 			return
 		}
 		defer FailTrackerFile.Close()
@@ -789,7 +811,7 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 		// Write string to file (overwrite old contents)
 		_, err = FailTrackerFile.WriteString(FailTrackerAndCommit)
 		if err != nil {
-			fmt.Printf("Failed to write FailTracker to file - manual redeploy using '--use-failtracker-only' will not work. Please use the above errors to create a new commit with just those files: %v\n", err)
+			fmt.Printf("Failed to write FailTracker to File - manual redeploy using '--use-failtracker-only' will not work. Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A): %v\n", err)
 		}
 		return
 	}
@@ -798,7 +820,7 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 	if postDeploymentHosts == 0 {
 		fmt.Printf("\nINCOMPLETE: No hosts to deploy to\n")
 		if useFailTracker {
-			fmt.Printf("Better find out why there are none, then use this command to try again:\n")
+			fmt.Printf("Better find out why there are none (this is probably a bug), then use this command to try again:\n")
 			fmt.Printf("%s --manual-deploy --commitid %s --use-failtracker-only\n", PathToExe, commitID)
 		}
 		return
@@ -806,8 +828,10 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 
 	// Remove fail tracker file after successful redeployment - removal errors don't matter.
 	if useFailTracker {
-		_ = os.Remove(FailTrackerPath)
+		os.Remove(FailTrackerPath)
 	}
+
+	// Show progress to user
 	fmt.Printf("\nCOMPLETE: %d configuration(s) deployed to %d host(s)\n", postDeployedConfigs, postDeploymentHosts)
 }
 
@@ -815,11 +839,11 @@ func Deployment(config Config, manualDeploy bool, commitID string, useFailTracke
 //      HOST DEPLOYMENT HANDLING
 // ###################################
 
-func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName string, TargetFilePaths map[string]string, endpointSocket string, endpointUser string, ConfigFileData map[string]string, ConfigMetadata map[string]map[string]interface{}, ConfigDataHashes map[string]string, PrivateKey ssh.Signer, SudoPassword string, SHA256RegEx *regexp.Regexp) {
+func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName string, commitFilePaths []string, endpointSocket string, endpointUser string, commitFileData map[string]string, commitFileMetadata map[string]map[string]interface{}, commitFileDataHashes map[string]string, commitFileActions map[string]string, PrivateKey ssh.Signer, knownHostsFilePath string, SudoPassword string, SHA256RegEx *regexp.Regexp) {
 	// Recover from panic
 	defer func() {
-		if r := recover(); r != nil {
-			logError(fmt.Sprintf("Controller panic during deployment to host '%s'", endpointName), fmt.Errorf("%v", r), false)
+		if fatalError := recover(); fatalError != nil {
+			logError(fmt.Sprintf("Controller panic during deployment to host '%s'", endpointName), fmt.Errorf("%v", fatalError), false)
 		}
 	}()
 
@@ -831,7 +855,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 	defer func() { <-semaphore }() // Release the token when the goroutine finishes
 
 	// SSH Client Connect Conf
-	SSHconfig := CreateSSHClientConfig(endpointUser, PrivateKey)
+	SSHconfig := CreateSSHClientConfig(endpointUser, PrivateKey, knownHostsFilePath)
 
 	// Connect to the SSH server
 	// fix: retry connect if reason is no route to host
@@ -844,9 +868,18 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 
 	// Loop through target files and deploy
 	backupConfCreated := false
-	for targetFilePath, targetFileAction := range TargetFilePaths {
+	for _, commitFilePath := range commitFilePaths {
+		// Split repository host dir and config file path for obtaining the absolute target file path
+		commitSplit := strings.SplitN(commitFilePath, "/", 2)
+		commitPath := commitSplit[1]
+		targetFilePath := "/" + commitPath
+		// Reminder:
+		// targetFilePath   should be the file path as expected on the remote system
+		// commitFilePath   should be the local file path within the commit repository - is REQUIRED to reference keys in the global config information maps
+
 		var command string
 		var CommandOutput string
+		targetFileAction := commitFileActions[commitFilePath]
 
 		// If git file was deleted, attempt to delete file any empty folders above - failures here should not stop deployment to this host
 		// Note: technically inefficient; if a file is moved within same directory, this will delete the file and parent dir(maybe)
@@ -876,7 +909,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 					_, err = RunSSHCommand(client, command, SudoPassword)
 					if err != nil {
 						// Error breaks loop
-						fmt.Printf("Warning: Host %s: failed to remove empty parent directory '%s' for file '%s': %v\n", targetPath, targetFilePath, err)
+						fmt.Printf("Warning: Host %s: failed to remove empty parent directory '%s' for file '%s': %v\n", endpointName, targetPath, targetFilePath, err)
 						break
 					}
 
@@ -922,10 +955,10 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		}
 
 		// Parse out Metadata Map into vars
-		TargetFileOwnerGroup := ConfigMetadata[targetFilePath]["FileOwnerGroup"].(string)
-		TargetFilePermissions := ConfigMetadata[targetFilePath]["FilePermissions"].(int)
-		ReloadRequired := ConfigMetadata[targetFilePath]["ReloadRequired"].(bool)
-		ReloadCommands := ConfigMetadata[targetFilePath]["Reload"].([]string)
+		TargetFileOwnerGroup := commitFileMetadata[commitFilePath]["FileOwnerGroup"].(string)
+		TargetFilePermissions := commitFileMetadata[commitFilePath]["FilePermissions"].(int)
+		ReloadRequired := commitFileMetadata[commitFilePath]["ReloadRequired"].(bool)
+		ReloadCommands := commitFileMetadata[commitFilePath]["Reload"].([]string)
 
 		// Find if target file exists on remote
 		OldFileExists, err := CheckRemoteFileExistence(client, targetFilePath, SudoPassword)
@@ -949,7 +982,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 			OldRemoteFileHash = SHA256RegEx.FindString(CommandOutput)
 
 			// Compare hashes and go to next file deployment if remote is same as local
-			if OldRemoteFileHash == ConfigDataHashes[targetFilePath] {
+			if OldRemoteFileHash == commitFileDataHashes[commitFilePath] {
 				fmt.Printf("\rFile '%s' on Host '%s' identical to committed file... skipping deployment for this file\n", targetFilePath, endpointName)
 				continue
 			}
@@ -967,7 +1000,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		}
 
 		// Transfer local file to remote
-		err = TransferFile(client, ConfigFileData[targetFilePath], targetFilePath, SudoPassword)
+		err = TransferFile(client, commitFileData[commitFilePath], targetFilePath, SudoPassword)
 		if err != nil {
 			hostDeployFailCleanup(endpointName, targetFilePath, fmt.Errorf("failed SFTP config file transfer to remote host: %v", err))
 			err := restoreOldConfig(client, targetFilePath, OldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
@@ -1012,7 +1045,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		NewRemoteFileHash := SHA256RegEx.FindString(CommandOutput)
 
 		// Compare hashes and restore old conf if they dont match
-		if NewRemoteFileHash != ConfigDataHashes[targetFilePath] {
+		if NewRemoteFileHash != commitFileDataHashes[commitFilePath] {
 			hostDeployFailCleanup(endpointName, targetFilePath, fmt.Errorf("error: hash of config file post deployment does not match hash of pre deployment"))
 			err := restoreOldConfig(client, targetFilePath, OldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
 			if err != nil {
@@ -1081,54 +1114,57 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 //      HOST DEPLOYMENT HANDLING FUNCTIONS
 // ###########################################
 
-func restoreOldConfig(client *ssh.Client, targetFilePath string, OldRemoteFileHash string, SHA256RegEx *regexp.Regexp, SudoPassword string, backupConfCreated bool) error {
+func restoreOldConfig(client *ssh.Client, targetFilePath string, OldRemoteFileHash string, SHA256RegEx *regexp.Regexp, SudoPassword string, backupConfCreated bool) (err error) {
 	var command string
 	var CommandOutput string
-	var err error
 	oldFilePath := targetFilePath + ".old"
 
 	// Check if there is no backup to restore, return early
 	if !backupConfCreated {
-		return nil
+		return
 	}
 
 	// Move backup conf into place
 	command = "mv " + oldFilePath + " " + targetFilePath
 	_, err = RunSSHCommand(client, command, SudoPassword)
 	if err != nil {
-		return fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
+		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
+		return
 	}
 
 	// Check to make sure restore worked with hash
 	command = "sha256sum " + targetFilePath
 	CommandOutput, err = RunSSHCommand(client, command, SudoPassword)
 	if err != nil {
-		return fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err)
+		err = fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err)
+		return
 	}
 
 	RemoteFileHash := SHA256RegEx.FindString(CommandOutput)
 
 	if OldRemoteFileHash != RemoteFileHash {
-		return fmt.Errorf("restored file hash is different than its original hash")
+		err = fmt.Errorf("restored file hash is different than its original hash")
+		return
 	}
-
-	return nil
+	return
 }
 
-func CheckRemoteFileExistence(client *ssh.Client, remoteFilePath string, SudoPassword string) (bool, error) {
+func CheckRemoteFileExistence(client *ssh.Client, remoteFilePath string, SudoPassword string) (fileExists bool, err error) {
 	command := "ls " + remoteFilePath
-	_, err := RunSSHCommand(client, command, SudoPassword)
+	_, err = RunSSHCommand(client, command, SudoPassword)
 	if err != nil {
+		fileExists = false
 		if strings.Contains(err.Error(), "No such file or directory") {
-			return false, nil
+			err = nil
+			return
 		}
-		return false, err
+		return
 	}
-	return true, nil
+	fileExists = true
+	return
 }
 
-func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath string, SudoPassword string) error {
-	var err error
+func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath string, SudoPassword string) (err error) {
 	var command string
 
 	// Check if remote dir exists, if not create
@@ -1140,10 +1176,12 @@ func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath st
 			command = "mkdir -p " + dir
 			_, err = RunSSHCommand(client, command, SudoPassword)
 			if err != nil {
-				return fmt.Errorf("failed to create directory: %v", err)
+				err = fmt.Errorf("failed to create directory: %v", err)
+				return
 			}
 		} else {
-			return fmt.Errorf("error checking directory: %v", err)
+			err = fmt.Errorf("error checking directory: %v", err)
+			return
 		}
 	}
 
@@ -1153,34 +1191,33 @@ func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath st
 	// SFTP to temp file
 	err = RunSFTP(client, []byte(localFileContent), tmpRemoteFilePath)
 	if err != nil {
-		return err
+		return
 	}
 
 	// Move file from tmp dir to actual deployment path
 	command = "mv " + tmpRemoteFilePath + " " + remoteFilePath
 	_, err = RunSSHCommand(client, command, SudoPassword)
 	if err != nil {
-		return fmt.Errorf("failed to move new file into place: %v", err)
+		err = fmt.Errorf("failed to move new file into place: %v", err)
+		return
 	}
-
-	return nil
+	return
 }
 
 // ###########################################
 //      SSH/Connection HANDLING
 // ###########################################
 
-func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (ssh.Signer, error) {
+func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.Signer, err error) {
 	// Load SSH private key
 	// Parse out which is which here and if pub key use as id for agent keychain
 	var SSHKeyType string
-	var PrivateKey ssh.Signer
-	var PublicKey ssh.PublicKey
 
 	// Load identity from file
 	SSHIdentity, err := os.ReadFile(SSHIdentityFile)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read ssh identity file: %v", err)
+		err = fmt.Errorf("failed to read ssh identity file: %v", err)
+		return
 	}
 
 	// Determine key type
@@ -1196,125 +1233,160 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (ssh.Signer, err
 
 	// Load key from keyring if requested
 	if UseSSHAgent {
+		// Ensure user supplied identity is a public key if requesting to use agent
 		if SSHKeyType != "public" {
-			return nil, fmt.Errorf("identity file is not a public key, cannot use agent without public key")
+			err = fmt.Errorf("identity file is not a public key, cannot use agent without public key")
+			return
 		}
 
 		// Find auth socket for agent
 		agentSock := os.Getenv("SSH_AUTH_SOCK")
 		if agentSock == "" {
-			return nil, fmt.Errorf("cannot use agent, '%s' environment variable is not set", agentSock)
+			err = fmt.Errorf("cannot use agent, '%s' environment variable is not set", agentSock)
+			return
 		}
 
 		// Connect to agent socket
-		AgentConn, err := net.Dial("unix", agentSock)
+		var AgentConn net.Conn
+		AgentConn, err = net.Dial("unix", agentSock)
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect to agent: %v", err)
+			err = fmt.Errorf("failed to connect to agent: %v", err)
+			return
 		}
 
-		// New Client to agent socket
+		// Establish new client with agent
 		sshAgent := agent.NewClient(AgentConn)
 
 		// Get list of keys in agent
-		sshAgentKeys, err := sshAgent.List()
+		var sshAgentKeys []*agent.Key
+		sshAgentKeys, err = sshAgent.List()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get list of keys from agent: %v", err)
+			err = fmt.Errorf("failed to get list of keys from agent: %v", err)
+			return
 		}
 
 		// Ensure keys are already loaded
 		if len(sshAgentKeys) == 0 {
-			return nil, fmt.Errorf("no keys found in agent")
+			err = fmt.Errorf("no keys found in agent")
+			return
 		}
 
+		// Parse public key from identity
+		var PublicKey ssh.PublicKey
 		PublicKey, _, _, _, err = ssh.ParseAuthorizedKey(SSHIdentity)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse public key from identity file: %v", err)
+			err = fmt.Errorf("failed to parse public key from identity file: %v", err)
+			return
 		}
 
-		// Get signers
-		signers, err := sshAgent.Signers()
+		// Get signers from agent
+		var signers []ssh.Signer
+		signers, err = sshAgent.Signers()
 		if err != nil {
-			return nil, fmt.Errorf("failed to get signers from agent: %v", err)
+			err = fmt.Errorf("failed to get signers from agent: %v", err)
+			return
 		}
 
-		// Find matching private key to local pub key
+		// Find matching private key to local public key
 		for _, sshAgentKey := range signers {
 			// Obtain public key from private key in keyring
 			sshAgentPubKey := sshAgentKey.PublicKey()
 
-			// Check against user supplied public key
+			// Break if public key of priv key in agent matches public key from identity
 			if bytes.Equal(sshAgentPubKey.Marshal(), PublicKey.Marshal()) {
 				PrivateKey = sshAgentKey
 				break
 			}
 		}
 	} else {
+		// Ensure identity is private key before using identity file as the private key
 		if SSHKeyType != "private" {
-			return nil, fmt.Errorf("identity is not private key, you must use agent mode with a public key")
+			err = fmt.Errorf("identity is not private key, you must use agent mode with a public key")
+			return
 		}
 
+		// Parse the private key
 		PrivateKey, err = ssh.ParsePrivateKey(SSHIdentity)
 		if err != nil {
-			return nil, fmt.Errorf("failed to parse private key from identity file: %v", err)
+			err = fmt.Errorf("failed to parse private key from identity file: %v", err)
+			return
 		}
 	}
 
-	return PrivateKey, nil
+	return
 }
 
-func ParseEndpointAddress(endpointIP string, endpointPort int) (string, error) {
+func ParseEndpointAddress(endpointIP string, endpointPort int) (endpointSocket string, err error) {
+	// Use regex for v4 match
 	IPv4RegEx := regexp.MustCompile(`^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$`)
 
 	// Verify endpoint Port
 	if endpointPort <= 0 || endpointPort > 65535 {
-		return "", fmt.Errorf("endpoint port number '%d' out of range", endpointPort)
+		err = fmt.Errorf("endpoint port number '%d' out of range", endpointPort)
+		return
 	}
 
 	// Verify IP address
 	IPCheck := net.ParseIP(endpointIP)
 	if IPCheck == nil && !IPv4RegEx.MatchString(endpointIP) {
-		return "", fmt.Errorf("endpoint ip '%s' is not valid", endpointIP)
+		err = fmt.Errorf("endpoint ip '%s' is not valid", endpointIP)
+		return
 	}
 
 	// Get endpoint socket by ipv6 or ipv4
-	var endpoint string
 	if strings.Contains(endpointIP, ":") {
-		endpoint = "[" + endpointIP + "]" + ":" + strconv.Itoa(endpointPort)
+		endpointSocket = "[" + endpointIP + "]" + ":" + strconv.Itoa(endpointPort)
 	} else {
-		endpoint = endpointIP + ":" + strconv.Itoa(endpointPort)
+		endpointSocket = endpointIP + ":" + strconv.Itoa(endpointPort)
 	}
 
-	return endpoint, nil
+	return
 }
 
-func SSHEnvSetup() ssh.HostKeyCallback {
-	// Get known_hosts from environment
-	knownHostsPath := filepath.Join(os.Getenv("HOME"), ".ssh", "known_hosts")
-	if knownHostsPath == "" {
-		logError("Error known_hosts", fmt.Errorf("no path found from environment variable"), true)
+func SSHEnvSetup(knownHostsFilePath string) (hostKeyCallback ssh.HostKeyCallback, err error) {
+	// Check if known hosts file exists
+	_, err = os.Stat(knownHostsFilePath)
+	if os.IsNotExist(err) {
+		var knownFile *os.File
+		// Known hosts file does not exist, create it
+		knownFile, err = os.Create(knownHostsFilePath)
+		if err != nil {
+			err = fmt.Errorf("failed to create known_hosts file at %s", knownHostsFilePath)
+			return
+		}
+		defer knownFile.Close() // Ensure the file is closed after we're done
+
+	} else if err != nil {
+		err = fmt.Errorf("failed to create known_hosts file at %s", knownHostsFilePath)
+		return
 	}
 
 	// Read in file
-	knownHostFile, err := os.ReadFile(knownHostsPath)
-	logError("Error reading known_hosts", err, true)
+	knownHostFile, err := os.ReadFile(knownHostsFilePath)
+	if err != nil {
+		err = fmt.Errorf("unable to read known_hosts file: %v", err)
+		return
+	}
+
 	// Store as array
 	knownhosts := strings.Split(string(knownHostFile), "\n")
 
 	// Function when SSH is connecting during handshake
-	hostKeyCallback := createCustomHostKeyCallback(knownHostsPath, knownhosts)
-	return hostKeyCallback
+	hostKeyCallback = createCustomHostKeyCallback(knownHostsFilePath, knownhosts)
+	return
 }
 
-func CreateSSHClientConfig(endpointUser string, PrivateKey ssh.Signer) *ssh.ClientConfig {
+func CreateSSHClientConfig(endpointUser string, PrivateKey ssh.Signer, knownHostsFilePath string) (SSHconfig *ssh.ClientConfig) {
 	// Setup host key callback function
-	hostKeyCallback := SSHEnvSetup()
+	hostKeyCallback, err := SSHEnvSetup(knownHostsFilePath)
+	logError("Error in SSH environment setup", err, false)
 
 	// Setup config for client
 	//      Need to only use a single key algorithm type to avoid getting wrong public key back from the server for the local known_hosts check
 	//  Supposedly 'fixed' by allowing the client to specify which algo to use when connecting in https://github.com/golang/go/issues/11722
 	//  Yeah bud, totally. Let me just create 3 connections per host just to try and find a match in known_hosts... fucking stupid.
 	//  Its ed25519 for my env, change it if you want... Beware it must be the same algo used across all of your ssh servers
-	SSHconfig := &ssh.ClientConfig{
+	SSHconfig = &ssh.ClientConfig{
 		User: endpointUser,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(PrivateKey),
@@ -1329,14 +1401,15 @@ func CreateSSHClientConfig(endpointUser string, PrivateKey ssh.Signer) *ssh.Clie
 		Timeout:         30 * time.Second,
 	}
 
-	return SSHconfig
+	return
 }
 
-func RunSFTP(client *ssh.Client, localFileContent []byte, tmpRemoteFilePath string) error {
+func RunSFTP(client *ssh.Client, localFileContent []byte, tmpRemoteFilePath string) (err error) {
 	// Open new session with ssh client
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
-		return fmt.Errorf("failed to create sftp session: %v", err)
+		err = fmt.Errorf("failed to create sftp session: %v", err)
+		return
 	}
 	defer sftpClient.Close()
 
@@ -1372,43 +1445,49 @@ func RunSFTP(client *ssh.Client, localFileContent []byte, tmpRemoteFilePath stri
 	// Block until errChannel is done, then parse errors
 	select {
 	// Transfer finishes before timeout with error
-	case err := <-errChannel:
+	case err = <-errChannel:
 		if err != nil {
-			return fmt.Errorf("error with file transfer: %v", err)
+			err = fmt.Errorf("error with file transfer: %v", err)
+			return
 		}
 	// Timer finishes before transfer
 	case <-ctx.Done():
 		sftpClient.Close()
-		return fmt.Errorf("closed ssh session, file transfer timed out")
+		err = fmt.Errorf("closed ssh session, file transfer timed out")
+		return
 	}
 
-	return nil
+	return
 }
 
-func RunSSHCommand(client *ssh.Client, commandStr string, SudoPassword string) (string, error) {
-	// Open new session
+func RunSSHCommand(client *ssh.Client, commandStr string, SudoPassword string) (CommandOutput string, err error) {
+	// Open new session (exec)
 	session, err := client.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("failed to create session: %v", err)
+		err = fmt.Errorf("failed to create session: %v", err)
+		return
 	}
 	defer session.Close()
 
 	// Command output
 	stdout, err := session.StdoutPipe()
 	if err != nil {
-		return "", fmt.Errorf("failed to get stdout pipe: %v", err)
+		err = fmt.Errorf("failed to get stdout pipe: %v", err)
+		return
 	}
 
 	// Command Error
 	stderr, err := session.StderrPipe()
 	if err != nil {
-		return "", fmt.Errorf("failed to get stderr pipe: %v", err)
+		err = fmt.Errorf("failed to get stderr pipe: %v", err)
+		return
 	}
 
 	// Command stdin
 	stdin, err := session.StdinPipe()
 	if err != nil {
-		return "", fmt.Errorf("failed to get stdin pipe: %v", err)
+		err = fmt.Errorf("failed to get stdin pipe: %v", err)
+		return
 	}
 	defer stdin.Close()
 
@@ -1418,19 +1497,22 @@ func RunSSHCommand(client *ssh.Client, commandStr string, SudoPassword string) (
 	// Start the command
 	err = session.Start(command)
 	if err != nil {
-		return "", fmt.Errorf("failed to start command: %v", err)
+		err = fmt.Errorf("failed to start command: %v", err)
+		return
 	}
 
 	// Write sudo password to stdin
 	_, err = stdin.Write([]byte(SudoPassword))
 	if err != nil {
-		return "", fmt.Errorf("failed to write to command stdin: %v", err)
+		err = fmt.Errorf("failed to write to command stdin: %v", err)
+		return
 	}
 
 	// Close stdin to signal no more writing
 	err = stdin.Close()
 	if err != nil {
-		return "", fmt.Errorf("failed to close stdin: %v", err)
+		err = fmt.Errorf("failed to close stdin: %v", err)
+		return
 	}
 
 	// Context for command wait - 60 second timeout
@@ -1445,44 +1527,55 @@ func RunSSHCommand(client *ssh.Client, commandStr string, SudoPassword string) (
 	// Block until errChannel is done, then parse errors
 	select {
 	// Command finishes before timeout with error
-	case err := <-errChannel:
+	case err = <-errChannel:
 		if err != nil {
 			// Return both exit status and stderr (readall errors are ignored as exit status will still be present)
 			CommandError, _ := io.ReadAll(stderr)
-			return "", fmt.Errorf("error with command '%s': %v : %s", commandStr, err, CommandError)
+			err = fmt.Errorf("error with command '%s': %v : %s", commandStr, err, CommandError)
+			return
 		}
 	// Timer finishes before command
 	case <-ctx.Done():
 		session.Signal(ssh.SIGTERM)
 		session.Close()
-		return "", fmt.Errorf("closed ssh session, command %s timed out", commandStr)
+		err = fmt.Errorf("closed ssh session, command %s timed out", commandStr)
+		return
 	}
 
-	CommandOutput, err := io.ReadAll(stdout)
+	// Read commands output from session
+	Commandstdout, err := io.ReadAll(stdout)
 	if err != nil {
-		return "", fmt.Errorf("error reading from io.Reader: %v", err)
+		err = fmt.Errorf("error reading from io.Reader: %v", err)
+		return
 	}
 
+	// Read commands error output from session
 	CommandError, err := io.ReadAll(stderr)
 	if err != nil {
-		return "", fmt.Errorf("error reading from io.Reader: %v", err)
+		err = fmt.Errorf("error reading from io.Reader: %v", err)
+		return
 	}
 
-	// Only return the error if there is one
+	// Convert bytes to string
+	CommandOutput = string(Commandstdout)
+
+	// If the command had an error on the remote side
 	if string(CommandError) != "" {
-		return string(CommandOutput), fmt.Errorf("%s", CommandError)
+		err = fmt.Errorf("%s", CommandError)
+		return
 	}
 
-	return string(CommandOutput), nil
+	return
 }
 
 // Custom HostKeyCallback for checking known_hosts
 func createCustomHostKeyCallback(knownHostsPath string, knownhosts []string) ssh.HostKeyCallback {
-	return func(hostname string, remote net.Addr, PubKey ssh.PublicKey) error {
+	return func(hostname string, remote net.Addr, PubKey ssh.PublicKey) (err error) {
 		// Turn remote address into format used with known_hosts file entries
 		cleanHost, _, err := net.SplitHostPort(remote.String())
 		if err != nil {
-			return fmt.Errorf("error with ssh server key check: unable to determine hostname in address: %v", err)
+			err = fmt.Errorf("error with ssh server key check: unable to determine hostname in address: %v", err)
+			return
 		}
 
 		// If the remote addr is IPv6, extract the address part (inside brackets)
@@ -1518,11 +1611,12 @@ func createCustomHostKeyCallback(knownHostsPath string, knownhosts []string) ssh
 				continue
 			}
 
-			//keyAlgorithm := knownkeysPart[0]
 			// Hash the cleaned host name with the salt
-			saltBytes, err := base64.StdEncoding.DecodeString(salt)
+			var saltBytes []byte
+			saltBytes, err = base64.StdEncoding.DecodeString(salt)
 			if err != nil {
-				return fmt.Errorf("error decoding salt: %v", err)
+				err = fmt.Errorf("error decoding salt: %v", err)
+				return
 			}
 
 			// Create the HMAC-SHA1 using the salt as the key
@@ -1540,7 +1634,7 @@ func createCustomHostKeyCallback(knownHostsPath string, knownhosts []string) ssh
 				// Compare pub keys
 				if localPubKey == remotePubKey {
 					// nil means SSH is cleared to continue handshake
-					return nil
+					return
 				}
 			}
 		}
@@ -1566,22 +1660,26 @@ func createCustomHostKeyCallback(knownHostsPath string, knownhosts []string) ssh
 			newKnownHost := "|1|" + base64.StdEncoding.EncodeToString(salt) + "|" + base64.StdEncoding.EncodeToString(hashed) + " " + PubKey.Type() + " " + remotePubKey
 
 			fmt.Printf("Writing new host entry in known_hosts... ")
-			knownHostsfile, err := os.OpenFile(knownHostsPath, os.O_APPEND|os.O_WRONLY, 0644)
+			var knownHostsfile *os.File
+			knownHostsfile, err = os.OpenFile(knownHostsPath, os.O_APPEND|os.O_WRONLY, 0644)
 			if err != nil {
-				return fmt.Errorf("failed: %v", err)
+				err = fmt.Errorf("failed to open known_hosts file: %v", err)
+				return
 			}
 			defer knownHostsfile.Close()
 
 			// Write the new known host string followed by a newline
-			if _, err := knownHostsfile.WriteString(newKnownHost + "\n"); err != nil {
-				return fmt.Errorf("failed: %v", err)
+			if _, err = knownHostsfile.WriteString(newKnownHost + "\n"); err != nil {
+				err = fmt.Errorf("failed to write new known host to known_hosts file: %v", err)
+				return
 			}
-			fmt.Printf("Success")
+			fmt.Printf("Success\n")
 
-			// nil means SSH is cleared to continue handshake
-			return nil
+			// SSH is authorized to connect to host
+			return
 		}
-		return fmt.Errorf("not continuing with connection to %s", cleanHost)
+		err = fmt.Errorf("not continuing with connection to %s", cleanHost)
+		return
 	}
 }
 
@@ -1589,31 +1687,37 @@ func createCustomHostKeyCallback(knownHostsPath string, knownhosts []string) ssh
 //      PARSING FUNCTIONS
 // ###################################
 
-func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHosts []string, OSPathSeparator string) (map[string]string, *object.Tree, map[string]string, []string, error) {
-	tree, err := commit.Tree()
+func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHosts []string, OSPathSeparator string) (HostsAndFiles map[string]string, tree *object.Tree, AllRepoFiles map[string]string, FilteredCommitHostNames []string, err error) {
+	// Recover from panic
+	defer func() {
+		if fatalError := recover(); fatalError != nil {
+			logError("Controller panic during parsing of committed files", fmt.Errorf("%v", fatalError), false)
+		}
+	}()
+
+	// Get the tree from the commit
+	tree, err = commit.Tree()
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to get tree: %v", err)
+		err = fmt.Errorf("failed to get tree: %v", err)
+		return
 	}
 
 	// Get the parent commit
 	parentCommit, err := commit.Parents().Next()
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to get parent commit: %v", err)
+		err = fmt.Errorf("failed to get parent commit: %v", err)
+		return
 	}
 
 	// Get the diff between the commits
 	patch, err := parentCommit.Patch(commit)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to get patch between commits: %v", err)
+		err = fmt.Errorf("failed to get patch between commits: %v", err)
+		return
 	}
 
-	// New Array for only relevant endpoints for this commit
-	var FilteredCommitHostNames []string
-
-	// Main map of commit files
-	HostsAndFiles := make(map[string]string)
-
-	// Process changed files in commit
+	// Creation of the HostsAndFiles map - getting file paths and actions to be done on remote host
+	HostsAndFiles = make(map[string]string)
 	// Lots of duplication.... sue me
 	for _, file := range patch.FilePatches() {
 		from, to := file.Files()
@@ -1629,12 +1733,12 @@ func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHos
 			}
 
 			// Get on disk file info if present
-			_, err := os.Stat(toPath)
+			_, err = os.Stat(toPath)
 			if os.IsExist(err) {
 				// Get file type on disk for filtering parsing actions
 				commitFileInfoFrom, err = os.Lstat(fromPath)
 				if err != nil {
-					return nil, nil, nil, nil, err
+					return
 				}
 
 				// Skip special file types
@@ -1661,12 +1765,12 @@ func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHos
 			}
 
 			// Get on disk file info if present
-			_, err := os.Stat(toPath)
+			_, err = os.Stat(toPath)
 			if os.IsExist(err) {
 				// Get file type on disk for filtering parsing actions
 				commitFileInfoTo, err = os.Lstat(toPath)
 				if err != nil {
-					return nil, nil, nil, nil, err
+					return
 				}
 
 				// Skip special file types
@@ -1718,9 +1822,10 @@ func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHos
 		// Check for sym links in commit and add correct tag for handling creation of sym links on target
 		if commitFileInfoFrom != nil && commitFileInfoFrom.Mode()&os.ModeSymlink != 0 && HostsAndFiles[fromPath] == "create" {
 			// Get link target path
-			linkTarget, err := filepath.EvalSymlinks(fromPath)
+			var linkTarget string
+			linkTarget, err = filepath.EvalSymlinks(fromPath)
 			if err != nil {
-				return nil, nil, nil, nil, err
+				return
 			}
 
 			// Get top directory for sym link and target for compare
@@ -1729,16 +1834,18 @@ func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHos
 
 			// Error if link is between hosts dirs
 			if linkTargetPathArray[0] != fromPathArray[0] {
-				return nil, nil, nil, nil, fmt.Errorf("illegal symbolic link, cannot have link between host directories")
+				err = fmt.Errorf("illegal symbolic link, cannot have link between host directories")
+				return
 			}
 
 			// Add new tag for sym link itself - hard code / because these are target paths
 			HostsAndFiles[fromPath] = "symlinkcreate to target " + "/" + linkTargetPathArray[1]
 		} else if commitFileInfoTo != nil && commitFileInfoTo.Mode()&os.ModeSymlink != 0 && HostsAndFiles[toPath] == "create" {
 			// Get link target path
-			linkTarget, err := filepath.EvalSymlinks(toPath)
+			var linkTarget string
+			linkTarget, err = filepath.EvalSymlinks(toPath)
 			if err != nil {
-				return nil, nil, nil, nil, err
+				return
 			}
 
 			// Get top directory for sym link and target for compare
@@ -1747,7 +1854,8 @@ func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHos
 
 			// Error if link is between hosts dirs
 			if linkTargetPathArray[0] != toPathArray[0] {
-				return nil, nil, nil, nil, fmt.Errorf("illegal symbolic link, cannot have link between host directories")
+				err = fmt.Errorf("illegal symbolic link, cannot have link between host directories")
+				return
 			}
 
 			//Add new tag for sym link itself - hard code / because these are target paths
@@ -1763,32 +1871,46 @@ func parseGitCommit(commit *object.Commit, TemplateDirectory string, DeployerHos
 			}
 		}
 		if !configContainsCommitHost {
-			return nil, nil, nil, nil, fmt.Errorf("commit host directory '%s' has no matching DeployerEndpoints host in YAML config", commitHost)
+			err = fmt.Errorf("commit host directory '%s' has no matching DeployerEndpoints host in YAML config", commitHost)
+			return
 		}
 
 		// Add filtered target commit host to array
 		FilteredCommitHostNames = append(FilteredCommitHostNames, commitHost)
 	}
 
-	// Var for all files in repo - used for dedup later
-	AllRepoFiles := make(map[string]string)
+	// Get list of all files in repo tree
+	repoFiles := tree.Files()
 
-	// Iterate over the tree entries.
-	err = tree.Files().ForEach(func(f *object.File) error {
+	// Record all files in repo to the all files map
+	AllRepoFiles = make(map[string]string)
+	// This might need to have the same logic as above for deleted files, moved files, sym links, ect
+	for {
+		// Go to next file in list
+		var repoFile *object.File
+		repoFile, err = repoFiles.Next()
+
+		// Break at end of list
+		if err == io.EOF {
+			err = nil
+			break
+		}
+
+		// Fail if next file doesnt work
+		if err != nil {
+			return
+		}
+
 		// Always ignore files in root of repository
-		if !strings.ContainsRune(f.Name, []rune(OSPathSeparator)[0]) {
-			return nil
+		if !strings.ContainsRune(repoFile.Name, []rune(OSPathSeparator)[0]) {
+			continue
 		}
 
 		// Append the file path to the slice.
-		AllRepoFiles[f.Name] = "create"
-		return nil
-	})
-	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("error iterating over all files: %v", err)
+		AllRepoFiles[repoFile.Name] = "create"
 	}
 
-	return HostsAndFiles, tree, AllRepoFiles, FilteredCommitHostNames, nil
+	return
 }
 
 func removeValueFromMapSlice(HostsAndFilesMap map[string][]string, key, valueToRemove string) {
@@ -1803,23 +1925,31 @@ func removeValueFromMapSlice(HostsAndFilesMap map[string][]string, key, valueToR
 	}
 }
 
-func deDupsHostsandTemplateCommits(HostsAndFiles map[string]string, TemplateDirectory string, AllHostsAndFilesMap map[string][]string, endpointName string, OSPathSeparator string) []string {
+func deDupsHostsandTemplateCommits(HostsAndFiles map[string]string, TemplateDirectory string, AllHostsAndFilesMap map[string][]string, endpointName string, OSPathSeparator string, ignoreTemplates bool) (FilteredCommitFilePaths []string) {
 	// Filter down committed files to only ones that are allowed for this host and create map for deduping
 	HostsAndFilesMap := make(map[string][]string)
 	for filePath := range HostsAndFiles {
-		// Skip files in root of repository
+		// Skip files in root of repository - only files inside host directories should be considered
 		if !strings.ContainsRune(filePath, []rune(OSPathSeparator)[0]) {
 			continue
 		}
 
+		// Get the host name from the repository top level directory
 		commitSplit := strings.SplitN(filePath, OSPathSeparator, 2)
 		commitHost := commitSplit[0]
 		commitPath := commitSplit[1]
 
+		// Skip files that arent in this hosts directory or in the template directory
 		if commitHost != endpointName && commitHost != TemplateDirectory {
 			continue
 		}
 
+		// Skip template files for hosts that dont want templates
+		if commitHost == TemplateDirectory && ignoreTemplates {
+			continue
+		}
+
+		// Append path to the map
 		HostsAndFilesMap[commitHost] = append(HostsAndFilesMap[commitHost], commitPath)
 	}
 
@@ -1838,6 +1968,7 @@ func deDupsHostsandTemplateCommits(HostsAndFiles map[string]string, TemplateDire
 		for _, conf := range conffiles {
 			// Only remove if multiple same config paths AND the hostdir part is the template dir
 			if confFileCount[conf] > 1 && hostdir == TemplateDirectory {
+				// Maps always passed by reference; function will edit original map
 				removeValueFromMapSlice(AllHostsAndFilesMap, hostdir, conf)
 			}
 		}
@@ -1846,7 +1977,6 @@ func deDupsHostsandTemplateCommits(HostsAndFiles map[string]string, TemplateDire
 	// Compare the confs allowed to deploy in the repo with the confs in the actual commit
 	hostFiles, hostExists := AllHostsAndFilesMap[endpointName]
 	goldenFiles, templateExists := HostsAndFilesMap[TemplateDirectory]
-
 	if hostExists && templateExists {
 		// Create a map to track files in the host
 		hostFileMap := make(map[string]struct{})
@@ -1866,18 +1996,19 @@ func deDupsHostsandTemplateCommits(HostsAndFiles map[string]string, TemplateDire
 		HostsAndFilesMap[TemplateDirectory] = newTemplateFiles
 	}
 
-	// Convert Map back to array for loading file contents with git
-	var FilteredHostsAndFiles []string
+	// Convert map into desired formats for further processing
 	for host, paths := range HostsAndFilesMap {
 		for _, path := range paths {
-			FilteredHostsAndFiles = append(FilteredHostsAndFiles, host+OSPathSeparator+path)
+			// Paths in correct format for loading from git
+			FilteredCommitFilePaths = append(FilteredCommitFilePaths, host+OSPathSeparator+path)
 		}
 	}
-	return FilteredHostsAndFiles
+
+	return
 }
 
 // Function to extract and validate metadata JSON from file contents
-func extractMetadata(fileContents string) (string, string, error) {
+func extractMetadata(fileContents string) (metadataSection string, remainingContent string, err error) {
 	// Define the delimiters
 	StartDelimiter := "#|^^^|#"
 	EndDelimiter := "#|^^^|#\n" // trims newline from actual file contents
@@ -1886,7 +2017,8 @@ func extractMetadata(fileContents string) (string, string, error) {
 	// Find the start and end of the metadata section
 	startIndex := strings.Index(fileContents, StartDelimiter)
 	if startIndex == -1 {
-		return "", "", fmt.Errorf("json start delimter missing")
+		err = fmt.Errorf("json start delimter missing")
+		return
 	}
 	startIndex += len(StartDelimiter)
 
@@ -1894,24 +2026,26 @@ func extractMetadata(fileContents string) (string, string, error) {
 	if endIndex == -1 {
 		TestEndIndex := strings.Index(fileContents[startIndex:], Delimiter)
 		if TestEndIndex == -1 {
-			return "", "", fmt.Errorf("no newline after json end delimiter")
+			err = fmt.Errorf("no newline after json end delimiter")
+			return
 		}
-		return "", "", fmt.Errorf("json end delimter missing ")
+		err = fmt.Errorf("json end delimter missing ")
+		return
 	}
 	endIndex += startIndex
 
 	// Extract the metadata section and remaining content into their own vars
-	metadataSection := fileContents[startIndex:endIndex]
-	remainingContent := fileContents[:startIndex-len(StartDelimiter)] + fileContents[endIndex+len(EndDelimiter):]
+	metadataSection = fileContents[startIndex:endIndex]
+	remainingContent = fileContents[:startIndex-len(StartDelimiter)] + fileContents[endIndex+len(EndDelimiter):]
 
-	return metadataSection, remainingContent, nil
+	return
 }
 
 // ###################################
 //      UPDATE FUNCTIONS
 // ###################################
 
-func simpleLoopHosts(config Config, deployerUpdateFile string, hostOverride string, checkVersion bool) {
+func simpleLoopHosts(config Config, deployerUpdateFile string, hostOverride string, checkVersion bool) (deployerVersions string) {
 	// Load Binary if updating
 	var deployerUpdateBinary []byte
 	var err error
@@ -1925,6 +2059,7 @@ func simpleLoopHosts(config Config, deployerUpdateFile string, hostOverride stri
 	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
 	logError("Error retrieving SSH private key", err, true)
 
+	// Loop over config endpoints for updater/version
 	for endpointName, endpointInfo := range config.DeployerEndpoints {
 		// Allow user override hosts
 		var SkipHost bool
@@ -1947,7 +2082,7 @@ func simpleLoopHosts(config Config, deployerUpdateFile string, hostOverride stri
 		endpointUser := endpointInfo[2].EndpointUser
 
 		// Run update
-		returnedData, err := DeployerUpdater(deployerUpdateBinary, PrivateKey, config.SSHClient.SudoPassword, checkVersion, endpointUser, endpointIP, endpointPort)
+		returnedData, err := DeployerUpdater(deployerUpdateBinary, PrivateKey, config.SSHClient.KnownHostsFile, config.SSHClient.SudoPassword, checkVersion, endpointUser, endpointIP, endpointPort)
 		if err != nil {
 			logError(fmt.Sprintf("Error: host '%s'", endpointName), err, true)
 			continue
@@ -1955,78 +2090,87 @@ func simpleLoopHosts(config Config, deployerUpdateFile string, hostOverride stri
 
 		// If just checking version, Print
 		if checkVersion {
-			fmt.Printf("%s:%s\n", endpointName, returnedData)
+			deployerVersions = deployerVersions + fmt.Sprintf("%s:%s\n", endpointName, returnedData)
 		}
 	}
+	return
 }
 
-func DeployerUpdater(deployerUpdateBinary []byte, PrivateKey ssh.Signer, SudoPassword string, checkVersion bool, endpointUser string, endpointIP string, endpointPort int) (string, error) {
+func DeployerUpdater(deployerUpdateBinary []byte, PrivateKey ssh.Signer, knownHostsFilePath string, SudoPassword string, checkVersion bool, endpointUser string, endpointIP string, endpointPort int) (deployerVersion string, err error) {
 	// Set client configuration
-	SSHconfig := CreateSSHClientConfig(endpointUser, PrivateKey)
+	SSHconfig := CreateSSHClientConfig(endpointUser, PrivateKey, knownHostsFilePath)
 
 	// Network info checks
 	endpointSocket, err := ParseEndpointAddress(endpointIP, endpointPort)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse network address: %v", err)
+		err = fmt.Errorf("failed to parse network address: %v", err)
+		return
 	}
 
 	// Connect to the SSH server
 	// TODO: retry connect if reason is no route to host
 	client, err := ssh.Dial("tcp", endpointSocket, SSHconfig)
 	if err != nil {
-		return "", fmt.Errorf("failed connect: %v", err)
+		err = fmt.Errorf("failed connect: %v", err)
+		return
 	}
 	defer client.Close()
 
 	if checkVersion {
 		// Get remote host deployer version
 		deployerSSHVersion := string(client.Conn.ServerVersion())
-		deployerVersion := strings.Replace(deployerSSHVersion, "SSH-2.0-OpenSSH_", "", 1)
-		return deployerVersion, nil
+		deployerVersion = strings.Replace(deployerSSHVersion, "SSH-2.0-OpenSSH_", "", 1)
+		return
 	}
 
 	// SFTP to default temp file
 	err = RunSFTP(client, deployerUpdateBinary, "")
 	if err != nil {
-		return "", err
+		return
 	}
 
 	// Open new session
 	session, err := client.NewSession()
 	if err != nil {
-		return "", fmt.Errorf("failed to create session: %v", err)
+		err = fmt.Errorf("failed to create session: %v", err)
+		return
 	}
 	defer session.Close()
 
-	// Set custom request and payload
+	// Set custom request
 	requestType := "update"
 	wantReply := true
 	reqAccepted, err := session.SendRequest(requestType, wantReply, nil)
 	if err != nil {
-		return "", fmt.Errorf("failed to create update session: %v", err)
+		err = fmt.Errorf("failed to create update session: %v", err)
+		return
 	}
 	if !reqAccepted {
-		return "", fmt.Errorf("server did not accept request type '%s'", requestType)
+		err = fmt.Errorf("server did not accept request type '%s'", requestType)
+		return
 	}
 
 	// Command stdin
 	stdin, err := session.StdinPipe()
 	if err != nil {
-		return "", fmt.Errorf("failed to get stdin pipe: %v", err)
+		err = fmt.Errorf("failed to get stdin pipe: %v", err)
+		return
 	}
 	defer stdin.Close()
 
 	// Write sudo password to stdin
 	_, err = stdin.Write([]byte(SudoPassword))
 	if err != nil {
-		return "", fmt.Errorf("failed to write to command stdin: %v", err)
+		err = fmt.Errorf("failed to write to command stdin: %v", err)
+		return
 	}
 
 	// Close stdin to signal no more writing
 	err = stdin.Close()
 	if err != nil {
-		return "", fmt.Errorf("failed to close stdin: %v", err)
+		err = fmt.Errorf("failed to close stdin: %v", err)
+		return
 	}
 
-	return "", nil
+	return
 }

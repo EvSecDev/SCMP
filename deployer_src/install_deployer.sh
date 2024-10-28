@@ -52,6 +52,7 @@ command -v sed >/dev/null || logError "sed command not found." "true"
 command -v passwd >/dev/null || logError "passwd command not found." "true"
 command -v print >/dev/null || logError "print command not found." "true"
 command -v systemctl >/dev/null || logError "systemctl command not found." "true"
+command -v objcopy >/dev/null || logError "objcopy (binutils on debian) command not found, it is needed for deployer updates" "true"
 
 #### Installation
 echo -e "\n========================================"
@@ -398,6 +399,7 @@ profile SCMDsudo flags=(enforce) {
   # User defined commands for post deployment checks and reloads
   /usr/bin/systemctl rmpx -> SCMDreloadops,
   /usr/sbin/sysctl rmpx -> SCMDreloadops,
+  /usr/sbin/nft rmpx -> SCMDreloadops,
 
   # /proc accesses
   /proc/stat r,
@@ -487,6 +489,12 @@ profile SCMDfileops flags=(enforce) {
 
   ## Explicit denies for deployment commands
   deny /etc/shadow rw,
+  deny /etc/sudoers rw,
+  deny /etc/sudoers.d/* rw,
+  deny /etc/ld.so.cache w,
+  deny /etc/ld.so.conf w,
+  deny /etc/ld.so.conf.d/** w,
+  deny @{configlocation} w,
   deny @{profilelocation} w,
   deny /var/log/** rw,
 
@@ -502,8 +510,6 @@ profile SCMDfileops flags=(enforce) {
   /media/** rw,
   /home/** rw,
   /usr/* r,
-  /usr/local/** rw,
-  /usr/share/** rw,
 }
 profile SCMDreloadops flags=(enforce) {
   # Commands Meta Access
@@ -513,6 +519,7 @@ profile SCMDreloadops flags=(enforce) {
   /proc/filesystems r,
   owner /proc/@{pid}/mounts r,
   capability net_admin,
+  network netlink raw,
   unix (create) type=stream,
 
   ## Explicit denies for reload commands
@@ -522,6 +529,10 @@ profile SCMDreloadops flags=(enforce) {
   ## Allow scope for reload commands
   /etc/sysctl.conf r,
   /proc/sys/** w,
+  /etc/nftables.conf r,
+  /etc/iproute2/** r,
+  /etc/protocols r,
+  /etc/nsswitch.conf r,
 }
 EOF
 	apparmor_parser -r "$ApparmorProfilePath"

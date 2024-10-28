@@ -72,7 +72,7 @@ Documentation: <https://github.com/EvSecDev/SCMPusher>
 `
 
 func main() {
-	progVersion := "v1.0.0"
+	progVersion := "v1.0.1"
 
 	// Program Argument Variables
 	var configFilePath string
@@ -312,7 +312,7 @@ func handleChannel(newChannel ssh.NewChannel, UpdaterProgram string) {
 //      REQUEST HANDLING
 // ###################################
 
-func executeCommand(channel ssh.Channel, receivedCommand string) error {
+func executeCommand(channel ssh.Channel, receivedCommand string) (err error) {
 	// Parse command for exe and args
 	commandArray := strings.Fields(receivedCommand)
 	commandBinary := commandArray[0]
@@ -326,28 +326,28 @@ func executeCommand(channel ssh.Channel, receivedCommand string) error {
 	cmd.Stderr = &stderr
 
 	// Get stdin from client
-	_, err := io.Copy(&channelBuff, channel)
+	_, err = io.Copy(&channelBuff, channel)
 	if err != nil {
-		return err
+		return
 	}
 
 	// Prepare stdin
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return err
+		return
 	}
 	defer stdin.Close()
 
 	// Run the command
 	err = cmd.Start()
 	if err != nil {
-		return err
+		return
 	}
 
 	// Write channel contents to stdin and close input
 	_, err = stdin.Write(channelBuff.Bytes())
 	if err != nil {
-		return err
+		return
 	}
 	stdin.Close()
 
@@ -385,31 +385,32 @@ func executeCommand(channel ssh.Channel, receivedCommand string) error {
 
 	// Return any errors
 	if err != nil {
-		return err
+		return
 	}
-	return nil
+	return
 }
 
-func HandleSFTP(channel ssh.Channel) error {
+func HandleSFTP(channel ssh.Channel) (err error) {
 	// Create new SFTP server for this channel
 	sftpServer, err := sftp.NewServer(channel)
 	if err != nil {
-		return err
+		return
 	}
 	defer sftpServer.Close()
 
 	// Serve any commands from client
 	err = sftpServer.Serve()
 	if err != nil {
-		return err
+		return
 	}
-	return nil
+	return
 }
 
-func StripPayloadHeader(request []byte) (string, error) {
+func StripPayloadHeader(request []byte) (payload string, err error) {
 	// Ignore things less than header length
 	if len(request) < 4 {
-		return "", fmt.Errorf("invalid payload length")
+		err = fmt.Errorf("invalid payload length")
+		return
 	}
 
 	// Calculate length of command
@@ -417,10 +418,11 @@ func StripPayloadHeader(request []byte) (string, error) {
 
 	// Validate total payload length
 	if payloadLength+4 != len(request) {
-		return "", fmt.Errorf("payload length does not match header metadata")
+		err = fmt.Errorf("payload length does not match header metadata")
+		return
 	}
 
 	// Return payload without header
-	payload := string(request[4:])
-	return payload, nil
+	payload = string(request[4:])
+	return
 }

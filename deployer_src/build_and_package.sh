@@ -54,6 +54,7 @@ fi
 if [[ $1 == "sigbuild" ]]
 then
 	echo "Signed Deployer built"
+	rm sig
 	exit 0
 fi
 

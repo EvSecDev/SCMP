@@ -55,6 +55,7 @@ SSHIdentityPath="~/.ssh/scmp_ssh.key"
 SSHPort="2022"
 MaximumOutboundConnections="10"
 SudoPassword=""
+KnownHostsFile="$RepositoryPath/.known_hosts"
 
 #### User Choices
 echo -e "Provide your choices for the installation. Press enter for the default.\n"
@@ -243,6 +244,8 @@ Controller:
     SSHIdentityFile: "$SSHIdentityPath"
     # Set to true if you want to use your SSH agent to retrieve the private key (requires pubkey in identity file)
     UseSSHAgent: $SSHAgentBool
+    # Change where remote hosts public keys will be stored (don't use .ssh/known_hosts) - recommended to keep in the root of the repository (otherwise, changed your apparmor profile)
+    KnownHostsFile: "$KnownHostsFile"
     # Limit number of ssh outbound connections at once
     MaximumConnectionsAtOnce: $MaximumOutboundConnections
     # Password that will be used to run sudo commands on remote host
@@ -372,7 +375,6 @@ profile SCMController @{exelocation} flags=(enforce) {
 
   ## Program Accesses
   /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
-  @{home}/.ssh/known_hosts rw,
 
   ## Repository access
   # allow read only for files in repository
