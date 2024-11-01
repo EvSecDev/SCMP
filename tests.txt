@@ -1,0 +1,36 @@
+# Setup
+# One file one host
+
+# Many files per many hosts
+
+# Same file in both template and one host
+
+# Incorrect JSON metadata header (testing commit rollback)
+
+# Large Files (500mb +)
+
+## Commit Diff Parsing
+# Remove file
+
+# Move file within host 
+
+# Move file between hosts
+
+# Copy file within host
+
+# Copy file between hosts
+
+# Sym link file within host
+
+# Host destination unreachable (timeout)
+
+# Host ssh user unauthorized
+
+# Sudo pass wrong 4 times then attempt regular one file deploy
+
+# Apparmor deny (controller or deployer)
+
+# Update deployer
+
+# Wrong file type for ssh key
+

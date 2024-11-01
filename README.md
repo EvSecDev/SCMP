@@ -63,6 +63,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - Support for regular SSH servers (if you don't want to use the Deployer program)
 - Key-based SSH authentication (by file or ssh-agent)
 - Password-based Sudo command escalation
+- Collect configurations from existing systems to bootstrap the local repository
 
 ### What it **can't** do: Controller
 
@@ -93,8 +94,9 @@ Options:
     -r, --remote-hosts <host1,host2,host3...>       Override hosts for deployment
     -C, --commitid <hash>                           Commit ID (hash) of the commit to deploy configurations from
     -f, --use-failtracker-only                      If previous deployment failed, use the failtracker to retry (Requires '--manual-deploy')
-        --deployer-versions                         Query remote host deployer executable versions and print to stdout
-        --deployer-update-file </path/to/binary>    Upload and update deployer executable with supplied signed ELF file
+    -q  --deployer-versions                         Query remote host deployer executable versions and print to stdout
+    -u  --deployer-update-file </path/to/binary>    Upload and update deployer executable with supplied signed ELF file
+    -s  --seed-repo                                 Retrieve existing files from remote hosts to seed the local repository (Requires user interaction)
     -h, --help                                      Show this help menu
     -V, --version                                   Show version and packages
     -v, --versionid                                 Show only version number
@@ -138,6 +140,47 @@ Options:
 4. Configure the template yaml file for all the remote Linux hosts you wish to manage, with their IP, Port, and username (and indicate true if you don't want a specific host to use the templates directory)
 5. Copy all the remote configuration files you wish to manage into the repository under the desired template or host directory
 6. Then, git add and commit to test functionality.
+
+## Bootstrapping the Repository
+
+So, what if you already have servers with potentially hundreds of configuration files spread throughout the system?
+Well, fear not, for there is a SSH client built into the controller as an easier method of transferring and formatting new files by hand.
+The client will permit you to select files on a remote system and automatically format and add them in the correct location to the local repository.
+
+This feature requires that you have installed controller and configured the controller's yaml configuration file with the hosts you want to manage.
+It also requires that the remote host is setup as described in the controller's yaml (port is open, user is allowed, ect.)
+
+The interface you will be using for this feature is extremely barebones. It looks like this:
+```
+==== Secure Configuration Management Repository Seeding ====
+============================================================
+1 bin        7  initrd.img.old 13 opt/   19 sys/
+2 boot/      8  lib            14 proc/  20 tmp/
+3 dev/       9  lib64          15 root/  21 usr/
+4 etc/       10 lost+found/    16 run/   22 var/
+5 home/      11 media/         17 sbin   23 vmlinuz
+6 initrd.img 12 mnt/           18 srv/   24 vmlinuz.old 
+============================================================
+         Select File    Change Dir ^v  Exit
+        [ # # ## ### ]  [ c0 ] [ c# ]  [ ! ]
+hostname:/# Type your selections: _
+```
+
+If you wanted to change directories to `/etc/`, you'd type this and press enter:
+`hostname:/# Type your selections: c4`
+
+If you wanted to select files `vmlinuz`, `initrd.img.old`, `initrd.img`, and then exit you'd type this and press enter:
+`hostname:/# Type your selections: 23 7 6 !`
+
+If you were in `/etc/` and wanted to move up one directory, you'd type this and press enter:
+`hostname:/# Type your selections: c0`
+
+The shortcuts will be listed below every directory so you won't need to remember them.
+You can type as many or as little options as you wish, they will all be added.
+Selected files will be saved before changing directories, so you can navigate the whole remote host file system saving files you want as you go.
+
+Once you have selected all your files and typed `!`, you will be asked if the config file requires reload commands, and if so, you can provided them one per line.
+The controller will then take all the files and write them to their respective host directories in the local repository copying the remote host file path.
 
 ## NOTES
 
@@ -203,3 +246,17 @@ With those requirements, the Updater operates in the following manner:
 8. The Updater process will copy the Deployer buffer file from `/tmp` to the executable location of the old Deployer process keeping the destination permissions.
 9. The Updater process will remote the buffer file from `/tmp` and then exit.
 10. Systemd will auto-restart the Deployer process (now updated) after 60 seconds.
+
+### Commit Automatic Rollback
+
+When the controller is running in automatic mode, there is a feature that will automatically roll back the commit when encountering an error
+During the processing of a commit, any error before the controller connects to remote hosts will result the HEAD being moved to the previous commit.
+
+This is intentional to ensure that the HEAD commit is the most accurate representation of what configurations are currently deployed in the network.
+
+One thing to note however, the controller does not perform garbage collection on the git repository.
+Therefore it is recommended to run the following commands on a regular schedule or occasionally to reduce disk space usage.
+```
+git reflog expire --expire-unreachable=now --all
+git gc --prune=now
+```

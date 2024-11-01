@@ -30,7 +30,7 @@ export GOARCH=$buildArchitecture
 export GOOS=linux
 
 # Build go binary - dont change output name, its hard coded in install script
-go build -o deployer -a -ldflags '-s -w -buildid= -extldflags "-static"' deployer.go
+go build -o deployer_$GOOS-$GOARCH-static -a -ldflags '-s -w -buildid= -extldflags "-static"' deployer.go
 
 # Exit if only want unsigned deployer build
 if [[ $1 == "nosigbuild" ]]
@@ -47,13 +47,14 @@ then
 	go build -o sig -compiler gccgo signing_src/sig.go
 
 	# Sign deployer binary
-	./sig -in deployer -priv $code_signing_keyfile -sign
+	./sig -in deployer_$GOOS-$GOARCH-static -priv $code_signing_keyfile -sign
 fi
 
 # Exit if only want signed deployer build
 if [[ $1 == "sigbuild" ]]
 then
 	echo "Signed Deployer built"
+	sha256sum deployer_$GOOS-$GOARCH-static > deployer_$GOOS-$GOARCH-static.sha256
 	rm sig
 	exit 0
 fi
@@ -65,7 +66,7 @@ go build -o updater -a -ldflags '-s -w -buildid= -extldflags "-static"' updater_
 # Move relevant files into packaging dir
 mkdir $packagingDir
 cp install_deployer.sh $packagingDir/
-mv deployer $packagingDir/
+mv deployer_$GOOS-$GOARCH-static $packagingDir/deployer
 mv updater $packagingDir/
 
 # Create a packaged installation tar

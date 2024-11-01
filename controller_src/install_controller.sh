@@ -146,10 +146,6 @@ echo "[*] Will you be using the Deployer SSH server instead of the standard SSH 
 read -e -p "    [y/N]: " RemoteUsesDeployerServer
 RemoteUsesDeployerServer=$(echo $RemoteUsesDeployerServer | tr [:upper:] [:lower:])
 
-echo "[*] Add example metadata headers to repository?"
-read -e -p "    [y\N]: " CreateExamplesConfirmation
-CreateExamplesConfirmation=$(echo $CreateExamplesConfirmation | tr [:upper:] [:lower:])
-
 echo "[*] Install git post-commit hook? (REQUIRED if operating controller in auto-deploy mode)"
 read -e -p "    [y\N]: " InstallHookConfirmation
 InstallHookConfirmation=$(echo $InstallHookConfirmation | tr [:upper:] [:lower:])
@@ -246,6 +242,8 @@ Controller:
     UseSSHAgent: $SSHAgentBool
     # Change where remote hosts public keys will be stored (don't use .ssh/known_hosts) - recommended to keep in the root of the repository (otherwise, changed your apparmor profile)
     KnownHostsFile: "$KnownHostsFile"
+    # Remote file that is used for unprivileged file transfers
+    RemoteTransferBuffer: "/tmp/scmpdbuffer"
     # Limit number of ssh outbound connections at once
     MaximumConnectionsAtOnce: $MaximumOutboundConnections
     # Password that will be used to run sudo commands on remote host
@@ -292,10 +290,7 @@ then
 fi
 
 # Add metadata example files
-if [[ $CreateExamplesConfirmation == "y" ]]
-then
-	#
-	cat > "$RepositoryPath/.example-metadata-header.txt" <<EOF
+cat > "$RepositoryPath/.example-metadata-header.txt" <<EOF
 #|^^^|#
 {
   "FileOwnerGroup": "root:root",
@@ -318,10 +313,9 @@ EOF
 }
 #|^^^|#
 EOF
-	#
-	chmod 640 $RepositoryPath/.example-metadata-header.txt || logError "failed to change permissions for example metadata file" "false"
-	chmod 640 $RepositoryPath/.example-metadata-header-noreload.txt || logError "failed to change permissions for example metadata file" "false"
-fi
+#
+chmod 640 $RepositoryPath/.example-metadata-header.txt || logError "failed to change permissions for example metadata file" "false"
+chmod 640 $RepositoryPath/.example-metadata-header-noreload.txt || logError "failed to change permissions for example metadata file" "false"
 
 # Create first commit
 GIT_AUTHOR_EMAIL=""
@@ -368,6 +362,7 @@ profile SCMController @{exelocation} flags=(enforce) {
   network netlink raw,
   network inet stream,
   network inet6 stream,
+  unix (create) type=stream,
 
   ## Startup Configurations needed
   @{configlocations} r,
@@ -377,12 +372,10 @@ profile SCMController @{exelocation} flags=(enforce) {
   /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
 
   ## Repository access
-  # allow read only for files in repository
-  @{repolocations}/** r,
-  # allow writing to git's directory (for commit rollback on early error)
-  @{repolocations}/.git/** wk,
-  # allow read write to fail tracker
-  @{repolocations}/.failtracker.meta rw,
+  # allow read/write for files in repository (write is needed for seeding operations)
+  @{repolocations}/** rw,
+  # allow locking in git's directory (for commit rollback on early error)
+  @{repolocations}/.git/** k,
 }
 EOF
 	#

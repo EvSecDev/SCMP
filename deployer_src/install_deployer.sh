@@ -480,6 +480,7 @@ profile SCMDsudo flags=(enforce) {
 profile SCMDfileops flags=(enforce) {
   # Commands Meta Access
   /usr/{lib**,sbin/**,bin/**} rm,
+  /usr/share/zoneinfo/** r,
   /proc/filesystems r,
   owner /proc/@{pid}/mounts r,
   capability chown,
@@ -501,15 +502,16 @@ profile SCMDfileops flags=(enforce) {
   ## Allowed scope of deployment commands
   # as root(sudo) read and write over much of the system
   /tmp/scmpdbuffer rw,
-  /root/** rw,
-  /etc/** rw,
-  /var/** rw,
-  /opt/** rw,
-  /srv/** rw,
-  /mnt/** rw,
-  /media/** rw,
-  /home/** rw,
-  /usr/* r,
+  /{,*} r,
+  /root/{,**} rw,
+  /etc/{,**} rw,
+  /var/{,**} rw,
+  /opt/{,**} rw,
+  /srv/{,**} rw,
+  /mnt/{,**} rw,
+  /media/{,**} rw,
+  /home/{,**} rw,
+  /usr/{,*} r,
 }
 profile SCMDreloadops flags=(enforce) {
   # Commands Meta Access

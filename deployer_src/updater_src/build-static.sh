@@ -12,4 +12,10 @@ export GOARCH=$buildArchitecture
 export GOOS=linux
 go build -o updater -a -ldflags '-s -w -buildid= -extldflags "-static"' updater.go
 
+if [[ $1 == "build" ]]
+then
+  mv updater updater_$GOOS-$GOARCH-static
+  sha256sum updater_$GOOS-$GOARCH-static > updater_$GOOS-$GOARCH-static.sha256
+fi
+
 exit 0
