@@ -1,16 +1,22 @@
 # Setup
-# One file one host
-
-# Many files per many hosts
-
-# Same file in both template and one host
-
 # Incorrect JSON metadata header (testing commit rollback)
 
 # Large Files (500mb +)
 
 ## Commit Diff Parsing
+# Same file between template and a host
+
+# Many new files in template
+
+# Many new files many hosts
+
+# Many new files one host
+
+# New file with new directory
+
 # Remove file
+
+# Remove file and parent directory
 
 # Move file within host 
 
@@ -22,6 +28,7 @@
 
 # Sym link file within host
 
+## SSH deployment
 # Host destination unreachable (timeout)
 
 # Host ssh user unauthorized

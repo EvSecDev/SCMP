@@ -486,6 +486,12 @@ profile SCMDfileops flags=(enforce) {
   capability chown,
   capability dac_override,
   capability dac_read_search,
+  capability sys_resource,
+  capability sys_admin,
+  capability sys_ptrace,
+  capability fowner,
+  capability sys_ptrace,
+  capability fsetid,
   unix (receive) type=stream,
 
   ## Explicit denies for deployment commands

@@ -7,7 +7,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/coreos/go-systemd/v22/journal"
+	"github.com/coreos/go-systemd/journal"
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 )
@@ -23,7 +23,7 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 	}
 	// If requested, put error in journald
 	if LogToJournald {
-		err := CreateJournaldLog("", "", fmt.Sprintf("%s: %v", errorDescription, errorMessage))
+		err := CreateJournaldLog(fmt.Sprintf("%s: %v", errorDescription, errorMessage))
 		if err != nil {
 			fmt.Printf("Failed to create journald entry: %v\n", err)
 		}
@@ -92,12 +92,9 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 }
 
 // Create log entry in journald
-func CreateJournaldLog(endpointName string, filePath string, errorMessage string) (err error) {
+func CreateJournaldLog(errorMessage string) (err error) {
 	// Send entry to journald
-	err = journal.Send(errorMessage, journal.PriErr, map[string]string{
-		"endpointName": endpointName,
-		"filePath":     filePath,
-	})
+	err = journal.Send(errorMessage, journal.PriErr, nil)
 	if err != nil {
 		return
 	}
@@ -106,12 +103,7 @@ func CreateJournaldLog(endpointName string, filePath string, errorMessage string
 }
 
 // Called from within go routines
-func hostDeployFailCleanup(endpointName string, filePath string, errorMessage error) {
-	// Set file path to N/A if a host failed before any files were deployed
-	if filePath == "" {
-		filePath = "N/A"
-	}
-
+func recordDeploymentFailure(endpointName string, allFileArray []string, index int, errorMessage error) {
 	// Ensure multiline error messages dont make their way into json
 	Message := errorMessage.Error()
 	Message = strings.ReplaceAll(Message, "\n", " ")
@@ -119,23 +111,38 @@ func hostDeployFailCleanup(endpointName string, filePath string, errorMessage er
 
 	// Send error to journald
 	if LogToJournald {
-		err := CreateJournaldLog(endpointName, filePath, Message)
+		err := CreateJournaldLog(Message)
 		if err != nil {
 			fmt.Printf("Failed to create journald entry: %v\n", err)
 		}
 	}
 
+	// Array to hold files that failed
+	var fileArray []string
+
+	// Determine which file to add to array
+	if index == 0 {
+		// Add all files to failtracker if host failed early
+		fileArray = allFileArray
+	} else {
+		// Set index back to correct position
+		fileIndex := index-1
+
+		// Specific file that failed
+		fileArray = append(fileArray, allFileArray[fileIndex])
+	}
+
 	// Parseable one line json for failures
 	info := ErrorInfo{
 		EndpointName: endpointName,
-		FilePath:     filePath,
+		Files:        fileArray,
 		ErrorMessage: Message,
 	}
 
 	// Marshal info string to a json format
 	FailedInfo, err := json.Marshal(info)
 	if err != nil {
-		fmt.Printf("Failed to create Fail Tracker Entry for host %s file %s\n", endpointName, filePath)
+		fmt.Printf("Failed to create Fail Tracker Entry for host %s file(s) %v\n", endpointName, fileArray)
 		fmt.Printf("    Error: %s\n", Message)
 		return
 	}
@@ -160,8 +167,8 @@ func checkConfigForEmpty(config *Config) (err error) {
 		err = fmt.Errorf("MaximumConcurrency")
 	} else if config.SSHClient.SudoPassword == "" {
 		err = fmt.Errorf("SudoPassword")
-	} else if config.TemplateDirectory == "" {
-		err = fmt.Errorf("TemplateDirectory")
+	} else if config.UniversalDirectory == "" {
+		err = fmt.Errorf("UniversalDirectory")
 	}
 	return
 }

@@ -9,30 +9,34 @@ command -v sha256sum >/dev/null
 
 # Vars
 buildArchitecture="amd64"
+outputEXE="controller"
 export CGO_ENABLED=0
 export GOARCH=$buildArchitecture
 export GOOS=linux
 
 # Build go binary - dont change output name, its hard coded in install script
-go build -o controller_$GOOS-$GOARCH-static -a -ldflags '-s -w -buildid= -extldflags "-static"' *.go
+go build -o $outputEXE -a -ldflags '-s -w -buildid= -extldflags "-static"' *.go
 
-version=$(./controller_$GOOS-$GOARCH-static -v)
+# New names
+version=$(./$outputEXE -v)
+controllerEXE="controller_"$version"_$GOOS-$GOARCH-static"
+controllerPKG="controller_package_"$version"_$GOOS-$GOARCH.sh"
 
 # Exit if just building binary
 if [[ $1 == "build" ]]
 then
-	mv controller_$GOOS-$GOARCH-static controller_"$version"_$GOOS-$GOARCH-static
-	sha256sum controller_"$version"_$GOOS-$GOARCH-static > controller_"$version"_$GOOS-$GOARCH-static.sha256
+	mv $outputEXE $controllerEXE
+	sha256sum $controllerEXE > "$controllerEXE".sha256
 	exit 0
 fi
 
 # Create packaged install script
-mv controller_$GOOS-$GOARCH-static controller
-tar -cvzf controller.tar.gz controller
-cp install_controller.sh controller_package_$GOOS-$GOARCH.sh
-cat controller.tar.gz | base64 >> controller_package_"$version"_$GOOS-$GOARCH.sh
-rm controller.tar.gz
-rm controller
-sha256sum controller_package_"$version"_$GOOS-$GOARCH.sh > controller_package_"$version"_$GOOS-$GOARCH.sh.sha256
+tar -cvzf controller.tar.gz $outputEXE
+cp install_controller.sh $controllerPKG
+cat controller.tar.gz | base64 >> $controllerPKG
+sha256sum $controllerPKG > "$controllerPKG".sha256
+
+# Cleanup
+rm controller.tar.gz $outputEXE
 
 exit 0

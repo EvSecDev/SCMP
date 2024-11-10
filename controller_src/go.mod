@@ -3,7 +3,7 @@ module controller/m/v2
 go 1.23.2
 
 require (
-	github.com/coreos/go-systemd/v22 v22.5.0
+	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/pkg/sftp v1.13.6
 	golang.org/x/crypto v0.21.0

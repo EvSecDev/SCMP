@@ -13,22 +13,48 @@ import (
 //      UPDATE FUNCTIONS
 // ###################################
 
-func simpleLoopHosts(config Config, deployerUpdateFile string, hostOverride string, checkVersion bool) (deployerVersions string) {
-	// Check local system
-	err := localSystemChecks(config.Controller.RepositoryPath)
-	logError("Error in system checks", err, false)
+func updateDeployer(config Config, deployerUpdateFile string, hostOverride string) {
+	fmt.Printf("%s\n", progCLIHeader)
+	fmt.Printf("Pushing deployer update using executable at %s\n", deployerUpdateFile)
 
-	// Load Binary if updating
-	var deployerUpdateBinary []byte
-	if !checkVersion {
-		// Load binary from file
-		deployerUpdateBinary, err = os.ReadFile(deployerUpdateFile)
-		logError("failed loading deployer executable file", err, true)
+	// Load binary from file
+	deployerUpdateBinary, err := os.ReadFile(deployerUpdateFile)
+	logError("failed loading deployer executable file", err, true)
+
+	// Loop deployers
+	_, err = connectToDeployers(config, deployerUpdateBinary, hostOverride, false)
+	logError("Failed to update remote deployer executables", err, false)
+
+	// Show status to user
+	fmt.Print("               COMPLETE: Updates Pushed\n")
+	fmt.Print(" Please wait for deployer services to auto-restart (1 min)\n")
+	fmt.Print("===========================================================\n")
+}
+
+func getDeployerVersions(config Config, hostOverride string) {
+	fmt.Printf("%s\n", progCLIHeader)
+
+	// Loop deployers
+	deployerVersions, err := connectToDeployers(config, nil, hostOverride, true)
+	logError("Failed to check remote deployer verions", err, false)
+
+	// Show versions to user
+	fmt.Printf("Deployer executable versions:\n%s", deployerVersions)
+	fmt.Print("================================================================\n")
+}
+
+func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride string, checkVersion bool) (returnedData string, err error) {
+	// Check local system
+	err = localSystemChecks()
+	if err != nil {
+		return
 	}
 
 	// Get SSH Private Key
 	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
-	logError("Error retrieving SSH private key", err, true)
+	if err != nil {
+		return
+	}
 
 	// Loop over config endpoints for updater/version
 	for endpointName, endpointInfo := range config.DeployerEndpoints {
@@ -43,22 +69,24 @@ func simpleLoopHosts(config Config, deployerUpdateFile string, hostOverride stri
 		endpointPort := endpointInfo[1].EndpointPort
 		endpointUser := endpointInfo[2].EndpointUser
 
-		// Run update
-		returnedData, err := DeployerUpdater(deployerUpdateBinary, PrivateKey, config.SSHClient.SudoPassword, checkVersion, endpointUser, endpointIP, endpointPort)
+		// Connect to deployer
+		var stdout string
+		stdout, err = deployerClient(deployerUpdateBinary, PrivateKey, config.SSHClient.SudoPassword, checkVersion, endpointUser, endpointIP, endpointPort)
 		if err != nil {
-			logError(fmt.Sprintf("Error: host '%s'", endpointName), err, true)
+			fmt.Printf("Error: host '%s': %v", endpointName, err)
 			continue
 		}
 
 		// If just checking version, Print
 		if checkVersion {
-			deployerVersions = deployerVersions + fmt.Sprintf("%s:%s\n", endpointName, returnedData)
+			returnedData = returnedData + fmt.Sprintf("%s:%s\n", endpointName, stdout)
 		}
 	}
+
 	return
 }
 
-func DeployerUpdater(deployerUpdateBinary []byte, PrivateKey ssh.Signer, SudoPassword string, checkVersion bool, endpointUser string, endpointIP string, endpointPort int) (deployerVersion string, err error) {
+func deployerClient(deployerUpdateBinary []byte, PrivateKey ssh.Signer, SudoPassword string, checkVersion bool, endpointUser string, endpointIP string, endpointPort int) (stdout string, err error) {
 	// Network info checks
 	endpointSocket, err := ParseEndpointAddress(endpointIP, endpointPort)
 	if err != nil {
@@ -77,7 +105,7 @@ func DeployerUpdater(deployerUpdateBinary []byte, PrivateKey ssh.Signer, SudoPas
 	if checkVersion {
 		// Get remote host deployer version
 		deployerSSHVersion := string(client.Conn.ServerVersion())
-		deployerVersion = strings.Replace(deployerSSHVersion, "SSH-2.0-OpenSSH_", "", 1)
+		stdout = strings.Replace(deployerSSHVersion, "SSH-2.0-OpenSSH_", "", 1)
 		return
 	}
 

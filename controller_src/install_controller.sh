@@ -50,7 +50,7 @@ RepositoryPath="~/SCMGit"
 BranchName="main"
 configFilePath="$RepositoryPath/scmpc.yaml"
 LogJournalBool="false"
-TemplateDirectory="goldentemplate"
+UniversalDirectory="universalconfigs"
 SSHIdentityPath="~/.ssh/scmp_ssh.key"
 SSHPort="2022"
 MaximumOutboundConnections="10"
@@ -131,11 +131,11 @@ then
 	BranchName=$UserChoice_BranchName
 fi
 
-echo "[*] Enter the name of the template directory inside the repository"
-read -e -p "    (Default '$TemplateDirectory'): " UserChoice_TemplateDirectory
-if [[ $UserChoice_TemplateDirectory != "" ]]
+echo "[*] Enter the name of the universal directory inside the repository"
+read -e -p "    (Default '$UniversalDirectory'): " UserChoice_UniversalDirectory
+if [[ $UserChoice_UniversalDirectory != "" ]]
 then
-	TemplateDirectory=$UserChoice_TemplateDirectory
+	UniversalDirectory=$UserChoice_UniversalDirectory
 fi
 
 echo "[*] Add all the SSH hosts in your SSH config file to the deployer endpoints?"
@@ -176,12 +176,6 @@ fi
 
 #### Actions on choices
 
-# Quit if repo already exists
-if [[ ! $(ls -ld $RepositoryPath 2>&1 1>/dev/null) ]]
-then
-	logError "Repository at $RepositoryPath already exists, not creating new repo." "true"
-fi
-
 # Put executable from local dir in user choosen location
 PAYLOAD_LINE=$(awk '/^__PAYLOAD_BEGINS__/ { print NR + 1; exit 0; }' $0)
 executableDirs=$(dirname $executablePath 2>/dev/null || logError "failed to determine executable parent directories" "true")
@@ -190,15 +184,13 @@ tail -n +${PAYLOAD_LINE} $0 | base64 -d | tar -zpvx -C $executableDirs || logErr
 mv $executableDirs/controller $executablePath 2>/dev/null || logError "failed to move executable" "true"
 echo "[+] Successfully extracted deployer binary to $executablePath"
 
-# Create git repo
-mkdir -p $RepositoryPath 2>/dev/null || logError "failed to create repository parent directories" "true"
-cd $RepositoryPath
-git init -q --initial-branch=$BranchName || logError "failed to initialize git repository" "true"
+# Run controller to create new repository
+$executablePath -n $RepositoryPath:$BranchName || logError "" "true"
 echo "[+] Successfully created git repository in '$RepositoryPath'"
 
-# create template dir
-mkdir -p $RepositoryPath/$TemplateDirectory 2>/dev/null || logError "failed to create template directory" "true"
-echo "[+] Successfully created Template Directory at '$RepositoryPath/$TemplateDirectory'"
+# create universal dir
+mkdir -p $RepositoryPath/$UniversalDirectory 2>/dev/null || logError "failed to create universal directory" "true"
+echo "[+] Successfully created Universal Directory at '$RepositoryPath/$UniversalDirectory'"
 
 # SSH key generation
 if [[ $UserSuppliedKey != "true" ]]
@@ -235,22 +227,25 @@ Controller:
   # Path to the root of the git repository
   RepositoryPath: "$repositoryPath"
   LogtoJournald: $LogJournalBool
-  SSHClient:
-    # File path for client's SSH key
-    SSHIdentityFile: "$SSHIdentityPath"
-    # Set to true if you want to use your SSH agent to retrieve the private key (requires pubkey in identity file)
-    UseSSHAgent: $SSHAgentBool
-    # Change where remote hosts public keys will be stored (don't use .ssh/known_hosts) - recommended to keep in the root of the repository (otherwise, changed your apparmor profile)
-    KnownHostsFile: "$KnownHostsFile"
-    # Remote file that is used for unprivileged file transfers
-    RemoteTransferBuffer: "/tmp/scmpdbuffer"
-    # Limit number of ssh outbound connections at once
-    MaximumConnectionsAtOnce: $MaximumOutboundConnections
-    # Password that will be used to run sudo commands on remote host
-    # Leave blank if sudo does not require a password
-    SudoPassword: "$SudoPassword"
+SSHClient:
+  # File path for client's SSH key
+  SSHIdentityFile: "$SSHIdentityPath"
+  # Set to true if you want to use your SSH agent to retrieve the private key (requires pubkey in identity file)
+  UseSSHAgent: $SSHAgentBool
+  # Change where remote hosts public keys will be stored (don't use .ssh/known_hosts) - recommended to keep in the root of the repository (otherwise, changed your apparmor profile)
+  KnownHostsFile: "$KnownHostsFile"
+  # Remote file that is used for unprivileged file transfers
+  RemoteTransferBuffer: "/tmp/scmpdbuffer"
+  # Limit number of ssh outbound connections at once
+  MaximumConnectionsAtOnce: $MaximumOutboundConnections
+  # Password that will be used to run sudo commands on remote host
+  # Leave blank if sudo does not require a password
+  SudoPassword: "$SudoPassword"
 # Repo dir to house all configs that should be deployed to every host
-TemplateDirectory: "$TemplateDirectory"
+UniversalDirectory: "$UniversalDirectory"
+# Directories to not deploy in repository (must be relative path starting at root of repository)
+IgnoreDirectories:
+  - "Templates"
 # Remote hosts to receive configurations
 DeployerEndpoints:
   # name of each endpoint must have a matching directory name in the root of the git repo
@@ -262,7 +257,7 @@ DeployerEndpoints:
   #  - endpoint: "127.0.0.2"
   #  - endpointPort: 2022
   #  - endpointUser: "deployer"
-  #  - ignoreTemplates: true
+  #  - ignoreUniversalConfs: true
 EOF
 echo "[+] Successfully created controller configuration  in '$configFilePath'"
 
@@ -289,40 +284,12 @@ then
 	echo "[+] Successfully added SSH client config hosts to '$configFilePath'"
 fi
 
-# Add metadata example files
-cat > "$RepositoryPath/.example-metadata-header.txt" <<EOF
-#|^^^|#
-{
-  "FileOwnerGroup": "root:root",
-  "FilePermissions": 644,
-  "ReloadRequired": true,
-  "Reload": [
-    "systemctl restart systemd-timesyncd",
-    "systemctl is-active systemd-timesyncd"
-  ]
-}
-#|^^^|#
-EOF
-	#
-	cat > "$RepositoryPath/.example-metadata-header-noreload.txt" <<EOF
-#|^^^|#
-{
-  "FileOwnerGroup": "root:root",
-  "FilePermissions": 644,
-  "ReloadRequired": false
-}
-#|^^^|#
-EOF
-#
-chmod 640 $RepositoryPath/.example-metadata-header.txt || logError "failed to change permissions for example metadata file" "false"
-chmod 640 $RepositoryPath/.example-metadata-header-noreload.txt || logError "failed to change permissions for example metadata file" "false"
-
 # Create first commit
 GIT_AUTHOR_EMAIL=""
 GIT_COMMITTER_EMAIL=""
 git add . || logError "failed to git add, please fix error, disable hook, git add and commit" "false"
-git commit -m 'Initial Automated Commit' --author 'SCMPController <scmpc@localhost>' || logError "failed to git commit, please fix error, disable hook, and re-commit" "false"
-echo "[+] Successfully created an initial commit to new repository"
+git commit -m 'Added controller configuration and universal directory' --author 'SCMPController <scmpc@localhost>' || logError "failed to git commit, please fix error, disable hook, and re-commit" "false"
+echo "[+] Successfully committed controller files to new repository"
 
 # Install git hook script
 if [[ $InstallHookConfirmation == "y" ]]
@@ -383,7 +350,7 @@ EOF
 	#
 fi
 
-echo "[+] New git repository created in $RepositoryPath with initial branch $BranchName and template directory $TemplateDirectory"
+echo "[+] New git repository created in $RepositoryPath with initial branch $BranchName and universal directory $UniversalDirectory"
 echo "  [*] Don't forget to add the public key to all of your deployer endpoints:\n    $SSHPublicKey"
 
 exit 0

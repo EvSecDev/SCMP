@@ -214,7 +214,7 @@ func connectToSSH(endpointSocket string, endpointUser string, PrivateKey ssh.Sig
 
 		// Determine if error is recoverable
 		if err != nil {
-			if strings.Contains(err.Error(), "No route to host") {
+			if strings.Contains(err.Error(), "no route to host") {
 				// Re-attempt after waiting for network path
 				time.Sleep(200 * time.Millisecond)
 				continue

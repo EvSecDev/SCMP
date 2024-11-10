@@ -3,9 +3,10 @@ package main
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/go-git/go-git/v5/plumbing/format/diff"
 )
 
 // ###################################
@@ -27,116 +28,18 @@ func checkForHostOverride(hostOverride string, currentHost string) (SkipHost boo
 	return
 }
 
-// Map value deleter
-func removeValueFromMapSlice(HostsAndFilesMap map[string][]string, key, valueToRemove string) {
-	if values, ok := HostsAndFilesMap[key]; ok {
-		newValues := []string{}
-		for _, value := range values {
-			if value != valueToRemove {
-				newValues = append(newValues, value)
-			}
-		}
-		HostsAndFilesMap[key] = newValues
-	}
-}
-
-// Ensures template configs dont get deployed where they shouldn't
-func deDupsHostsandTemplateCommits(HostsAndFiles map[string]string, TemplateDirectory string, AllHostsAndFilesMap map[string][]string, endpointName string, OSPathSeparator string, ignoreTemplates bool) (FilteredCommitFilePaths []string) {
-	// Filter down committed files to only ones that are allowed for this host and create map for deduping
-	HostsAndFilesMap := make(map[string][]string)
-	for filePath := range HostsAndFiles {
-		// Skip files in root of repository - only files inside host directories should be considered
-		if !strings.ContainsRune(filePath, []rune(OSPathSeparator)[0]) {
-			continue
-		}
-
-		// Get the host name from the repository top level directory
-		commitSplit := strings.SplitN(filePath, OSPathSeparator, 2)
-		commitHost := commitSplit[0]
-		commitPath := commitSplit[1]
-
-		// Skip files that arent in this hosts directory or in the template directory
-		if commitHost != endpointName && commitHost != TemplateDirectory {
-			continue
-		}
-
-		// Skip template files for hosts that dont want templates
-		if commitHost == TemplateDirectory && ignoreTemplates {
-			continue
-		}
-
-		// Append path to the map
-		HostsAndFilesMap[commitHost] = append(HostsAndFilesMap[commitHost], commitPath)
-	}
-
-	// Map to track duplicates
-	confFileCount := make(map[string]int)
-
-	// Count occurences of each conf file in entire repo
-	for _, conffiles := range AllHostsAndFilesMap {
-		for _, conf := range conffiles {
-			confFileCount[conf]++
-		}
-	}
-
-	// Remove duplicate confs for host in template dir
-	for hostdir, conffiles := range AllHostsAndFilesMap {
-		for _, conf := range conffiles {
-			// Only remove if multiple same config paths AND the hostdir part is the template dir
-			if confFileCount[conf] > 1 && hostdir == TemplateDirectory {
-				// Maps always passed by reference; function will edit original map
-				removeValueFromMapSlice(AllHostsAndFilesMap, hostdir, conf)
-			}
-		}
-	}
-
-	// Compare the confs allowed to deploy in the repo with the confs in the actual commit
-	hostFiles, hostExists := AllHostsAndFilesMap[endpointName]
-	goldenFiles, templateExists := HostsAndFilesMap[TemplateDirectory]
-	if hostExists && templateExists {
-		// Create a map to track files in the host
-		hostFileMap := make(map[string]struct{})
-		for _, file := range hostFiles {
-			hostFileMap[file] = struct{}{}
-		}
-
-		// Filter out files in the golden template that also exist in the host
-		var newTemplateFiles []string
-		for _, file := range goldenFiles {
-			if _, exists := hostFileMap[file]; !exists {
-				newTemplateFiles = append(newTemplateFiles, file)
-			}
-		}
-
-		// Update the HostsAndFilesMap map with the filtered files
-		HostsAndFilesMap[TemplateDirectory] = newTemplateFiles
-	}
-
-	// Convert map into desired formats for further processing
-	for host, paths := range HostsAndFilesMap {
-		for _, path := range paths {
-			// Paths in correct format for loading from git
-			FilteredCommitFilePaths = append(FilteredCommitFilePaths, host+OSPathSeparator+path)
-		}
-	}
-
-	return
-}
-
 // Function to extract and validate metadata JSON from file contents
 func extractMetadata(fileContents string) (metadataSection string, remainingContent string, err error) {
-	// Define the delimiters
-	StartDelimiter := "#|^^^|#"
-	EndDelimiter := "#|^^^|#\n" // trims newline from actual file contents
-	Delimiter := "#|^^^|#"
+	// Add newline so file content doesnt have empty line at the top
+	EndDelimiter := Delimiter + "\n"
 
 	// Find the start and end of the metadata section
-	startIndex := strings.Index(fileContents, StartDelimiter)
+	startIndex := strings.Index(fileContents, Delimiter)
 	if startIndex == -1 {
 		err = fmt.Errorf("json start delimter missing")
 		return
 	}
-	startIndex += len(StartDelimiter)
+	startIndex += len(Delimiter)
 
 	endIndex := strings.Index(fileContents[startIndex:], EndDelimiter)
 	if endIndex == -1 {
@@ -145,48 +48,121 @@ func extractMetadata(fileContents string) (metadataSection string, remainingCont
 			err = fmt.Errorf("no newline after json end delimiter")
 			return
 		}
-		err = fmt.Errorf("json end delimter missing ")
+		err = fmt.Errorf("json end delimiter missing ")
 		return
 	}
 	endIndex += startIndex
 
 	// Extract the metadata section and remaining content into their own vars
 	metadataSection = fileContents[startIndex:endIndex]
-	remainingContent = fileContents[:startIndex-len(StartDelimiter)] + fileContents[endIndex+len(EndDelimiter):]
+	remainingContent = fileContents[:startIndex-len(Delimiter)] + fileContents[endIndex+len(EndDelimiter):]
+
+	return
+}
+
+// Ensures files in the new commit are valid
+func validateCommittedFiles(commitHostNames *[]string, DeployerEndpoints map[string][]DeployerEndpoints, rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
+	// Nothing to validate
+	if rawFile == nil {
+		return
+	}
+
+	// Retrieve integer representation of the files mode
+	mode := fmt.Sprintf("%v", rawFile.Mode())
+
+	// Retrieve the type for this file
+	FileType = determineFileType(mode)
+
+	// Skip processing if file is unsupported
+	if FileType == "unsupported" {
+		SkipFile = true
+		return
+	}
+
+	// Get the path
+	path = rawFile.Path()
+
+	// File exists, but no path - technically valid
+	if path == "" {
+		return
+	}
+
+	// Always ignore files in root of repository
+	if !strings.ContainsRune(path, []rune(OSPathSeparator)[0]) {
+		SkipFile = true
+		return
+	}
+
+	// SkipFile if inside ignore directories array
+	if len(IgnoreDirectories) > 0 {
+		// Get just the dirs
+		commitDir := filepath.Dir(path)
+
+		// When committed file directory is prefixed by an ignore directory, skip file
+		for _, ignoreDir := range IgnoreDirectories {
+			if strings.HasPrefix(commitDir, ignoreDir) {
+				SkipFile = true
+				return
+			}
+		}
+	}
+
+	// Retrieve the host directory name for this file
+	fileDirNames := strings.SplitN(path, OSPathSeparator, 2)
+	hostDirName := fileDirNames[0]
+
+	// Ensure the commit host directory name is a valid hostname in yaml DeployerEndpoints
+	var NoHostMatch bool
+	for availableHost := range DeployerEndpoints {
+		if hostDirName == availableHost || hostDirName == UniversalDirectory {
+			NoHostMatch = false
+			break
+		}
+		NoHostMatch = true
+	}
+	if NoHostMatch {
+		err = fmt.Errorf("repository host directory '%s' has no matching host in YAML config", hostDirName)
+	}
+
+	// Check if host dir is already in the slice (avoid adding many duplicates to slice
+	var HostAlreadyPresent bool
+	for _, host := range *commitHostNames {
+		if host == hostDirName {
+			HostAlreadyPresent = true
+		}
+	}
+
+	// Add the hosts directory name to the slice to filter deployer endpoints later
+	if !HostAlreadyPresent {
+		*commitHostNames = append(*commitHostNames, hostDirName)
+	}
 
 	return
 }
 
 // Determines which file types in the commit are allowed to be deployed
-func determineFileType(filePath string) (fileType string, err error) {
-	// Get the file info
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return
-	}
-	fileMode := fileInfo.Mode()
-
+func determineFileType(fileMode string) (fileType string) {
 	// Set type of file in commit - skip unsupported
-	if fileMode.IsRegular() {
+	if fileMode == "0100644" {
 		// Text file
 		fileType = "regular"
-	} else if fileMode&os.ModeSymlink != 0 {
+	} else if fileMode == "0120000" {
 		// Special, but able to be handled
 		fileType = "symlink"
-	} else if fileMode.IsDir() {
-		// like drw-rw----
+	} else if fileMode == "0040000" {
+		// Directory
 		fileType = "unsupported"
-	} else if fileMode&os.ModeDevice != 0 {
-		// like brw-rw----
+	} else if fileMode == "0160000" {
+		// Git submodule
 		fileType = "unsupported"
-	} else if fileMode&os.ModeCharDevice != 0 {
-		// like crw-rw----
+	} else if fileMode == "0100755" {
+		// Executable
 		fileType = "unsupported"
-	} else if fileMode&os.ModeNamedPipe != 0 {
-		// like prw-rw----
+	} else if fileMode == "0100664" {
+		// Deprecated
 		fileType = "unsupported"
-	} else if fileMode&os.ModeSocket != 0 {
-		// like Srw-rw----
+	} else if fileMode == "0" {
+		// Empty (no file)
 		fileType = "unsupported"
 	} else {
 		// Unknown - dont process
@@ -197,7 +173,7 @@ func determineFileType(filePath string) (fileType string, err error) {
 }
 
 // Retrieve the symbolic link target path and check for validity
-func ResolveLinkToTarget(filePath string, OSPathSeparator string) (targetPath string, err error) {
+func ResolveLinkToTarget(filePath string) (targetPath string, err error) {
 	// Get link target path
 	linkTarget, err := filepath.EvalSymlinks(filePath)
 	if err != nil {

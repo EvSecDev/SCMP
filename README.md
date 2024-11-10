@@ -5,9 +5,15 @@
 A secure and automated configuration management terminal-based tool backed by git to centrally control and push configuration files to Linux servers.
 
 This program is designed to assist and automate a Linux administrators job functions by centrally allowing them to edit, version control, and deploy changes to configuration files of remote Linux systems.
+This progran is NOT intended as a configuration management system (like Terraform), but rather a CLI tool to replace the manual process of SSH'ing into many remote servers to manage configuration files.
+
+There are three parts to this tool (two of which are optional), the controller, deployer, and updater.
+ - The controller is the client that runs on your workstation and pushes configuration files to remote servers.
+ - The deployer is the (optional) server that runs on the remote servers that will process the configuration files received from the controller.
+ - The updater is the (optional) helper program that also runs on the remote servers that will validate new deployer executables that the controller sends to the deployer server.
 
 The controller utilizes a local git repository of a specific structure to track configuration files that should be applied to every host administered, and specific config overrides as well as host-specific configurations.
-Using the GO x/crypto/ssh package, this program will SSH into the hosts defined in the configuration file and write the relevant configurations as well as handle the reloading of the associated service/program if required.
+Using the Go x/crypto/ssh package, this program will SSH into the hosts defined in the configuration file and write the relevant configurations as well as handle the reloading of the associated service/program if required.
   The deployment method is currently only SSH by key authentication using password sudo for remote commands (password login authentication is currently not supported).
  - In automatic deployment mode, every time you commit a change to the git repository, the program will be called with the 'post-commit' hook and will deploy the changed files to their designated remote hosts.
  - In manual deployment mode, you can choose a specific commit ID from your repository and deploy the changed files in that specific commit to their designated remote hosts.
@@ -56,13 +62,14 @@ If you like what this program can do or want to expand functionality yourself, f
 - Deploy automatically via git post-commit hook
 - Deploy manually via specifying commit hash
 - Easy recovery from partial deployment failures
-- One-time manual deployment to specific hosts
-- Deploy all relevant files (even unchanged) to a newly created remote host 
+- One-time manual deployment to specific hosts and/or specific files
+- Deploy all (or a subset of) relevant files (even unchanged) to a newly created remote host
 - Fail-safe file deployment - automatic restore if any remote failure is encountered (with the failtracker option)
 - Concurrent SSH Connections to handle a large number of remote hosts (and option to limit concurrency)
 - Support for regular SSH servers (if you don't want to use the Deployer program)
 - Key-based SSH authentication (by file or ssh-agent)
 - Password-based Sudo command escalation
+- Create new repositories
 - Collect configurations from existing systems to bootstrap the local repository
 
 ### What it **can't** do: Controller
@@ -77,29 +84,37 @@ If you like what this program can do or want to expand functionality yourself, f
 ### Controller Help Menu
 
 ```
-Usage: scmcontroller [OPTIONS]...
+Usage: controller [OPTIONS]...
 
 Examples:
-    controller --config </etc/scmpc.yaml> --manual-deploy --commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>
+    controller --config </etc/scmpc.yaml> --manual-deploy --commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7> [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
     controller --config </etc/scmpc.yaml> --manual-deploy --use-failtracker-only
     controller --config </etc/scmpc.yaml> --deploy-all --remote-hosts <www,proxy,db01> [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
     controller --config </etc/scmpc.yaml> --deployer-versions [--remote-hosts <www,proxy,db01>]
     controller --config </etc/scmpc.yaml> --deployer-update-file <~/Downloads/deployer> [--remote-hosts <www,proxy,db01>]
+    controller --new-repo /opt/repo1:main
+    controller --config </etc/scmpc.yaml> --seed-repo [--remote-hosts <www,proxy,db01>]
 
 Options:
     -c, --config </path/to/yaml>                    Path to the configuration file [default: scmpc.yaml]
     -a, --auto-deploy                               Use latest commit for deployment, normally used by git post-commit hook
     -m, --manual-deploy                             Use specified commit ID for deployment (Requires '--commitid')
-    -d, --deploy-all                                Deploy all files in specified commit to specific hosts (Requires '--remote-hosts')
-    -r, --remote-hosts <host1,host2,host3...>       Override hosts for deployment
+    -d, --deploy-all                                Deploy all files in specified commit to specific hosts (Requires '--remote-hosts' and '--manual-deploy')
+    -r, --remote-hosts <host1,host2,host3,...>      Override hosts for deployment
+    -l, --local-files <file1,file2,...>             Override files for deployment from a specific commit (Requires '--manual-deploy')
     -C, --commitid <hash>                           Commit ID (hash) of the commit to deploy configurations from
-    -f, --use-failtracker-only                      If previous deployment failed, use the failtracker to retry (Requires '--manual-deploy')
-    -q  --deployer-versions                         Query remote host deployer executable versions and print to stdout
-    -u  --deployer-update-file </path/to/binary>    Upload and update deployer executable with supplied signed ELF file
-    -s  --seed-repo                                 Retrieve existing files from remote hosts to seed the local repository (Requires user interaction)
+    -f, --use-failtracker-only                      If previous deployment failed, use the failtracker to retry (Requires '--manual-deploy', but not '--commitid')
+    -q, --deployer-versions                         Query remote host deployer executable versions and print to stdout
+    -u, --deployer-update-file </path/to/binary>    Upload and update deployer executable with supplied signed ELF file
+    -n, --new-repo </path/to/repo>:<branchname>     Create a new repository at the given path with the given initial branch name
+    -s, --seed-repo                                 Retrieve existing files from remote hosts to seed the local repository (Requires user interaction)
+    -g, --disable-git-hook                          Disables the automatic deployment git post-commit hook for the current repository
+    -G, --enable-git-hook                           Enables the automatic deployment git post-commit hook for the current repository
     -h, --help                                      Show this help menu
     -V, --version                                   Show version and packages
     -v, --versionid                                 Show only version number
+
+Documentation: <https://github.com/EvSecDev/SCMPusher>
 ```
 
 ### Deployer Help Menu
@@ -249,7 +264,7 @@ With those requirements, the Updater operates in the following manner:
 
 ### Commit Automatic Rollback
 
-When the controller is running in automatic mode, there is a feature that will automatically roll back the commit when encountering an error
+When the controller is running in automatic mode, there is a feature that will automatically roll back the commit when encountering an error.
 During the processing of a commit, any error before the controller connects to remote hosts will result the HEAD being moved to the previous commit.
 
 This is intentional to ensure that the HEAD commit is the most accurate representation of what configurations are currently deployed in the network.

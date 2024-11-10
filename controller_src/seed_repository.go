@@ -28,8 +28,10 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 		}
 	}()
 
+	fmt.Printf("==== Secure Configuration Management Repository Seeding ====\n")
+
 	// Check local system
-	err := localSystemChecks(config.Controller.RepositoryPath)
+	err := localSystemChecks()
 	logError("Error in system checks", err, false)
 
 	// Get SSH Private Key from the supplied identity file
@@ -72,6 +74,8 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 			logError("Error seeding repository", err, false)
 		}
 	}
+
+	fmt.Printf("============================================================\n")
 }
 
 func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword string) (selectedFiles map[string][]string, err error) {
@@ -303,8 +307,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	// Convert recevied bytes to string
 	fileContents := buffer.String()
 
-	// Get the OS path separator and replace target path separators with local os ones
-	OSPathSeparator := string(os.PathSeparator)
+	// Replace target path separators with local os ones
 	hostFilePath := strings.ReplaceAll(targetFilePath, "/", OSPathSeparator)
 
 	// Use target file path and hosts name for repo file location
@@ -368,7 +371,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	}
 
 	// Add header to file contents
-	configFile := "#|^^^|#\n" + string(metadata) + "\n#|^^^|#\n" + fileContents
+	configFile := Delimiter + "\n" + string(metadata) + "\n" + Delimiter + "\n" + fileContents
 
 	// Create any missing directories in repository
 	configParentDirs := filepath.Dir(configFilePath)

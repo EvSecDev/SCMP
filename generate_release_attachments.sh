@@ -1,4 +1,5 @@
 #!/bin/bash
+set -e
 
 # Ensure script is run only in bash
 if [ -z "$BASH_VERSION" ]
@@ -16,7 +17,7 @@ reporoot=$(pwd)
 # Build controller
 cd controller_src/
 ./build_and_package.sh
-mv controller_package_* ~/Downloads/
+mv controller_* ~/Downloads/
 ./build_and_package.sh build
 mv controller_* ~/Downloads/
 
@@ -25,7 +26,7 @@ cd $reporoot
 # Build deployer
 cd deployer_src/
 ./build_and_package.sh
-mv deployer_installer_* ~/Downloads/
+mv deployer_* ~/Downloads/
 ./build_and_package.sh sigbuild
 mv deployer_* ~/Downloads/
 
@@ -45,7 +46,8 @@ comment_Changed=$(echo -e "$headcommit" | grep "   Changed" | sed 's/^[ \t]*Chan
 comment_Removed=$(echo -e "$headcommit" | grep "   Removed" | sed 's/^[ \t]*Removed/ -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')
 comment_Fixed=$(echo -e "$headcommit" | grep "   Fixed" | sed 's/^[ \t]*Fixed/ -/g' | sed 's/bug where //g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')
 
-echo "DOUBLE CHECK GRAMMAR BEFORE USING"
+echo -e "DOUBLE CHECK GRAMMAR BEFORE USING\n\n"
+
 cat << EOF
 ### Added
 $comment_Added
@@ -64,4 +66,5 @@ $comment_Fixed
 
 EOF
 
+echo -e "FILE OUTPUTS\n\n"
 ls -l ~/Downloads/
