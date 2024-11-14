@@ -97,8 +97,7 @@ func main() {
 	// Meta info print out
 	if versionFlagExists {
 		fmt.Printf("Deployer %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Printf("First party packages: bytes encoding/base64 encoding/binary flag fmt io net os os/exec runtime strings\n")
-		fmt.Printf("Third party packages: github.com/pkg/sftp golang.org/x/crypto/ssh gopkg.in/yaml.v2\n")
+                fmt.Print("Packages: runtime strings io github.com/pkg/sftp encoding/base64 flag fmt golang.org/x/crypto/ssh os/exec net os bytes encoding/binary gopkg.in/yaml.v2\n")
 		os.Exit(0)
 	}
 	if versionNumberFlagExists {

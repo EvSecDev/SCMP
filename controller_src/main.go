@@ -191,8 +191,7 @@ func main() {
 	// Meta info print out
 	if versionFlagExists {
 		fmt.Printf("Controller %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Printf("First party packages: runtime bufio crypto/hmac crypto/rand crypto/sha1 crypto/sha256 encoding/base64 encoding/hex encoding/json flag context fmt io net os path/filepath regexp strconv strings sync time\n")
-		fmt.Printf("Third party packages: github.com/coreos/go-systemd/journal github.com/go-git/go-git/plumbing/object github.com/go-git/go-git/v5 github.com/go-git/go-git/v5/plumbing github.com/go-git/go-git/v5/plumbing/object github.com/go-git/go-git/v5/plumbing/format/diff github.com/pkg/sftp golang.org/x/crypto/ssh golang.org/x/crypto/ssh/agent gopkg.in/yaml.v2\n")
+		fmt.Print("Packages: runtime encoding/hex strings strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 github.com/pkg/sftp encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal context fmt time golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff gopkg.in/yaml.v2\n")
 		os.Exit(0)
 	} else if versionNumberFlagExists {
 		fmt.Println(progVersion)

@@ -12,30 +12,25 @@ echo "========================================"
 read -p " Press enter to continue"
 echo "========================================"
 
-reporoot=$(pwd)
-
 # Build controller
-cd controller_src/
-./build_and_package.sh
-mv controller_* ~/Downloads/
-./build_and_package.sh build
-mv controller_* ~/Downloads/
+./build.sh -b controller -f
+mv controller_v* ~/Downloads/
 
-cd $reporoot
+# Build controller package
+./build.sh -b controllerpkg -f
+mv controller_install* ~/Downloads/
 
 # Build deployer
-cd deployer_src/
-./build_and_package.sh
-mv deployer_* ~/Downloads/
-./build_and_package.sh sigbuild
-mv deployer_* ~/Downloads/
+./build.sh -b deployer -f
+mv deployer_v* ~/Downloads/
+
+# Build deployer package
+./build.sh -b deployerpkg -f
+mv deployer_package* ~/Downloads/
 
 # Build updater
-cd updater_src/
-./build-static.sh build
-mv updater_* ~/Downloads/
-
-cd $reporoot
+./build.sh -b updater -f
+mv updater_v* ~/Downloads/
 
 # Generate release notes from git commit message
 

@@ -72,7 +72,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 			}
 			// Danger Zone: Remove empty parent dirs
 			targetPath := filepath.Dir(targetFilePath)
-			maxLoopCount := 64001 // for safety - max ext4 sub dirs (but its sane enough for other fs which have super high limits)
+			maxLoopCount := 1000 // for safety - sane number to avoid endless dir loops
 			for i := 0; i < maxLoopCount; i++ {
 				// Check for presence of anything in dir
 				command = "ls -A " + targetPath
