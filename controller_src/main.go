@@ -95,7 +95,7 @@ var KnownHostMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader = `==== Secure Configuration Management Pusher ====`
-const progVersion = "v1.4.0"
+const progVersion = "v1.4.1"
 const usage = `
 Examples:
     controller --config </etc/scmpc.yaml> --manual-deploy --commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7> [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
