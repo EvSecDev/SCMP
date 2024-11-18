@@ -35,8 +35,11 @@ func getCommitFiles(commit *object.Commit, DeployerEndpoints map[string][]Deploy
 	// Store files, actions, and host names relevant to this commit
 	commitFiles = make(map[string]string)
 
-	// File override array
-	fileOverrides := strings.Split(fileOverride, ",")
+	// If file override array ispresent, split into fields
+	var fileOverrides []string
+	if len(fileOverride) > 0 {
+		fileOverrides = strings.Split(fileOverride, ",")
+	}
 
 	// Determine what to do with each file in the commit
 	for _, file := range patch.FilePatches() {
