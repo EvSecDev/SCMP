@@ -7,15 +7,14 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-
-	"golang.org/x/crypto/ssh"
 )
 
 // ###################################
 //      HOST DEPLOYMENT HANDLING
 // ###################################
 
-func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName string, commitFilePaths []string, endpointSocket string, endpointUser string, commitFileData map[string]string, commitFileMetadata map[string]map[string]interface{}, commitFileDataHashes map[string]string, commitFileActions map[string]string, PrivateKey ssh.Signer, SudoPassword string) {
+// SSH's into a remote host to deploy files and run reload commands
+func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName string, commitFilePaths []string, endpointInfo EndpointInfo, commitFileData map[string]string, commitFileMetadata map[string]map[string]interface{}, commitFileDataHashes map[string]string, commitFileActions map[string]string) {
 	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
@@ -31,12 +30,18 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 	defer func() { <-semaphore }() // Release the token when the goroutine finishes
 
 	// Connect to the SSH server
-	client, err := connectToSSH(endpointSocket, endpointUser, PrivateKey)
+	client, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
 	if err != nil {
 		recordDeploymentFailure(endpointName, commitFilePaths, 0, fmt.Errorf("failed connect to SSH server %v", err))
 		return
 	}
 	defer client.Close()
+
+	// Get sudo password from info array
+	SudoPassword := endpointInfo.SudoPassword
+
+	// Get this hosts remote transfer buffer file path
+	tmpRemoteFilePath := endpointInfo.RemoteTransferBuffer
 
 	// Loop through target files and deploy
 	var postDeployedConfigsLocal int
@@ -182,7 +187,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		}
 
 		// Transfer local file to remote
-		err = TransferFile(client, commitFileData[commitFilePath], targetFilePath, SudoPassword)
+		err = TransferFile(client, commitFileData[commitFilePath], targetFilePath, SudoPassword, tmpRemoteFilePath)
 		if err != nil {
 			recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SFTP config file transfer to remote host: %v", err))
 			err = restoreOldConfig(client, targetFilePath, oldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)

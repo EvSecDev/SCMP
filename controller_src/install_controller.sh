@@ -228,19 +228,23 @@ Controller:
   RepositoryPath: "$repositoryPath"
   LogtoJournald: $LogJournalBool
 SSHClient:
+  # Change where remote hosts public keys will be stored (don't use .ssh/known_hosts) - recommended to keep in the root of the repository (otherwise, changed your apparmor profile)
+  KnownHostsFile: "$KnownHostsFile"
+  # Limit number of ssh outbound connections at once
+  MaximumConnectionsAtOnce: $MaximumOutboundConnections
+# Defaults for SSH Client - applies to all endpoints. Can be overriden under each endpoint host
+SSHClientDefaults:
+  endpointPort: 2022
+  endpointUser: "deployer"
   # File path for client's SSH key
   SSHIdentityFile: "$SSHIdentityPath"
   # Set to true if you want to use your SSH agent to retrieve the private key (requires pubkey in identity file)
   UseSSHAgent: $SSHAgentBool
-  # Change where remote hosts public keys will be stored (don't use .ssh/known_hosts) - recommended to keep in the root of the repository (otherwise, changed your apparmor profile)
-  KnownHostsFile: "$KnownHostsFile"
-  # Remote file that is used for unprivileged file transfers
-  RemoteTransferBuffer: "/tmp/scmpdbuffer"
-  # Limit number of ssh outbound connections at once
-  MaximumConnectionsAtOnce: $MaximumOutboundConnections
   # Password that will be used to run sudo commands on remote host
   # Leave blank if sudo does not require a password
   SudoPassword: "$SudoPassword"
+  # Remote file that is used for unprivileged file transfers
+  RemoteTransferBuffer: "/tmp/scmpdbuffer"
 # Repo dir to house all configs that should be deployed to every host
 UniversalDirectory: "$UniversalDirectory"
 # Directories to not deploy in repository (must be relative path starting at root of repository)
@@ -250,14 +254,15 @@ IgnoreDirectories:
 DeployerEndpoints:
   # name of each endpoint must have a matching directory name in the root of the git repo
   #examplehost:
-  #  - endpoint: "127.0.0.1"
-  #  - endpointPort: 2022
-  #  - endpointUser: "deployer"
+  #  endpoint: "127.0.0.1"
   #examplehost2:
-  #  - endpoint: "127.0.0.2"
-  #  - endpointPort: 2022
-  #  - endpointUser: "deployer"
-  #  - ignoreUniversalConfs: true
+  #  endpoint: "127.0.0.2"
+  #  endpointPort: 2022
+  #  endpointUser: "deployer"
+  #  SSHIdentityFile: "~/.ssh/private.key"
+  #  SudoPassword: ""
+  #  UseSSHAgent: false
+  #  ignoreUniversalConfs: true
 EOF
 echo "[+] Successfully created controller configuration  in '$configFilePath'"
 

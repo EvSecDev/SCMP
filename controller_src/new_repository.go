@@ -2,16 +2,19 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"encoding/json"
 	"path/filepath"
 	"strings"
+
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+// Sets up new git repository based on controller-expected directory format
+// Also creates intial commit so the first deployment will have something to compare against
 func createNewRepository(newRepoInfo string) {
 	// Split user choices
 	userRepoChoices := strings.Split(newRepoInfo, ":")
@@ -74,8 +77,8 @@ func createNewRepository(newRepoInfo string) {
 
 	// Set git initial options
 	plainInitOptions := &git.PlainInitOptions{
-		InitOptions:  *initOptions,
-		Bare:         false,
+		InitOptions: *initOptions,
+		Bare:        false,
 	}
 
 	// Create git repo

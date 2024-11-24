@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"sync"
 
+	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v2"
 )
 
@@ -24,24 +25,45 @@ type Config struct {
 		LogtoJournald  bool   `yaml:"LogtoJournald"`
 	} `yaml:"Controller"`
 	SSHClient struct {
-		SSHIdentityFile      string `yaml:"SSHIdentityFile"`
-		UseSSHAgent          bool   `yaml:"UseSSHAgent"`
-		KnownHostsFile       string `yaml:"KnownHostsFile"`
-		RemoteTransferBuffer string `yaml:"RemoteTransferBuffer"`
-		MaximumConcurrency   int    `yaml:"MaximumConnectionsAtOnce"`
-		SudoPassword         string `yaml:"SudoPassword"`
+		KnownHostsFile     string `yaml:"KnownHostsFile"`
+		MaximumConcurrency int    `yaml:"MaximumConnectionsAtOnce"`
 	} `yaml:"SSHClient"`
-	UniversalDirectory string                         `yaml:"UniversalDirectory"`
-	IgnoreDirectories  []string                       `yaml:"IgnoreDirectories"`
-	DeployerEndpoints  map[string][]DeployerEndpoints `yaml:"DeployerEndpoints"`
+	SSHClientDefault   SSHClientDefaults            `yaml:"SSHClientDefaults"`
+	UniversalDirectory string                       `yaml:"UniversalDirectory"`
+	IgnoreDirectories  []string                     `yaml:"IgnoreDirectories"`
+	DeployerEndpoints  map[string]DeployerEndpoints `yaml:"DeployerEndpoints"`
 }
 
-// Struct for deployer endpoints config section
-type DeployerEndpoints struct {
-	Endpoint             string `yaml:"endpoint"`
+// Struct for default deployer endpoints options
+type SSHClientDefaults struct {
 	EndpointPort         int    `yaml:"endpointPort"`
 	EndpointUser         string `yaml:"endpointUser"`
-	IgnoreUniversalConfs bool   `yaml:"ignoreUniversalConfs"`
+	SSHIdentityFile      string `yaml:"SSHIdentityFile"`
+	UseSSHAgent          bool   `yaml:"UseSSHAgent"`
+	SudoPassword         string `yaml:"SudoPassword"`
+	RemoteTransferBuffer string `yaml:"RemoteTransferBuffer"`
+}
+
+// Struct for deployer endpoints config section - options here can override sshclientdefaults
+type DeployerEndpoints struct {
+	Endpoint             string `yaml:"endpoint"`
+	EndpointPort         int    `yaml:"endpointPort,omitempty"`
+	EndpointUser         string `yaml:"endpointUser,omitempty"`
+	SSHIdentityFile      string `yaml:"SSHIdentityFile,omitempty"`
+	UseSSHAgent          *bool  `yaml:"UseSSHAgent,omitempty"`
+	SudoPassword         string `yaml:"SudoPassword,omitempty"`
+	RemoteTransferBuffer string `yaml:"RemoteTransferBuffer,omitempty"`
+	IgnoreUniversalConfs bool   `yaml:"ignoreUniversalConfs,omitempty"`
+}
+
+// Struct for endpoint Information (the eventual combination/deduplication of the two structs above)
+type EndpointInfo struct {
+	Endpoint             string
+	EndpointUser         string
+	PrivateKey           ssh.Signer
+	KeyAlgo              string
+	SudoPassword         string
+	RemoteTransferBuffer string
 }
 
 // Struct for metadata section
@@ -52,7 +74,7 @@ type MetaHeader struct {
 	ReloadCommands        []string `json:"Reload,omitempty"`
 }
 
-const Delimiter = `#|^^^|#`
+const Delimiter = string("#|^^^|#")
 
 // Fail tracker json line format
 type ErrorInfo struct {
@@ -83,7 +105,7 @@ var postDeploymentHosts int
 var MetricCountMutex sync.Mutex
 
 // Global to track failed go routines' hosts, files, and errors to be able to retry deployment on user request
-const FailTrackerFile = `.failtracker.meta`
+const FailTrackerFile = string(".failtracker.meta")
 
 var FailTracker string
 var FailTrackerMutex sync.Mutex
@@ -94,8 +116,8 @@ var knownhosts []string
 var KnownHostMutex sync.Mutex
 
 // Program Meta Info
-const progCLIHeader = `==== Secure Configuration Management Pusher ====`
-const progVersion = "v1.4.1"
+const progCLIHeader = string("==== Secure Configuration Management Pusher ====")
+const progVersion = string("v1.5.0")
 const usage = `
 Examples:
     controller --config </etc/scmpc.yaml> --manual-deploy --commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7> [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
@@ -191,7 +213,7 @@ func main() {
 	// Meta info print out
 	if versionFlagExists {
 		fmt.Printf("Controller %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Print("Packages: runtime encoding/hex strings strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 github.com/pkg/sftp encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal context fmt time golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff gopkg.in/yaml.v2\n")
+		fmt.Print("Packages: runtime encoding/hex strings strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 github.com/pkg/sftp encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal context fmt time golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 sync path/filepath encoding/binary github.com/go-git/go-git/v5/plumbing/format/diff gopkg.in/yaml.v2\n")
 		os.Exit(0)
 	} else if versionNumberFlagExists {
 		fmt.Println(progVersion)
@@ -221,7 +243,6 @@ func main() {
 	LogToJournald = config.Controller.LogtoJournald
 	CalledByGitHook = autoDeployFlagExists
 	knownHostsFilePath = config.SSHClient.KnownHostsFile
-	tmpRemoteFilePath = config.SSHClient.RemoteTransferBuffer
 	RepositoryPath = config.Controller.RepositoryPath
 	UniversalDirectory = config.UniversalDirectory
 	IgnoreDirectories = config.IgnoreDirectories

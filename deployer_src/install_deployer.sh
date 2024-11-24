@@ -74,6 +74,7 @@ ApparmorProfilePath=/etc/apparmor.d/$(echo $executablePath | sed 's|^/||g' | sed
 ServiceDir="/etc/systemd/system"
 Service="scmpd.service"
 ServiceFilePath="$ServiceDir/$Service"
+remoteTransferBuffer="/tmp/scmpbuffer"
 
 #### User Choices
 echo -e "Provide your choices for the installation. Press enter for the default.\n"
@@ -332,6 +333,7 @@ then
 @{configlocation}=$configFilePath
 @{serverkeylocation}=$SSHPrivateKeyPath
 @{updateexelocation}=$updateProgramPath
+@{tempTransferBuffer}=$remoteTransferBuffer
 
 @{profilelocation}=$ApparmorProfilePath
 @{pid}={[1-9],[1-9][0-9],[1-9][0-9][0-9],[1-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9][0-9],[1-4][0-9][0-9][0-9][0-9][0-9][0-9]}
@@ -363,7 +365,7 @@ profile SCMDeployer @{exelocation} flags=(enforce) {
   /usr/bin/sudo rmpx -> SCMDsudo,
 
   # For SFTP
-  owner /tmp/scmpdbuffer rw,
+  owner @{tempTransferBuffer} rw,
 
   # For updater
   @{updateexelocation} rux,

@@ -27,7 +27,9 @@ import (
 //      SSH/Connection HANDLING
 // ###########################################
 
-func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.Signer, err error) {
+// Given an identity file, determines if its a public or private key, and loads the private key (sometimes from the SSH agent)
+// Also retrieves key algorithm type for later ssh connect
+func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.Signer, KeyAlgo string, err error) {
 	// Load SSH private key
 	// Parse out which is which here and if pub key use as id for agent keychain
 	var SSHKeyType string
@@ -100,6 +102,9 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 			return
 		}
 
+		// Add key algorithm to return value for later connect
+		KeyAlgo = PublicKey.Type()
+
 		// Get signers from agent
 		var signers []ssh.Signer
 		signers, err = sshAgent.Signers()
@@ -126,6 +131,9 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 			err = fmt.Errorf("failed to parse private key from identity file: %v", err)
 			return
 		}
+
+		// Add key algorithm to return value for later connect
+		KeyAlgo = PrivateKey.PublicKey().Type()
 	} else if SSHKeyType == "encrypted" {
 		// Ask user for key password
 		fmt.Printf("Enter passphrase for the SSH key `%s`: ", SSHIdentityFile)
@@ -147,6 +155,9 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 			err = fmt.Errorf("failed to parse encrypted private key from identity file: %v", err)
 			return
 		}
+
+		// Add key algorithm to return value for later connect
+		KeyAlgo = PrivateKey.PublicKey().Type()
 	} else {
 		err = fmt.Errorf("unknown identity file format")
 		return
@@ -155,6 +166,7 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 	return
 }
 
+// Validates endpoint address and port, then combines both strings
 func ParseEndpointAddress(endpointIP string, endpointPort int) (endpointSocket string, err error) {
 	// Use regex for v4 match
 	IPv4RegEx := regexp.MustCompile(`^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$`)
@@ -182,13 +194,10 @@ func ParseEndpointAddress(endpointIP string, endpointPort int) (endpointSocket s
 	return
 }
 
-// Handle connecting to remote SSH server and maybe recovering from some failures
-func connectToSSH(endpointSocket string, endpointUser string, PrivateKey ssh.Signer) (client *ssh.Client, err error) {
+// Handle building client config and connection to remote host
+// Attempts to automatically recover from some errors like no route to host by waiting a bit
+func connectToSSH(endpointSocket string, endpointUser string, PrivateKey ssh.Signer, keyAlgorithm string) (client *ssh.Client, err error) {
 	// Setup config for client
-	//      Need to only use a single key algorithm type to avoid getting wrong public key back from the server for the local known_hosts check
-	//  Supposedly 'fixed' by allowing the client to specify which algo to use when connecting in https://github.com/golang/go/issues/11722
-	//  Yeah bud, totally. Let me just create 3 connections per host just to try and find a match in known_hosts... fucking stupid.
-	//  Its ed25519 for my env, change it if you want... Beware it must be the same algo used across all of your ssh servers
 	SSHconfig := &ssh.ClientConfig{
 		User: endpointUser,
 		Auth: []ssh.AuthMethod{
@@ -196,9 +205,8 @@ func connectToSSH(endpointSocket string, endpointUser string, PrivateKey ssh.Sig
 		},
 		// Some IPS rules flag on GO's ssh client string
 		ClientVersion: "SSH-2.0-OpenSSH_9.8p1",
-		// Don't add multiple values here, you will experience handshake errors when verifying some server pub keys
 		HostKeyAlgorithms: []string{
-			ssh.KeyAlgoED25519,
+			keyAlgorithm,
 		},
 		HostKeyCallback: hostKeyCallback,
 		Timeout:         30 * time.Second,
@@ -231,7 +239,8 @@ func connectToSSH(endpointSocket string, endpointUser string, PrivateKey ssh.Sig
 	return
 }
 
-// Custom HostKeyCallback for checking/writing local known_hosts file
+// Custom HostKeyCallback for validating remote public key against known pub keys
+// If unknown, will ask user if it should trust the remote host
 func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (err error) {
 	// Turn remote address into format used with known_hosts file entries
 	cleanHost, _, err := net.SplitHostPort(remote.String())
@@ -344,6 +353,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 	return
 }
 
+// Writes new public key for remote host to known_hosts file
 func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (err error) {
 	// Show progress to user
 	fmt.Printf("Writing new host entry in known_hosts... ")
@@ -386,7 +396,8 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	return
 }
 
-func RunSFTP(client *ssh.Client, localFileContent []byte) (err error) {
+// Transfers byte content to remote temp buffer (based on global temp buffer file path)
+func RunSFTP(client *ssh.Client, localFileContent []byte, tmpRemoteFilePath string) (err error) {
 	// Open new session with ssh client
 	sftpClient, err := sftp.NewClient(client)
 	if err != nil {
@@ -440,13 +451,8 @@ func RunSFTP(client *ssh.Client, localFileContent []byte) (err error) {
 	return
 }
 
+// Runs the given remote ssh command with sudo
 func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (CommandOutput string, err error) {
-	// Check for password
-	if SudoPassword == "" {
-		err = fmt.Errorf("sudo password is empty: %v", err)
-		return
-	}
-
 	// Open new session (exec)
 	session, err := client.NewSession()
 	if err != nil {
@@ -477,8 +483,10 @@ func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (Com
 	}
 	defer stdin.Close()
 
-	// Add sudo to command
-	command = "sudo -S " + command
+	// Add sudo to command if password was provided
+	if SudoPassword != "" {
+		command = "sudo -S " + command
+	}
 
 	// Start the command
 	err = session.Start(command)
@@ -501,7 +509,7 @@ func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (Com
 		return
 	}
 
-	// Context for command wait - 60 second timeout
+	// Context for command wait based on timeout declared in global
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

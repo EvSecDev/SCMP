@@ -100,8 +100,8 @@ function sign_binary {
 	export GOOS=linux
 
 	# Build sig program
-	cd $repoRoot/$signerSRCDir
-	go build -o sig -compiler gccgo sig.go
+	cd $repoRoot/$signerSRCdir
+	go build -o sig sig.go
 
 	# Sign
 	./sig -in $signerinputfile -priv $code_signing_keyfile -sign

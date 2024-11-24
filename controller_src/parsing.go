@@ -14,7 +14,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-func getCommitFiles(commit *object.Commit, DeployerEndpoints map[string][]DeployerEndpoints, fileOverride string) (commitFiles map[string]string, commitHostNames []string, err error) {
+// Retrieves file names and associated host names for given commit
+// Returns the changed files (file paths) between commit and previous commit
+// Marks files with create/delete action for deployment and also handles marking symbolic links
+func getCommitFiles(commit *object.Commit, DeployerEndpoints map[string]DeployerEndpoints, fileOverride string) (commitFiles map[string]string, commitHostNames []string, err error) {
 	// Show progress to user
 	fmt.Print("Retrieving files from commit... ")
 
@@ -135,13 +138,15 @@ func getCommitFiles(commit *object.Commit, DeployerEndpoints map[string][]Deploy
 	return
 }
 
-func getHostsAndFiles(commitFiles map[string]string, commitHostNames []string, repoHostsandFiles map[string][]string, DeployerEndpoints map[string][]DeployerEndpoints, hostOverride string, preDeploymentHosts *int) (hostsAndFilePaths map[string][]string, hostsAndEndpointInfo map[string][]string, targetEndpoints []string, allLocalFiles []string, err error) {
+// Filters files down to their associated host
+// Also deduplicates and creates array of all relevant file paths for the deployment
+func getHostsAndFiles(commitFiles map[string]string, commitHostNames []string, repoHostsandFiles map[string][]string, DeployerEndpoints map[string]DeployerEndpoints, hostOverride string, SSHClientDefault SSHClientDefaults, preDeploymentHosts *int) (hostsAndFilePaths map[string][]string, hostsAndEndpointInfo map[string]EndpointInfo, targetEndpoints []string, allLocalFiles []string, err error) {
 	// Show progress to user
 	fmt.Print("Filtering deployment hosts... ")
 
 	// Initialize maps
-	hostsAndFilePaths = make(map[string][]string)    // Map of hosts and their arrays of file paths
-	hostsAndEndpointInfo = make(map[string][]string) // Map of hosts and their associated endpoint information ([0]=Socket, [1]=User)
+	hostsAndFilePaths = make(map[string][]string)        // Map of hosts and their arrays of file paths
+	hostsAndEndpointInfo = make(map[string]EndpointInfo) // Map of hosts and their associated endpoint information
 
 	// Loop hosts in config and prepare endpoint information and relevant configs for deployment
 	for endpointName, endpointInfo := range DeployerEndpoints {
@@ -164,26 +169,6 @@ func getHostsAndFiles(commitFiles map[string]string, commitHostNames []string, r
 			continue
 		}
 
-		// Extract var for endpoint information
-		endpointUser := endpointInfo[2].EndpointUser
-
-		// Network Pre-Checks and Parsing
-		var endpoint string
-		endpoint, err = ParseEndpointAddress(endpointInfo[0].Endpoint, endpointInfo[1].EndpointPort)
-		if err != nil {
-			err = fmt.Errorf("failed parsing host '%s' network address: %v", endpointName, err)
-			return
-		}
-
-		// Add endpoint info to The Maps
-		hostsAndEndpointInfo[endpointName] = append(hostsAndEndpointInfo[endpointName], endpoint, endpointUser)
-
-		// If the ignore index of the host is present, read in bool - for use in deduping
-		var ignoreUniversalConfs bool
-		if len(endpointInfo) == 4 {
-			ignoreUniversalConfs = endpointInfo[3].IgnoreUniversalConfs
-		}
-
 		// Record universal files that are NOT to be used for this host (host has an override file)
 		var deniedUniversalFiles []string
 		for _, hostFile := range repoHostsandFiles[endpointName] {
@@ -195,6 +180,9 @@ func getHostsAndFiles(commitFiles map[string]string, commitHostNames []string, r
 				}
 			}
 		}
+
+		// Get ignore universal bool from endpoint - No defaults, empty implies false
+		ignoreUniversalConfs := endpointInfo.IgnoreUniversalConfs
 
 		// Filter committed files to their specific host and deduplicate against universal directory
 		for commitFile := range commitFiles {
@@ -232,6 +220,20 @@ func getHostsAndFiles(commitFiles map[string]string, commitHostNames []string, r
 			hostsAndFilePaths[endpointName] = append(hostsAndFilePaths[endpointName], filePath)
 		}
 
+		// Skip this host if no files to deploy
+		if len(hostsAndFilePaths[endpointName]) == 0 {
+			continue
+		}
+
+		// Parse out endpoint info and/or default SSH options
+		var newInfo EndpointInfo
+		newInfo, err = retrieveEndpointInfo(endpointInfo, SSHClientDefault)
+		if err != nil {
+			err = fmt.Errorf("failed to retrieve endpoint information: %v", err)
+			return
+		}
+		hostsAndEndpointInfo[endpointName] = newInfo
+
 		// Add filtered endpoints to The Maps (array) - this is the main reference for which hosts will have a routine spawned
 		targetEndpoints = append(targetEndpoints, endpointName)
 
@@ -254,6 +256,8 @@ func getHostsAndFiles(commitFiles map[string]string, commitHostNames []string, r
 	return
 }
 
+// Retrieves all file content for this deployment
+// Return vales provide the content keyed on local file path for the file data, metadata, hashes, and actions
 func loadFiles(allLocalFiles []string, commitFiles map[string]string, tree *object.Tree, preDeployedConfigs *int) (commitFileData map[string]string, commitFileMetadata map[string]map[string]interface{}, commitFileDataHashes map[string]string, commitFileActions map[string]string, err error) {
 	// Show progress to user
 	fmt.Print("Loading files for deployment... ")
@@ -366,6 +370,7 @@ func loadFiles(allLocalFiles []string, commitFiles map[string]string, tree *obje
 	return
 }
 
+// Reads fail tracker file and retrieves the files and host names to be redeployed
 func getCommitFailures(lastFailTracker string) (commitFiles map[string]string, commitHostNames []string, err error) {
 	// Initialize commitFiles map
 	commitFiles = make(map[string]string)
@@ -417,6 +422,8 @@ func getCommitFailures(lastFailTracker string) (commitFiles map[string]string, c
 	return
 }
 
+// Retrieves all files for current commit (regardless if changed)
+// Used to deduplicate files per host when deploying
 func mapAllRepoFiles(tree *object.Tree) (repoHostsandFiles map[string][]string, err error) {
 	// Get list of all files in repo tree
 	allFiles := tree.Files()
@@ -459,6 +466,9 @@ func mapAllRepoFiles(tree *object.Tree) (repoHostsandFiles map[string][]string, 
 	return
 }
 
+// Retrieves all files for current commit (regardless if changed)
+// Used to deduplicate files per host when deploying
+// This variant is used to also get all files in commit for deployment of unchanged files when requested
 func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[string]string, repoHostsandFiles map[string][]string, err error) {
 	// Initialize the commitFiles map
 	commitFiles = make(map[string]string)

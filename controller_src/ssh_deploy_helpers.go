@@ -14,6 +14,9 @@ import (
 //      DEPLOYMENT HANDLING FUNCTIONS
 // ###########################################
 
+// Moves backup config file into place after file deployment failure
+// Assumes backup file name is "whatevertheoriginalfilenameis.old"
+// Ensures restoration worked by hashing and comparing to pre-deployment file hash
 func restoreOldConfig(client *ssh.Client, targetFilePath string, OldRemoteFileHash string, SHA256RegEx *regexp.Regexp, SudoPassword string, backupConfCreated bool) (err error) {
 	var command string
 	var CommandOutput string
@@ -49,6 +52,7 @@ func restoreOldConfig(client *ssh.Client, targetFilePath string, OldRemoteFileHa
 	return
 }
 
+// Checks if file is already present on remote host
 func CheckRemoteFileExistence(client *ssh.Client, remoteFilePath string, SudoPassword string) (fileExists bool, err error) {
 	command := "ls " + remoteFilePath
 	_, err = RunSSHCommand(client, command, SudoPassword)
@@ -64,7 +68,9 @@ func CheckRemoteFileExistence(client *ssh.Client, remoteFilePath string, SudoPas
 	return
 }
 
-func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath string, SudoPassword string) (err error) {
+// Transfers file content in variable to remote temp buffer, then moves into remote file path location
+// Uses global var for remote temp buffer file path location
+func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath string, SudoPassword string, tmpRemoteFilePath string) (err error) {
 	var command string
 
 	// Check if remote dir exists, if not create
@@ -86,7 +92,7 @@ func TransferFile(client *ssh.Client, localFileContent string, remoteFilePath st
 	}
 
 	// SFTP to temp file
-	err = RunSFTP(client, []byte(localFileContent))
+	err = RunSFTP(client, []byte(localFileContent), tmpRemoteFilePath)
 	if err != nil {
 		return
 	}

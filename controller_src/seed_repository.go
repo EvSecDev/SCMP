@@ -20,6 +20,7 @@ import (
 //  SEED REPO FILES FUNCTIONS
 // ###################################
 
+// Entry point for user to select remote files to download and format into local repository
 func seedRepositoryFiles(config Config, hostOverride string) {
 	// Recover from panic
 	defer func() {
@@ -34,10 +35,6 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 	err := localSystemChecks()
 	logError("Error in system checks", err, false)
 
-	// Get SSH Private Key from the supplied identity file
-	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
-	logError("Error retrieving SSH private key", err, true)
-
 	// Loop hosts in config and prepare relevant host information for deployment
 	for endpointName, endpointInfo := range config.DeployerEndpoints {
 		// Use hosts user specifies if requested
@@ -47,30 +44,26 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 		}
 
 		// Extract vars for endpoint information
-		endpointIP := endpointInfo[0].Endpoint
-		endpointPort := endpointInfo[1].EndpointPort
-		endpointUser := endpointInfo[2].EndpointUser
-
-		// Network info checks
-		endpointSocket, err := ParseEndpointAddress(endpointIP, endpointPort)
-		logError("Failed to parse network address", err, false)
+		var info EndpointInfo
+		info, err = retrieveEndpointInfo(endpointInfo, config.SSHClientDefault)
+		logError("Failed to retrieve endpoint information", err, false)
 
 		// Connect to the SSH server
-		client, err := connectToSSH(endpointSocket, endpointUser, PrivateKey)
+		client, err := connectToSSH(info.Endpoint, info.EndpointUser, info.PrivateKey, info.KeyAlgo)
 		logError("Failed connect to SSH server", err, false)
 		defer client.Close()
 
 		// Run menu for user to select desired files
-		selectedFiles, err := runSelectionMenu(endpointName, client, config.SSHClient.SudoPassword)
+		selectedFiles, err := runSelectionMenu(endpointName, client, info.SudoPassword)
 		logError("Error retrieving remote file list", err, false)
 
 		// Initialize buffer file (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
-		err = RunSFTP(client, []byte{12})
+		err = RunSFTP(client, []byte{12}, info.RemoteTransferBuffer)
 		logError(fmt.Sprintf("Failed to initialize buffer file on remote host %s", endpointName), err, false)
 
 		// Download user file choices to local repo and format
 		for targetFilePath, fileInfo := range selectedFiles {
-			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, config.SSHClient.SudoPassword)
+			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, info.SudoPassword)
 			logError("Error seeding repository", err, false)
 		}
 	}
@@ -78,6 +71,7 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 	fmt.Printf("============================================================\n")
 }
 
+// Runs the CLI-based menu that user will use to select which files to download
 func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword string) (selectedFiles map[string][]string, err error) {
 	// Start selection at root of filesystem - '/'
 	directory := "/"
@@ -270,6 +264,9 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 	return
 }
 
+// Downloads user selected files from remote host
+// Adds metadata header
+// Recreates directory structure of remote host in the local repository
 func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName string, client *ssh.Client, SudoPassword string) (err error) {
 	// Copy desired file to buffer location - MUST keep buffer file permissions for successful sftp
 	command := "cp --no-preserve=mode,ownership " + targetFilePath + " " + tmpRemoteFilePath
@@ -391,6 +388,8 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	return
 }
 
+// Converts symbolic linux permission to numeric representation
+// Like rwxr-x-rx -> 755
 func permissionsSymbolicToNumeric(permissions string) (perm int) {
 	var bits string
 	// Loop permission fields

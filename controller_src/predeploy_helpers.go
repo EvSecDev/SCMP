@@ -9,6 +9,9 @@ import (
 	"strings"
 )
 
+// Post-deployment if an error occured
+// Takes global failure tracker and current commit id and writes it to the fail tracker file in the root of the repository
+// Also prints custom stdout to user to show the errors and how to initiate redeploy when fixed
 func recordDeploymentError(commitID string) (err error) {
 	// Tell user about error and how to redeploy, writing fails to file in repo
 	PathToExe := os.Args[0]
@@ -40,6 +43,11 @@ func recordDeploymentError(commitID string) (err error) {
 	return
 }
 
+// Does a couple things
+//
+//	Moves into repository directory if not already
+//	Checks for active network interfaces (can't deploy to remote endpoints if no network)
+//	Loads known_hosts file into global variable
 func localSystemChecks() (err error) {
 	// Ensure current working directory is root of git repository from config
 	pwd, err := os.Getwd()

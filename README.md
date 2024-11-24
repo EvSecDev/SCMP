@@ -5,7 +5,7 @@
 A secure and automated configuration management terminal-based tool backed by git to centrally control and push configuration files to Linux servers.
 
 This program is designed to assist and automate a Linux administrators job functions by centrally allowing them to edit, version control, and deploy changes to configuration files of remote Linux systems.
-This progran is NOT intended as a configuration management system (like Terraform), but rather a CLI tool to replace the manual process of SSH'ing into many remote servers to manage configuration files.
+This program is NOT intended as a configuration management system (like Terraform), but rather a CLI tool to replace the manual process of SSH'ing into many remote servers to manage configuration files.
 
 There are three parts to this tool (two of which are optional), the controller, deployer, and updater.
  - The controller is the client that runs on your workstation and pushes configuration files to remote servers.
@@ -32,7 +32,7 @@ It is recommended to use sudo with a password with either a standard SSH server 
     - Using the supplied updater program to update the Deployer executable from the controller (This verifies the new Deployer binary by digital signature prior to update)
 Below you can find the recommended setup for the remote servers, and how to configure the remote host to have the least privileges possible to fulfill the functions of this program.
 
-This is a prototype and may have unintended consequences to managed systems as development is ongoing. Use at your own risk.
+This is a work-in-progress and may have unintended consequences to managed systems as development is ongoing. Use at your own risk.
 If you like what this program can do or want to expand functionality yourself, feel free to submit a pull request or fork.
 
 ## Capabilities Overview
@@ -63,11 +63,11 @@ If you like what this program can do or want to expand functionality yourself, f
 - Deploy manually via specifying commit hash
 - Easy recovery from partial deployment failures
 - One-time manual deployment to specific hosts and/or specific files
+- Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
 - Deploy all (or a subset of) relevant files (even unchanged) to a newly created remote host
-- Fail-safe file deployment - automatic restore if any remote failure is encountered (with the failtracker option)
 - Concurrent SSH Connections to handle a large number of remote hosts (and option to limit concurrency)
 - Support for regular SSH servers (if you don't want to use the Deployer program)
-- Key-based SSH authentication (by file or ssh-agent)
+- Key-based SSH authentication (by file or ssh-agent, per host or all hosts)
 - Password-based Sudo command escalation
 - Create new repositories
 - Collect configurations from existing systems to bootstrap the local repository
@@ -76,9 +76,6 @@ If you like what this program can do or want to expand functionality yourself, f
 
 - SSH Password logins
 - SSH 2FA (TOTP) logins
-- Different SSH keys per host (Use another yaml config in a separate repository for network enclaves with different keys)
-- Different Sudo passwords per host
-- Multiple different SSH key algorithms across remote hosts
 - Handle some special files (device, pipes, sockets, ect.)
 
 ### Controller Help Menu
@@ -149,7 +146,7 @@ Options:
 
 ### Controller (local) setup
 
-1. Create an ED25519 SSH key (Yes, that specific algo, otherwise you'll have to change the source code - read the note at the bottom)
+1. Create an SSH private key
 2. Copy the public key of your new SSH key to the desired hosts
 3. Start the installer script and follow the prompts
 4. Configure the template yaml file for all the remote Linux hosts you wish to manage, with their IP, Port, and username (and indicate true if you don't want a specific host to use the templates directory)
@@ -198,14 +195,6 @@ Once you have selected all your files and typed `!`, you will be asked if the co
 The controller will then take all the files and write them to their respective host directories in the local repository copying the remote host file path.
 
 ## NOTES
-
-### SSH Key Algorithm limitation
-
-Due to the way that Go's SSH package works (and SSH in general), it is not feasible for me to acquire every single algorithm an SSH server can offer and attempt to match a local key when there could potentially be hundreds or thousands of remote hosts to connect to.
-For this reason, the program has been intentionally limited to supporting only a single key algorithm type for all remote hosts and the local SSH key. It is currently hard coded as ED25519. 
-This means that you must use an ED25519 private key, and all remote SSH servers must support ED25519.
-
-If this does not fit your environment, feel free to adjust the source code and build a modified binary for RSA or DSA keys. But be warned, ALL remote hosts must support the same algorithm. 
 
 ### Reason for a separate SSH server (the Deployer)
 

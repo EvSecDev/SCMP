@@ -16,6 +16,9 @@ import (
 //      EXCEPTION HANDLING
 // ###################################
 
+// Logs non-nil errors to stdout and journal(if requested in conf)
+// If cleanup is needed, will roll the git repository back one commit
+// Rollbacks should only be requested when entire program is not concurrent (i.e. before deploy go routines)
 func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 	// return early if no error to process
 	if errorMessage == nil {
@@ -103,6 +106,9 @@ func CreateJournaldLog(errorMessage string) (err error) {
 }
 
 // Called from within go routines
+// Creates JSON line of error host, files, and err
+// Writes into global failure tracker
+// Always returns
 func recordDeploymentFailure(endpointName string, allFileArray []string, index int, errorMessage error) {
 	// Ensure multiline error messages dont make their way into json
 	Message := errorMessage.Error()
@@ -126,7 +132,7 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 		fileArray = allFileArray
 	} else {
 		// Set index back to correct position
-		fileIndex := index-1
+		fileIndex := index - 1
 
 		// Specific file that failed
 		fileArray = append(fileArray, allFileArray[fileIndex])
@@ -153,20 +159,14 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 	FailTrackerMutex.Unlock()
 }
 
-// Ensure config is not missing fields
+// Ensure config is not missing required fields
 func checkConfigForEmpty(config *Config) (err error) {
 	if config.Controller.RepositoryPath == "" {
 		err = fmt.Errorf("RepositoryPath")
-	} else if config.SSHClient.SSHIdentityFile == "" {
-		err = fmt.Errorf("SSHIdentityFile")
 	} else if config.SSHClient.KnownHostsFile == "" {
 		err = fmt.Errorf("KnownHostsFile")
-	} else if config.SSHClient.RemoteTransferBuffer == "" {
-		err = fmt.Errorf("RemoteTransferBuffer")
 	} else if config.SSHClient.MaximumConcurrency == 0 {
 		err = fmt.Errorf("MaximumConcurrency")
-	} else if config.SSHClient.SudoPassword == "" {
-		err = fmt.Errorf("SudoPassword")
 	} else if config.UniversalDirectory == "" {
 		err = fmt.Errorf("UniversalDirectory")
 	}

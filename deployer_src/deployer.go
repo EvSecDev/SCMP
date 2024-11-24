@@ -72,7 +72,7 @@ Documentation: <https://github.com/EvSecDev/SCMPusher>
 `
 
 func main() {
-	progVersion := "v1.0.1"
+	progVersion := "v1.0.2"
 
 	// Program Argument Variables
 	var configFilePath string
@@ -97,7 +97,7 @@ func main() {
 	// Meta info print out
 	if versionFlagExists {
 		fmt.Printf("Deployer %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-                fmt.Print("Packages: runtime strings io github.com/pkg/sftp encoding/base64 flag fmt golang.org/x/crypto/ssh os/exec net os bytes encoding/binary gopkg.in/yaml.v2\n")
+		fmt.Print("Packages: runtime strings io github.com/pkg/sftp encoding/base64 flag fmt golang.org/x/crypto/ssh os/exec net os bytes encoding/binary gopkg.in/yaml.v2\n")
 		os.Exit(0)
 	}
 	if versionNumberFlagExists {
@@ -120,7 +120,7 @@ func main() {
 
 	// Start ssh server
 	if startServerFlagExists {
-		RunSSHServer(config.SSHServer.ListenAddress, config.SSHServer.ListenPort, config.SSHServer.AuthorizedUser, config.SSHServer.SSHPrivKeyFile, config.SSHServer.AuthorizedKeys, progVersion, config.UpdaterProgram)
+		RunSSHServer(config, progVersion)
 		os.Exit(0)
 	}
 
@@ -132,11 +132,11 @@ func main() {
 //      CONNECTION FUNCTIONS
 // ###################################
 
-func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string, SSHPrivKeyFile string, AuthorizedKeys []string, progVersion string, UpdaterProgram string) {
+func RunSSHServer(config Config, progVersion string) {
 	fmt.Printf("Starting SCM Deployer SSH server...\n")
 
 	// Load SSH private key
-	privateKey, err := os.ReadFile(SSHPrivKeyFile)
+	privateKey, err := os.ReadFile(config.SSHServer.SSHPrivKeyFile)
 	logError("Error loading SSH Private Key", err, true)
 
 	PrivateKey, err := ssh.ParsePrivateKey(privateKey)
@@ -144,10 +144,10 @@ func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string
 
 	// Get socket address
 	var socketAddr string
-	if strings.Contains(ListenAddress, ":") {
-		socketAddr = "[" + ListenAddress + "]" + ":" + ListenPort
+	if strings.Contains(config.SSHServer.ListenAddress, ":") {
+		socketAddr = "[" + config.SSHServer.ListenAddress + "]" + ":" + config.SSHServer.ListenPort
 	} else {
-		socketAddr = ListenAddress + ":" + ListenPort
+		socketAddr = config.SSHServer.ListenAddress + ":" + config.SSHServer.ListenPort
 	}
 
 	// Set up SSH server config and authentication function
@@ -155,7 +155,7 @@ func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string
 	sshConfig := &ssh.ServerConfig{
 		ServerVersion: sshServerVersion,
 		PublicKeyAuthAlgorithms: []string{
-			ssh.KeyAlgoED25519,
+			PrivateKey.PublicKey().Type(),
 		},
 		NoClientAuth: false,
 		MaxAuthTries: 2,
@@ -165,14 +165,14 @@ func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string
 	// Verify client function
 	sshConfig.PublicKeyCallback = func(conn ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
 		// Verify Username against config
-		if conn.User() != AuthorizedUser {
+		if conn.User() != config.SSHServer.AuthorizedUser {
 			return nil, fmt.Errorf("username is not authorized to log in")
 		}
 
 		// Verify Client Key against config
 		ClientKey := base64.StdEncoding.EncodeToString(key.Marshal())
 		var UserIsAuthorized bool
-		for _, AuthorizedKey := range AuthorizedKeys {
+		for _, AuthorizedKey := range config.SSHServer.AuthorizedKeys {
 			// Parse out just the key section
 			AuthPubKey := strings.SplitN(AuthorizedKey, " ", 3)
 			AuthKey := AuthPubKey[1]
@@ -199,7 +199,7 @@ func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string
 	logError("Failed to listen on port", err, true)
 	defer listener.Close()
 
-	fmt.Printf("SCM Deployer SSH server started on %s\n", socketAddr)
+	fmt.Printf("SCM Deployer (%s) SSH server started on %s\n", progVersion, socketAddr)
 
 	// Processing incoming connections linearly - no more than one at a time
 	for {
@@ -229,7 +229,7 @@ func RunSSHServer(ListenAddress string, ListenPort string, AuthorizedUser string
 			}
 
 			// Handle the channel (e.g., execute commands, etc.)
-			handleChannel(newChannel, UpdaterProgram)
+			handleChannel(newChannel, config.UpdaterProgram)
 		}
 		fmt.Printf("Closed connection from %s for user %s\n", sshConn.RemoteAddr(), sshConn.User())
 	}
@@ -294,11 +294,22 @@ func handleChannel(newChannel ssh.NewChannel, UpdaterProgram string) {
 				break
 			}
 		case "update":
+			// Retrieve new deployer binary from payload of request
+			TransferBuffer, err := StripPayloadHeader(req.Payload)
+			if err != nil {
+				logError("SSH request error", fmt.Errorf("update: failed to strip request payload header: %v", err), false)
+				break
+			}
 			req.Reply(true, nil)
-			// Hard coded source file (as determined by controller sftp)
-			command := UpdaterProgram + " -src /tmp/scmpdbuffer"
-			fmt.Printf("Received update request, running update program\n")
+			// Run updater program given the location of the new deployer binary
+			command := UpdaterProgram + " -src " + TransferBuffer
 			err = executeCommand(channel, command)
+			if err != nil {
+				logError("SSH request error", fmt.Errorf("failed updater execution: %v", err), false)
+				break
+			}
+			// Last log entry before exit
+			fmt.Printf("Received update request, running update program\n")
 		default:
 			logError("SSH request error", fmt.Errorf("unauthorized request type %s received", req.Type), false)
 			req.Reply(false, nil) // Reject unknown requests
@@ -359,6 +370,7 @@ func executeCommand(channel ssh.Channel, receivedCommand string) (err error) {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			// Command failed with a non-zero exit code
 			exitCode = exitError.ExitCode()
+			stderr.WriteString(err.Error())
 		} else {
 			if strings.Contains(err.Error(), "executable file not found in ") {
 				exitCode = 127 // Command not found
@@ -389,6 +401,7 @@ func executeCommand(channel ssh.Channel, receivedCommand string) (err error) {
 	return
 }
 
+// SFTP abstracted session handling
 func HandleSFTP(channel ssh.Channel) (err error) {
 	// Create new SFTP server for this channel
 	sftpServer, err := sftp.NewServer(channel)
@@ -405,14 +418,15 @@ func HandleSFTP(channel ssh.Channel) (err error) {
 	return
 }
 
+// Removes header from SSH request payload and returns string text
 func StripPayloadHeader(request []byte) (payload string, err error) {
 	// Ignore things less than header length
 	if len(request) < 4 {
-		err = fmt.Errorf("invalid payload length")
+		err = fmt.Errorf("invalid payload length (did the client send anything?)")
 		return
 	}
 
-	// Calculate length of command
+	// Calculate length of payload
 	payloadLength := int(request[0])<<24 | int(request[1])<<16 | int(request[2])<<8 | int(request[3])
 
 	// Validate total payload length

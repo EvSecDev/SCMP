@@ -67,7 +67,7 @@ func main() {
 	// Meta info print out
 	if versionFlagExists {
 		fmt.Printf("Deployer Updater %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-                fmt.Print("Packages: runtime io encoding/base64 flag os/signal fmt time os/exec syscall os bytes crypto/ed25519\n")
+		fmt.Print("Packages: runtime io encoding/base64 flag os/signal fmt time os/exec syscall os bytes crypto/ed25519\n")
 		os.Exit(0)
 	}
 	if versionNumberFlagExists {

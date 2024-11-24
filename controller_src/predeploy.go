@@ -16,6 +16,7 @@ import (
 //   DEPLOY LAST FAILURE
 // ###################################
 
+// Reads fail tracker file and uses embedded commit, hosts, and files to redeploy
 func failureDeployment(config Config) {
 	// Recover from panic
 	defer func() {
@@ -33,13 +34,8 @@ func failureDeployment(config Config) {
 	err := localSystemChecks()
 	logError("Error in local system checks", err, true)
 
-	// Get SSH Private Key from the supplied identity file
-	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
-	logError("Error retrieving SSH private key", err, true)
-
 	// Regex to match commitid line from fail tracker
-	failCommitRegEx, err := regexp.Compile(`commitid:([0-9a-fA-F]+)\n`)
-	logError("Failed to compile FailTracker CommitID regex patterns", err, true)
+	failCommitRegEx := regexp.MustCompile(`commitid:([0-9a-fA-F]+)\n`)
 
 	// Read in contents of fail tracker file
 	failTrackerPath := filepath.Join(RepositoryPath, FailTrackerFile)
@@ -84,7 +80,7 @@ func failureDeployment(config Config) {
 
 	// Create maps of deployment files and hosts
 	var preDeploymentHosts int
-	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, "", &preDeploymentHosts)
+	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, "", config.SSHClientDefault, &preDeploymentHosts)
 	logError("Failed to get host and files", err, true)
 
 	// Load the files for deployment
@@ -101,23 +97,19 @@ func failureDeployment(config Config) {
 	// Start go routines for each remote host ssh
 	var wg sync.WaitGroup
 	for _, endpointName := range targetEndpoints {
-		// Retrieve info for this host from The Maps
-		commitFilePaths := hostsAndFilePaths[endpointName]
-		endpointInfo := hostsAndEndpointInfo[endpointName]
-		endpointSocket := endpointInfo[0]
-		endpointUser := endpointInfo[1]
-
 		// Start go routine for specific host
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, commitFilePaths, endpointSocket, endpointUser, commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions, PrivateKey, config.SSHClient.SudoPassword)
+		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions)
 	}
 	wg.Wait()
 
 	// Save deployment errors to fail tracker
 	if FailTracker != "" {
 		err := recordDeploymentError(commitID)
-		fmt.Printf("%v", err)
+		if err != nil {
+			fmt.Printf("%v", err)
+		}
 		return
 	}
 
@@ -133,6 +125,7 @@ func failureDeployment(config Config) {
 //   DEPLOY ALL FILES BY COMMIT
 // ###################################
 
+// Deploys chosen files to chosen hosts for a given commit (even unchanged files are available for deployment)
 func allDeployment(config Config, commitID string, hostOverride string, fileOverride string) {
 	// Recover from panic
 	defer func() {
@@ -149,10 +142,6 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 	// Ensure local system is in a state that is able to deploy
 	err := localSystemChecks()
 	logError("Error in local system checks", err, true)
-
-	// Get SSH Private Key from the supplied identity file
-	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
-	logError("Error retrieving SSH private key", err, true)
 
 	// Open the repository
 	repo, err := git.PlainOpen(RepositoryPath)
@@ -189,7 +178,7 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 
 	// Create maps of deployment files and hosts
 	var preDeploymentHosts int
-	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, hostOverride, &preDeploymentHosts)
+	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, hostOverride, config.SSHClientDefault, &preDeploymentHosts)
 	logError("Failed to get host and files", err, true)
 
 	// Load the files for deployment
@@ -206,23 +195,19 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 	// Start go routines for each remote host ssh
 	var wg sync.WaitGroup
 	for _, endpointName := range targetEndpoints {
-		// Retrieve info for this host from The Maps
-		commitFilePaths := hostsAndFilePaths[endpointName]
-		endpointInfo := hostsAndEndpointInfo[endpointName]
-		endpointSocket := endpointInfo[0]
-		endpointUser := endpointInfo[1]
-
 		// Start go routine for specific host
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, commitFilePaths, endpointSocket, endpointUser, commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions, PrivateKey, config.SSHClient.SudoPassword)
+		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions)
 	}
 	wg.Wait()
 
 	// Save deployment errors to fail tracker
 	if FailTracker != "" {
 		err := recordDeploymentError(commitID)
-		fmt.Printf("%v", err)
+		if err != nil {
+			fmt.Printf("%v", err)
+		}
 		return
 	}
 
@@ -235,6 +220,9 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 //      AUTOMATIC - USE HEAD COMMIT
 // ###################################
 
+// Main entry point for git post-commit hook
+// Assumes desired commit is head commit
+// Only deploys changed files between head commit and previous commit
 func autoDeployment(config Config, hostOverride string) {
 	// Recover from panic
 	defer func() {
@@ -251,10 +239,6 @@ func autoDeployment(config Config, hostOverride string) {
 	// Ensure local system is in a state that is able to deploy
 	err := localSystemChecks()
 	logError("Error in local system checks", err, true)
-
-	// Get SSH Private Key from the supplied identity file
-	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
-	logError("Error retrieving SSH private key", err, true)
 
 	// Open the repository
 	repo, err := git.PlainOpen(RepositoryPath)
@@ -288,7 +272,7 @@ func autoDeployment(config Config, hostOverride string) {
 
 	// Create maps of deployment files and hosts
 	var preDeploymentHosts int
-	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, hostOverride, &preDeploymentHosts)
+	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, hostOverride, config.SSHClientDefault, &preDeploymentHosts)
 	logError("Failed to get host and files", err, true)
 
 	// Load the files for deployment
@@ -305,23 +289,19 @@ func autoDeployment(config Config, hostOverride string) {
 	// Start go routines for each remote host ssh
 	var wg sync.WaitGroup
 	for _, endpointName := range targetEndpoints {
-		// Retrieve info for this host from The Maps
-		commitFilePaths := hostsAndFilePaths[endpointName]
-		endpointInfo := hostsAndEndpointInfo[endpointName]
-		endpointSocket := endpointInfo[0]
-		endpointUser := endpointInfo[1]
-
 		// Start go routine for specific host
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, commitFilePaths, endpointSocket, endpointUser, commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions, PrivateKey, config.SSHClient.SudoPassword)
+		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions)
 	}
 	wg.Wait()
 
 	// Save deployment errors to fail tracker
 	if FailTracker != "" {
 		err := recordDeploymentError(commitID)
-		fmt.Printf("%v", err)
+		if err != nil {
+			fmt.Printf("%v", err)
+		}
 		return
 	}
 
@@ -334,6 +314,8 @@ func autoDeployment(config Config, hostOverride string) {
 //  DEPLOY CHANGED FILES IN A COMMIT
 // ###################################
 
+// User chosen commit deployment (and possibly hosts and/or files)
+// Only deploys changed files between chosen commit and previous commit
 func manualDeployment(config Config, commitID string, hostOverride string, fileOverride string) {
 	// Recover from panic
 	defer func() {
@@ -355,10 +337,6 @@ func manualDeployment(config Config, commitID string, hostOverride string, fileO
 	// Ensure local system is in a state that is able to deploy
 	err := localSystemChecks()
 	logError("Error in local system checks", err, true)
-
-	// Get SSH Private Key from the supplied identity file
-	PrivateKey, err := SSHIdentityToKey(config.SSHClient.SSHIdentityFile, config.SSHClient.UseSSHAgent)
-	logError("Error retrieving SSH private key", err, true)
 
 	// Open the repository
 	repo, err := git.PlainOpen(RepositoryPath)
@@ -385,7 +363,7 @@ func manualDeployment(config Config, commitID string, hostOverride string, fileO
 
 	// Create maps of deployment files and hosts
 	var preDeploymentHosts int
-	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, hostOverride, &preDeploymentHosts)
+	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, hostOverride, config.SSHClientDefault, &preDeploymentHosts)
 	logError("Failed to get host and files", err, true)
 
 	// Load the files for deployment
@@ -402,23 +380,19 @@ func manualDeployment(config Config, commitID string, hostOverride string, fileO
 	// Start go routines for each remote host ssh
 	var wg sync.WaitGroup
 	for _, endpointName := range targetEndpoints {
-		// Retrieve info for this host from The Maps
-		commitFilePaths := hostsAndFilePaths[endpointName]
-		endpointInfo := hostsAndEndpointInfo[endpointName]
-		endpointSocket := endpointInfo[0]
-		endpointUser := endpointInfo[1]
-
 		// Start go routine for specific host
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, commitFilePaths, endpointSocket, endpointUser, commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions, PrivateKey, config.SSHClient.SudoPassword)
+		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions)
 	}
 	wg.Wait()
 
 	// Save deployment errors to fail tracker
 	if FailTracker != "" {
 		err := recordDeploymentError(commitID)
-		fmt.Printf("%v", err)
+		if err != nil {
+			fmt.Printf("%v", err)
+		}
 		return
 	}
 

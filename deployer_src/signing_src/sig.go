@@ -14,6 +14,7 @@ import (
 
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/pbkdf2"
+	"golang.org/x/crypto/ssh/terminal"
 )
 
 func logError(message string, err error) {
@@ -64,10 +65,14 @@ func genKeys(privateKeyFilePath string, publicKeyFilePath string) {
 	pubKeyb := []byte(base64.StdEncoding.EncodeToString(pubKey))
 	privKeyb := []byte(base64.StdEncoding.EncodeToString(privKey))
 
-	// Get password for encrypting private key from user
-	var password string
+	// Ask for password
 	fmt.Print("Enter password for encrypting the private key: ")
-	fmt.Scanln(&password)
+	password, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		err = fmt.Errorf("failed reading password: %v", err)
+		return
+	}
 
 	// Generate salt
 	salt := make([]byte, saltLength)
@@ -77,7 +82,7 @@ func genKeys(privateKeyFilePath string, publicKeyFilePath string) {
 	}
 
 	// Get a key derived from the password
-	encryptionKey := pbkdf2.Key([]byte(password), salt, iterations, keyLength, sha256.New)
+	encryptionKey := pbkdf2.Key(password, salt, iterations, keyLength, sha256.New)
 
 	// New cipher
 	cipher, err := chacha20poly1305.New(encryptionKey)
@@ -129,17 +134,21 @@ func signFile(sourceFilePath string, privateKeyFilePath string) {
 		logError("Failed to read private key file (empty)", err)
 	}
 
-	// Get password for encrypting private key from user
-	var password string
+	// Ask for password
 	fmt.Print("Enter password for encrypting the private key: ")
-	fmt.Scanln(&password)
+	password, err := terminal.ReadPassword(int(os.Stdin.Fd()))
+	fmt.Println()
+	if err != nil {
+		err = fmt.Errorf("failed reading password: %v", err)
+		return
+	}
 
 	// Get salt and key separated
 	salt := privKeyFile[:saltLength]
 	encryptedPrivateKey := privKeyFile[saltLength:]
 
 	// Derive key
-	encryptionKey := pbkdf2.Key([]byte(password), salt, iterations, keyLength, sha256.New)
+	encryptionKey := pbkdf2.Key(password, salt, iterations, keyLength, sha256.New)
 
 	// New cipher
 	cipher, err := chacha20poly1305.New(encryptionKey)

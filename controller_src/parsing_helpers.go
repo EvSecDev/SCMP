@@ -13,18 +13,84 @@ import (
 //      PARSING FUNCTIONS
 // ###################################
 
-// Checks for user host override with given host
+// Checks for user-chosen host override with given host
 func checkForHostOverride(hostOverride string, currentHost string) (SkipHost bool) {
 	// Allow user override hosts
 	if hostOverride != "" {
 		userHostChoices := strings.Split(hostOverride, ",")
 		for _, userHostChoice := range userHostChoices {
 			if userHostChoice == currentHost {
-				break
+				SkipHost = false
+				return
 			}
 			SkipHost = true
 		}
 	}
+	return
+}
+
+// Deduplicates and creates host endpoint information map
+// Compares a hosts deployer endpoints info against the SSH client defaults
+func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHClientDefaults) (info EndpointInfo, err error) {
+	// First item must be present (IP required, cannot use default)
+	endpointAddr := endpointInfo.Endpoint
+	if endpointAddr == "" {
+		err = fmt.Errorf("endpoint address cannot be empty")
+		return
+	}
+
+	// Get port from endpoint or if missing use default
+	endpointPort := endpointInfo.EndpointPort
+	if endpointPort == 0 {
+		endpointPort = SSHClientDefault.EndpointPort
+	}
+
+	// Network Address Parsing
+	info.Endpoint, err = ParseEndpointAddress(endpointAddr, endpointPort)
+	if err != nil {
+		err = fmt.Errorf("failed parsing network address: %v", err)
+		return
+	}
+
+	// Get user from endpoint or if missing use default
+	info.EndpointUser = endpointInfo.EndpointUser
+	if info.EndpointUser == "" {
+		info.EndpointUser = SSHClientDefault.EndpointUser
+	}
+
+	// Get identity file from endpoint or if missing use default
+	identityFile := endpointInfo.SSHIdentityFile
+	if identityFile == "" {
+		identityFile = SSHClientDefault.SSHIdentityFile
+	}
+
+	// Get sshagent bool from endpoint or if missing use default
+	var useSSHAgent bool
+	if endpointInfo.UseSSHAgent != nil {
+		useSSHAgent = *endpointInfo.UseSSHAgent
+	} else {
+		useSSHAgent = SSHClientDefault.UseSSHAgent
+	}
+
+	// Get SSH Private Key from the supplied identity file
+	info.PrivateKey, info.KeyAlgo, err = SSHIdentityToKey(identityFile, useSSHAgent)
+	if err != nil {
+		err = fmt.Errorf("failed to retrieve private key: %v", err)
+		return
+	}
+
+	// Get sudo password from endpoint or if missing use default
+	info.SudoPassword = endpointInfo.SudoPassword
+	if info.SudoPassword == "" {
+		info.SudoPassword = SSHClientDefault.SudoPassword
+	}
+
+	// Get remote transfer buffer file path from endpoint or if missing use default
+	info.RemoteTransferBuffer = endpointInfo.RemoteTransferBuffer
+	if info.RemoteTransferBuffer == "" {
+		info.RemoteTransferBuffer = SSHClientDefault.RemoteTransferBuffer
+	}
+
 	return
 }
 
@@ -61,7 +127,14 @@ func extractMetadata(fileContents string) (metadataSection string, remainingCont
 }
 
 // Ensures files in the new commit are valid
-func validateCommittedFiles(commitHostNames *[]string, DeployerEndpoints map[string][]DeployerEndpoints, rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
+// Invalid files include
+//
+//	non-existent
+//	unsupported file type (device, socket, pipe, ect)
+//	any files in the root of the repository
+//	dirs present in global ignoredirectories array
+//	dirs that do not have a match in the controllers config
+func validateCommittedFiles(commitHostNames *[]string, DeployerEndpoints map[string]DeployerEndpoints, rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
 	// Nothing to validate
 	if rawFile == nil {
 		return
@@ -141,6 +214,7 @@ func validateCommittedFiles(commitHostNames *[]string, DeployerEndpoints map[str
 }
 
 // Determines which file types in the commit are allowed to be deployed
+// Marks file type based on mode
 func determineFileType(fileMode string) (fileType string) {
 	// Set type of file in commit - skip unsupported
 	if fileMode == "0100644" {
@@ -173,6 +247,7 @@ func determineFileType(fileMode string) (fileType string) {
 }
 
 // Retrieve the symbolic link target path and check for validity
+// Valid link means the links target is not outside of the link's host directory
 func ResolveLinkToTarget(filePath string) (targetPath string, err error) {
 	// Get link target path
 	linkTarget, err := filepath.EvalSymlinks(filePath)
