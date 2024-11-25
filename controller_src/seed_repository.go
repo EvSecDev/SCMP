@@ -63,7 +63,7 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 
 		// Download user file choices to local repo and format
 		for targetFilePath, fileInfo := range selectedFiles {
-			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, info.SudoPassword)
+			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, info.SudoPassword, info.RemoteTransferBuffer)
 			logError("Error seeding repository", err, false)
 		}
 	}
@@ -267,7 +267,7 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 // Downloads user selected files from remote host
 // Adds metadata header
 // Recreates directory structure of remote host in the local repository
-func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName string, client *ssh.Client, SudoPassword string) (err error) {
+func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName string, client *ssh.Client, SudoPassword string, tmpRemoteFilePath string) (err error) {
 	// Copy desired file to buffer location - MUST keep buffer file permissions for successful sftp
 	command := "cp --no-preserve=mode,ownership " + targetFilePath + " " + tmpRemoteFilePath
 	_, err = RunSSHCommand(client, command, SudoPassword)
