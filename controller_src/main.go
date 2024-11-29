@@ -74,7 +74,7 @@ type MetaHeader struct {
 	ReloadCommands        []string `json:"Reload,omitempty"`
 }
 
-const Delimiter = string("#|^^^|#")
+const Delimiter string = "#|^^^|#"
 
 // Fail tracker json line format
 type ErrorInfo struct {
@@ -105,7 +105,7 @@ var postDeploymentHosts int
 var MetricCountMutex sync.Mutex
 
 // Global to track failed go routines' hosts, files, and errors to be able to retry deployment on user request
-const FailTrackerFile = string(".failtracker.meta")
+const FailTrackerFile string = ".failtracker.meta"
 
 var FailTracker string
 var FailTrackerMutex sync.Mutex
@@ -116,8 +116,8 @@ var knownhosts []string
 var KnownHostMutex sync.Mutex
 
 // Program Meta Info
-const progCLIHeader = string("==== Secure Configuration Management Pusher ====")
-const progVersion = string("v1.5.1")
+const progCLIHeader string = "==== Secure Configuration Management Pusher ===="
+const progVersion string = "v1.5.1"
 const usage = `
 Examples:
     controller --config </etc/scmpc.yaml> --manual-deploy --commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7> [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
