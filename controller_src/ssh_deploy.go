@@ -2,9 +2,8 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
-	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -14,7 +13,7 @@ import (
 // ###################################
 
 // SSH's into a remote host to deploy files and run reload commands
-func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName string, commitFilePaths []string, endpointInfo EndpointInfo, commitFileData map[string]string, commitFileMetadata map[string]map[string]interface{}, commitFileDataHashes map[string]string, commitFileActions map[string]string) {
+func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName string, commitFilePaths []string, endpointInfo EndpointInfo, commitFileInfo map[string]CommitFileInfo) {
 	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
@@ -29,267 +28,213 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 	semaphore <- struct{}{}
 	defer func() { <-semaphore }() // Release the token when the goroutine finishes
 
+	// Separate files with and without reload commands
+	commitFileByCommand := make(map[string][]string)
+	var commitFilesNoReload []string
+	for _, commitFilePath := range commitFilePaths {
+		// New files with reload commands
+		if commitFileInfo[commitFilePath].ReloadRequired && len(commitFileInfo[commitFilePath].Reload) > 0 {
+			// Create an ID based on the command array to uniquely identify the group that files will belong to
+			// The data represented in cmdArrayID does not matter and it is not used outside this loop, it only needs to be unique
+			reloadCommands := fmt.Sprintf("%v", commitFileInfo[commitFilePath].Reload)
+			cmdArrayID := base64.StdEncoding.EncodeToString([]byte(reloadCommands))
+
+			// Add file to array based on its unique set of reload commands
+			commitFileByCommand[cmdArrayID] = append(commitFileByCommand[cmdArrayID], commitFilePath)
+		} else {
+			// All other files - no reloads
+			commitFilesNoReload = append(commitFilesNoReload, commitFilePath)
+		}
+	}
+
 	// Connect to the SSH server
-	client, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
+	sshClient, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
 	if err != nil {
 		recordDeploymentFailure(endpointName, commitFilePaths, 0, fmt.Errorf("failed connect to SSH server %v", err))
 		return
 	}
-	defer client.Close()
+	defer sshClient.Close()
 
-	// Get sudo password from info array
+	// Get sudo password from info map
 	SudoPassword := endpointInfo.SudoPassword
 
 	// Get this hosts remote transfer buffer file path
 	tmpRemoteFilePath := endpointInfo.RemoteTransferBuffer
+	tmpBackupPath := endpointInfo.RemoteBackupDir
 
-	// Loop through target files and deploy
+	// Need local metric in order to determine what number of configs for this specific host succeeded (to increment global host metric counter)
 	var postDeployedConfigsLocal int
-	backupConfCreated := false
-	for index, commitFilePath := range commitFilePaths {
-		// Move index up one to differentiate between first array item and entire host failure
+
+	// Create backup directory
+	command := "mkdir " + tmpBackupPath
+	_, err = RunSSHCommand(sshClient, command, SudoPassword)
+	if err != nil {
+		// Since we blindly try to create the directory, ignore errors about it already existing
+		if !strings.Contains(err.Error(), "File exists") {
+			recordDeploymentFailure(endpointName, commitFilePaths, 0, fmt.Errorf("failed SSH Command on host during creation of backup directory: %v", err))
+			return
+		}
+	}
+
+	// Loop over command groups and deploy files that need reload commands
+	for _, commitFilePaths := range commitFileByCommand {
+		// Deploy all files for this specific reload command set
+		var targetFilePaths []string
+		backupFileHashes := make(map[string]string)
+		for index, commitFilePath := range commitFilePaths {
+			// Move index up one to differentiate between first array item and entire host failure - offset is tracked in record failure function
+			commitIndex := index + 1
+
+			// Split repository host dir and config file path for obtaining the absolute target file path
+			_, targetFilePath := separateHostDirFromPath(commitFilePath)
+			// Reminder:
+			// targetFilePath   should be the file path as expected on the remote system
+			// commitFilePath   should be the local file path within the commit repository - is REQUIRED to reference keys in the big config information maps (commitFileData, commitFileActions, ect.)
+
+			// Create a backup config on remote host if remote file already exists
+			oldRemoteFileHash, err := backupOldConfig(sshClient, SudoPassword, targetFilePath, tmpBackupPath)
+			if err != nil {
+				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, err)
+				continue
+			}
+
+			// Compare hashes and skip to next file deployment if remote is same as local
+			if oldRemoteFileHash == commitFileInfo[commitFilePath].Hash {
+				fmt.Printf("\rHost '%s': file '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
+				continue
+			}
+
+			// Transfer config file to remote with correct ownership and permissions
+			err = createFile(sshClient, SudoPassword, targetFilePath, tmpRemoteFilePath, commitFileInfo[commitFilePath].Data, commitFileInfo[commitFilePath].Hash, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
+			if err != nil {
+				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, err)
+				err = restoreOldConfig(sshClient, targetFilePath, tmpBackupPath, oldRemoteFileHash, SudoPassword)
+				if err != nil {
+					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
+				}
+				continue
+			}
+
+			// Record completed target file paths in case reload fails and restoration needs to occur
+			targetFilePaths = append(targetFilePaths, targetFilePath)
+
+			// Record backup file hashes to map in case reload fails and restoration needs to occur
+			backupFileHashes[targetFilePath] = oldRemoteFileHash
+		}
+
+		// Since all the files use the same command array, just pick out one file to get the reload command array from
+		commandReloadArray := commitFileInfo[commitFilePaths[0]].Reload
+
+		// Run all the commands required by this config file group
+		var ReloadFailed bool
+		for _, command := range commandReloadArray {
+			_, err = RunSSHCommand(sshClient, command, SudoPassword)
+			if err != nil {
+				// Record this failed command - first failure always stops reloads
+				// Record failures using the arry of all files for this command group and signal to record all the files using index "0"
+				recordDeploymentFailure(endpointName, targetFilePaths, 0, fmt.Errorf("failed SSH Command on host during reload command %s: %v", command, err))
+				ReloadFailed = true
+				break
+			}
+		}
+		// Restore configs and skip to next reload group if reload failed
+		if ReloadFailed {
+			// Restore all config files for this group
+			for index, targetFilePath := range targetFilePaths {
+				// Move index up one to differentiate between first array item and entire host failure - offset is tracked in record failure function
+				commitIndex := index + 1
+
+				err = restoreOldConfig(sshClient, targetFilePath, tmpBackupPath, backupFileHashes[targetFilePath], SudoPassword)
+				if err != nil {
+					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
+				}
+			}
+			continue
+		}
+
+		// Increment local metric for configs by number of files under this command group (deployment by command group is all files or none)
+		postDeployedConfigsLocal += len(commitFilePaths)
+	}
+
+	// Loop through target files and deploy (non-reload required configs)
+	for index, commitFilePath := range commitFilesNoReload {
+		// Move index up one to differentiate between first array item and entire host failure - offset is tracked in record failure function
 		commitIndex := index + 1
 
 		// Split repository host dir and config file path for obtaining the absolute target file path
-		commitSplit := strings.SplitN(commitFilePath, "/", 2)
-		commitPath := commitSplit[1]
-		targetFilePath := "/" + commitPath
+		_, targetFilePath := separateHostDirFromPath(commitFilePath)
 		// Reminder:
 		// targetFilePath   should be the file path as expected on the remote system
 		// commitFilePath   should be the local file path within the commit repository - is REQUIRED to reference keys in the big config information maps (commitFileData, commitFileActions, ect.)
 
-		var command string
-		var CommandOutput string
-		targetFileAction := commitFileActions[commitFilePath]
+		// What to do - Create/Delete/symlink the config
+		targetFileAction := commitFileInfo[commitFilePath].Action
 
-		// If git file was deleted, attempt to delete file any empty folders above - failures here should not stop deployment to this host
-		// Note: technically inefficient; if a file is moved within same directory, this will delete the file and parent dir(maybe)
-		//                                then when deploying the moved file, it will recreate folder that was just deleted.
+		// Delete file on remote if deleted in repo
 		if targetFileAction == "delete" {
-			// Attempt remove file and any backup for that file
-			command = "rm " + targetFilePath + " " + targetFilePath + ".old"
-			_, err = RunSSHCommand(client, command, SudoPassword)
+			err = deleteFile(sshClient, SudoPassword, targetFilePath)
 			if err != nil {
-				// Ignore specific error if one one isnt there but the other is
-				if !strings.Contains(err.Error(), "No such file or directory") {
-					fmt.Printf("Warning: Host %s: failed to remove file '%s': %v\n", endpointName, targetFilePath, err)
-				}
-			}
-			// Danger Zone: Remove empty parent dirs
-			targetPath := filepath.Dir(targetFilePath)
-			maxLoopCount := 1000 // for safety - sane number to avoid endless dir loops
-			for i := 0; i < maxLoopCount; i++ {
-				// Check for presence of anything in dir
-				command = "ls -A " + targetPath
-				CommandOutput, _ = RunSSHCommand(client, command, SudoPassword)
-
-				// Empty stdout means empty dir
-				if CommandOutput == "" {
-					// Safe remove directory
-					command = "rmdir " + targetPath
-					_, err = RunSSHCommand(client, command, SudoPassword)
-					if err != nil {
-						// Error breaks loop
-						fmt.Printf("Warning: Host %s: failed to remove empty parent directory '%s' for file '%s': %v\n", endpointName, targetPath, targetFilePath, err)
-						break
-					}
-
-					// Set the next loop dir to be one above
-					targetPath = filepath.Dir(targetPath)
-					continue
+				// Only record errors where removal of the specific file failed
+				if strings.Contains(err.Error(), "failed to remove file") {
+					recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
 				}
 
-				// Leave loop when a parent dir has something in it
-				break
+				// Other errors (removing empty parent dirs) are not recorded
+				fmt.Printf("Warning: Host %s: %v\n", endpointName, err)
 			}
 
-			// Next target file to deploy for this host
+			// Done deleting (or recording error) - Next deployment file
 			continue
 		}
 
 		// Create symbolic link if requested
 		if strings.Contains(targetFileAction, "symlinkcreate") {
-			// Check if a file is already there - if so, error
-			OldSymLinkExists, err := CheckRemoteFileExistence(client, targetFilePath, SudoPassword)
+			err = createSymLink(sshClient, SudoPassword, targetFilePath, targetFileAction)
 			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("error checking file existence before creating symbolic link: %v", err))
-				continue
-			}
-			if OldSymLinkExists {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("error file already exists where symbolic link is supposed to be created"))
-				continue
+				recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
 			}
 
-			// Extract target path
-			tgtActionSplitReady := strings.ReplaceAll(targetFileAction, " to target ", "?")
-			targetActionArray := strings.SplitN(tgtActionSplitReady, "?", 2)
-			symLinkTarget := targetActionArray[1]
-
-			// Create symbolic link
-			command = "ln -s " + symLinkTarget + " " + targetFilePath
-			_, err = RunSSHCommand(client, command, SudoPassword)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("error creating symbolic link: %v", err))
-				continue
-			}
+			// Done creating link (or recording error) - Next deployment file
 			continue
 		}
 
-		// Safety blocker for files that didn't get tagged 'create'
-		if targetFileAction != "create" {
-			// Skip non-create files
-			continue
-		}
-
-		// Parse out Metadata Map into vars
-		TargetFileOwnerGroup := commitFileMetadata[commitFilePath]["FileOwnerGroup"].(string)
-		TargetFilePermissions := commitFileMetadata[commitFilePath]["FilePermissions"].(int)
-		ReloadRequired := commitFileMetadata[commitFilePath]["ReloadRequired"].(bool)
-		ReloadCommands := commitFileMetadata[commitFilePath]["Reload"].([]string)
-
-		// Find if target file exists on remote
-		oldFileExists, err := CheckRemoteFileExistence(client, targetFilePath, SudoPassword)
+		// Create a backup config on remote host if remote file already exists
+		oldRemoteFileHash, err := backupOldConfig(sshClient, SudoPassword, targetFilePath, tmpBackupPath)
 		if err != nil {
-			recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("error checking file presence on remote host: %v", err))
+			recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
 			continue
 		}
 
-		// If file exists, Hash remote file
-		var oldRemoteFileHash string
-		if oldFileExists {
-			// Get the SHA256 hash of the remote old conf file
-			command = "sha256sum " + targetFilePath
-			CommandOutput, err = RunSSHCommand(client, command, SudoPassword)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err))
-				continue
-			}
-
-			// Parse hash command output to get just the hex
-			oldRemoteFileHash = SHA256RegEx.FindString(CommandOutput)
-
-			// Compare hashes and go to next file deployment if remote is same as local
-			if oldRemoteFileHash == commitFileDataHashes[commitFilePath] {
-				fmt.Printf("\rHost '%s': file '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
-				continue
-			}
-
-			// Backup old config
-			command = "cp -p " + targetFilePath + " " + targetFilePath + ".old"
-			_, err = RunSSHCommand(client, command, SudoPassword)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("error making backup of old config file: %v", err))
-				continue
-			}
-
-			// Ensure old restore only happens if a backup was created
-			backupConfCreated = true
+		// Compare hashes and skip to next file deployment if remote is same as local
+		if oldRemoteFileHash == commitFileInfo[commitFilePath].Hash {
+			fmt.Printf("\rHost '%s': file '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
+			continue
 		}
 
-		// Transfer local file to remote
-		err = TransferFile(client, commitFileData[commitFilePath], targetFilePath, SudoPassword, tmpRemoteFilePath)
+		// Transfer config file to remote with correct ownership and permissions
+		err = createFile(sshClient, SudoPassword, targetFilePath, tmpRemoteFilePath, commitFileInfo[commitFilePath].Data, commitFileInfo[commitFilePath].Hash, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
 		if err != nil {
-			recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SFTP config file transfer to remote host: %v", err))
-			err = restoreOldConfig(client, targetFilePath, oldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
+			recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
+			err = restoreOldConfig(sshClient, targetFilePath, tmpBackupPath, oldRemoteFileHash, SudoPassword)
 			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed Old Config Restoration: %v", err))
+				recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
 			}
-			continue
-		}
-
-		// Check if deployed file is present on disk
-		NewFileExists, err := CheckRemoteFileExistence(client, targetFilePath, SudoPassword)
-		if err != nil {
-			recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("error checking deployed file presence on remote host: %v", err))
-			err = restoreOldConfig(client, targetFilePath, oldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed Old Config Restoration: %v", err))
-			}
-			continue
-		}
-		if !NewFileExists {
-			recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("deployed file on remote host is not present after file transfer"))
-			err = restoreOldConfig(client, targetFilePath, oldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
-			}
-			continue
-		}
-
-		// Get Hash of new deployed conf file
-		command = "sha256sum " + targetFilePath
-		CommandOutput, err = RunSSHCommand(client, command, SudoPassword)
-		if err != nil {
-			recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during hash of deployed file: %v", err))
-			err := restoreOldConfig(client, targetFilePath, oldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
-			}
-			continue
-		}
-
-		// Parse hash command output to get just the hex
-		NewRemoteFileHash := SHA256RegEx.FindString(CommandOutput)
-
-		// Compare hashes and restore old conf if they dont match
-		if NewRemoteFileHash != commitFileDataHashes[commitFilePath] {
-			recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("error: hash of config file post deployment does not match hash of pre deployment"))
-			err = restoreOldConfig(client, targetFilePath, oldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
-			}
-			continue
-		}
-
-		command = "chown " + TargetFileOwnerGroup + " " + targetFilePath
-		_, err = RunSSHCommand(client, command, SudoPassword)
-		if err != nil {
-			recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during owner/group change: %v", err))
-			err = restoreOldConfig(client, targetFilePath, oldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
-			}
-			continue
-		}
-
-		command = "chmod " + strconv.Itoa(TargetFilePermissions) + " " + targetFilePath
-		_, err = RunSSHCommand(client, command, SudoPassword)
-		if err != nil {
-			recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during permissions change: %v", err))
-			err = restoreOldConfig(client, targetFilePath, oldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
-			}
-			continue
-		}
-
-		// No reload required, early loop continue
-		if !ReloadRequired {
-			// Increment counter of configs by 1
-			postDeployedConfigsLocal++
-			continue
-		}
-
-		// Run all the commands required by new config file
-		var ReloadFailed bool
-		for _, command := range ReloadCommands {
-			_, err = RunSSHCommand(client, command, SudoPassword)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during reload command %s: %v", command, err))
-				err = restoreOldConfig(client, targetFilePath, oldRemoteFileHash, SHA256RegEx, SudoPassword, backupConfCreated)
-				if err != nil {
-					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
-				}
-				ReloadFailed = true
-				break
-			}
-		}
-		if ReloadFailed {
 			continue
 		}
 
 		// Increment local metric for config
 		postDeployedConfigsLocal++
+	}
+
+	// Cleanup temporary files
+	command = "rm -r " + tmpRemoteFilePath + " " + tmpBackupPath
+	_, err = RunSSHCommand(sshClient, command, SudoPassword)
+	if err != nil {
+		// Only print error if there was a file to remove in the first place
+		if !strings.Contains(err.Error(), "No such file or directory") {
+			// Failures to remove the tmp files are not critical, but notify the user regardless
+			fmt.Printf(" Warning! Failed to cleanup temporary buffer files: %v\n", err)
+		}
 	}
 
 	// Lock and write to metric var - increment success configs by local file counter

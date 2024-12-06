@@ -85,6 +85,32 @@ func createNewRepository(newRepoInfo string) {
 	repo, err := git.PlainInitWithOptions(repoPath, plainInitOptions)
 	logError("Failed to init git repository", err, false)
 
+	// Read existing config options
+	gitConfigPath := repoPath + "/.git/config"
+	gitConfigFileBytes, err := os.ReadFile(gitConfigPath)
+	logError("Failed to read git config file", err, false)
+
+	// Write options to config file if no garbage collection section
+	if !strings.Contains(string(gitConfigFileBytes), "[gc]") {
+		// Open git config file - APPEND
+		gitConfigFile, err := os.OpenFile(gitConfigPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0640)
+		logError("Failed to open git config file", err, false)
+		defer gitConfigFile.Close()
+
+		// Define garbage collection section and options
+		repoGCOptions := `[gc]
+        auto = 10
+        reflogExpire = 8.days
+        reflogExpireUnreachable = 8.days
+        pruneExpire = 16.days
+`
+
+		// Write (append) string
+		_, err = gitConfigFile.WriteString(repoGCOptions + "\n")
+		logError("Failed to write git garbage collection options", err, false)
+		gitConfigFile.Close()
+	}
+
 	// Create a working tree
 	worktree, err := repo.Worktree()
 	logError("Failed to create new git tree", err, false)

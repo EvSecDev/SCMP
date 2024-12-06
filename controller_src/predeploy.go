@@ -17,7 +17,7 @@ import (
 // ###################################
 
 // Reads fail tracker file and uses embedded commit, hosts, and files to redeploy
-func failureDeployment(config Config) {
+func failureDeployment(config Config, hostOverride string) {
 	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
@@ -27,7 +27,7 @@ func failureDeployment(config Config) {
 
 	// Show progress to user
 	fmt.Printf("%s\n", progCLIHeader)
-	fmt.Print("Starting failure deployment\n")
+	fmt.Print("     Starting failure deployment\n")
 	fmt.Print("Running local system checks... ")
 
 	// Ensure local system is in a state that is able to deploy
@@ -80,12 +80,12 @@ func failureDeployment(config Config) {
 
 	// Create maps of deployment files and hosts
 	var preDeploymentHosts int
-	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, "", config.SSHClientDefault, &preDeploymentHosts)
+	hostsAndFilePaths, hostsAndEndpointInfo, targetEndpoints, allLocalFiles, err := getHostsAndFiles(commitFiles, commitHostNames, repoHostsandFiles, config.DeployerEndpoints, hostOverride, config.SSHClientDefault, &preDeploymentHosts)
 	logError("Failed to get host and files", err, true)
 
 	// Load the files for deployment
 	var preDeployedConfigs int
-	commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions, err := loadFiles(allLocalFiles, commitFiles, tree, &preDeployedConfigs)
+	commitFileInfo, err := loadFiles(allLocalFiles, commitFiles, tree, &preDeployedConfigs)
 	logError("Error loading files", err, true)
 
 	// Show progress to user - using the metrics
@@ -94,13 +94,20 @@ func failureDeployment(config Config) {
 	// Semaphore to limit concurrency of host deployment go routines as specified in main config
 	semaphore := make(chan struct{}, config.SSHClient.MaximumConcurrency)
 
+	// If user requested dry run - print collected information so far and gracefully abort deployment
+	if dryRunRequested {
+		printDeploymentInformation(targetEndpoints, hostsAndFilePaths, hostsAndEndpointInfo, commitFileInfo)
+		fmt.Printf("================================================\n")
+		return
+	}
+
 	// Start go routines for each remote host ssh
 	var wg sync.WaitGroup
 	for _, endpointName := range targetEndpoints {
 		// Start go routine for specific host
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions)
+		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileInfo)
 	}
 	wg.Wait()
 
@@ -108,7 +115,7 @@ func failureDeployment(config Config) {
 	if FailTracker != "" {
 		err := recordDeploymentError(commitID)
 		if err != nil {
-			fmt.Printf("%v", err)
+			fmt.Printf("%v\n", err)
 		}
 		return
 	}
@@ -118,7 +125,7 @@ func failureDeployment(config Config) {
 
 	// Show progress to user
 	fmt.Printf("\nCOMPLETE: %d configuration(s) deployed to %d host(s)\n", postDeployedConfigs, postDeploymentHosts)
-	fmt.Print("================================================\n")
+	fmt.Printf("================================================\n")
 }
 
 // ###################################
@@ -136,7 +143,7 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 
 	// Show progress to user
 	fmt.Printf("%s\n", progCLIHeader)
-	fmt.Print("Starting all deployment\n")
+	fmt.Print("     Starting all deployment\n")
 	fmt.Print("Running local system checks... ")
 
 	// Ensure local system is in a state that is able to deploy
@@ -146,6 +153,16 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 	// Open the repository
 	repo, err := git.PlainOpen(RepositoryPath)
 	logError("Failed to open repository", err, true)
+
+	// If user did not supply a commitID, assume they want to use the HEAD commit
+	if commitID == "" {
+		// Get the pointer to the HEAD commit
+		ref, err := repo.Head()
+		logError("Failed to get HEAD reference", err, true)
+
+		// Save HEAD commitID
+		commitID = ref.Hash().String()
+	}
 
 	// Verify commit ID string content - only truly required when user specifies it - but verify anyways
 	if !SHA1RegEx.MatchString(commitID) {
@@ -183,7 +200,7 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 
 	// Load the files for deployment
 	var preDeployedConfigs int
-	commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions, err := loadFiles(allLocalFiles, commitFiles, tree, &preDeployedConfigs)
+	commitFileInfo, err := loadFiles(allLocalFiles, commitFiles, tree, &preDeployedConfigs)
 	logError("Error loading files", err, true)
 
 	// Show progress to user - using the metrics
@@ -192,13 +209,20 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 	// Semaphore to limit concurrency of host deployment go routines as specified in main config
 	semaphore := make(chan struct{}, config.SSHClient.MaximumConcurrency)
 
+	// If user requested dry run - print collected information so far and gracefully abort deployment
+	if dryRunRequested {
+		printDeploymentInformation(targetEndpoints, hostsAndFilePaths, hostsAndEndpointInfo, commitFileInfo)
+		fmt.Printf("================================================\n")
+		return
+	}
+
 	// Start go routines for each remote host ssh
 	var wg sync.WaitGroup
 	for _, endpointName := range targetEndpoints {
 		// Start go routine for specific host
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions)
+		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileInfo)
 	}
 	wg.Wait()
 
@@ -206,7 +230,7 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 	if FailTracker != "" {
 		err := recordDeploymentError(commitID)
 		if err != nil {
-			fmt.Printf("%v", err)
+			fmt.Printf("%v\n", err)
 		}
 		return
 	}
@@ -223,7 +247,7 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 // Main entry point for git post-commit hook
 // Assumes desired commit is head commit
 // Only deploys changed files between head commit and previous commit
-func autoDeployment(config Config, hostOverride string) {
+func autoDeployment(config Config, hostOverride string, fileOverride string) {
 	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
@@ -233,7 +257,7 @@ func autoDeployment(config Config, hostOverride string) {
 
 	// Show progress to user
 	fmt.Printf("%s\n", progCLIHeader)
-	fmt.Print("Starting automatic deployment\n")
+	fmt.Print("     Starting automatic deployment\n")
 	fmt.Print("Running local system checks... ")
 
 	// Ensure local system is in a state that is able to deploy
@@ -263,8 +287,17 @@ func autoDeployment(config Config, hostOverride string) {
 	fmt.Print("Complete.\n")
 
 	// Retrieve and validate committed files
-	commitFiles, commitHostNames, err := getCommitFiles(commit, config.DeployerEndpoints, "")
-	logError("Failed to retrieve commit files", err, true)
+	commitFiles, commitHostNames, err := getCommitFiles(commit, config.DeployerEndpoints, fileOverride)
+	if err != nil {
+		if err.Error() == "no valid files in commit" {
+			// exit the program when no files - usually when committing files outside of host directories
+			fmt.Print("No files available for deployment.\n")
+			fmt.Print("================================================\n")
+			return
+		}
+		// Rollback and exit for other errors
+		logError("Failed to retrieve commit files", err, true)
+	}
 
 	// Retrieve all repository files
 	repoHostsandFiles, err := mapAllRepoFiles(tree)
@@ -277,7 +310,7 @@ func autoDeployment(config Config, hostOverride string) {
 
 	// Load the files for deployment
 	var preDeployedConfigs int
-	commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions, err := loadFiles(allLocalFiles, commitFiles, tree, &preDeployedConfigs)
+	commitFileInfo, err := loadFiles(allLocalFiles, commitFiles, tree, &preDeployedConfigs)
 	logError("Error loading files", err, true)
 
 	// Show progress to user - using the metrics
@@ -286,13 +319,20 @@ func autoDeployment(config Config, hostOverride string) {
 	// Semaphore to limit concurrency of host deployment go routines as specified in main config
 	semaphore := make(chan struct{}, config.SSHClient.MaximumConcurrency)
 
+	// If user requested dry run - print collected information so far and gracefully abort deployment
+	if dryRunRequested {
+		printDeploymentInformation(targetEndpoints, hostsAndFilePaths, hostsAndEndpointInfo, commitFileInfo)
+		fmt.Printf("================================================\n")
+		return
+	}
+
 	// Start go routines for each remote host ssh
 	var wg sync.WaitGroup
 	for _, endpointName := range targetEndpoints {
 		// Start go routine for specific host
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions)
+		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileInfo)
 	}
 	wg.Wait()
 
@@ -300,7 +340,7 @@ func autoDeployment(config Config, hostOverride string) {
 	if FailTracker != "" {
 		err := recordDeploymentError(commitID)
 		if err != nil {
-			fmt.Printf("%v", err)
+			fmt.Printf("%v\n", err)
 		}
 		return
 	}
@@ -326,7 +366,8 @@ func manualDeployment(config Config, commitID string, hostOverride string, fileO
 
 	// Show progress to user
 	fmt.Printf("%s\n", progCLIHeader)
-	fmt.Printf("Starting manual deployment for commit %s\n", commitID)
+	fmt.Printf("     Starting manual deployment")
+	fmt.Printf("     Commit %s\n", commitID)
 	fmt.Print("Running local system checks... ")
 
 	// Verify commit ID string content from  user
@@ -355,7 +396,16 @@ func manualDeployment(config Config, commitID string, hostOverride string, fileO
 
 	// Retrieve and validate committed files
 	commitFiles, commitHostNames, err := getCommitFiles(commit, config.DeployerEndpoints, fileOverride)
-	logError("Failed to retrieve commit files", err, true)
+	if err != nil {
+		if err.Error() == "no valid files in commit" {
+			// exit the program when no files - usually when committing files outside of host directories
+			fmt.Printf("No files available for deployment.\n")
+			fmt.Printf("================================================\n")
+			return
+		}
+		// Rollback and exit for other errors
+		logError("Failed to retrieve commit files", err, true)
+	}
 
 	// Retrieve all repository files
 	repoHostsandFiles, err := mapAllRepoFiles(tree)
@@ -368,7 +418,7 @@ func manualDeployment(config Config, commitID string, hostOverride string, fileO
 
 	// Load the files for deployment
 	var preDeployedConfigs int
-	commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions, err := loadFiles(allLocalFiles, commitFiles, tree, &preDeployedConfigs)
+	commitFileInfo, err := loadFiles(allLocalFiles, commitFiles, tree, &preDeployedConfigs)
 	logError("Error loading files", err, true)
 
 	// Show progress to user - using the metrics
@@ -377,13 +427,20 @@ func manualDeployment(config Config, commitID string, hostOverride string, fileO
 	// Semaphore to limit concurrency of host deployment go routines as specified in main config
 	semaphore := make(chan struct{}, config.SSHClient.MaximumConcurrency)
 
+	// If user requested dry run - print collected information so far and gracefully abort deployment
+	if dryRunRequested {
+		printDeploymentInformation(targetEndpoints, hostsAndFilePaths, hostsAndEndpointInfo, commitFileInfo)
+		fmt.Printf("================================================\n")
+		return
+	}
+
 	// Start go routines for each remote host ssh
 	var wg sync.WaitGroup
 	for _, endpointName := range targetEndpoints {
 		// Start go routine for specific host
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileData, commitFileMetadata, commitFileDataHashes, commitFileActions)
+		go deployConfigs(&wg, semaphore, endpointName, hostsAndFilePaths[endpointName], hostsAndEndpointInfo[endpointName], commitFileInfo)
 	}
 	wg.Wait()
 
@@ -391,7 +448,7 @@ func manualDeployment(config Config, commitID string, hostOverride string, fileO
 	if FailTracker != "" {
 		err := recordDeploymentError(commitID)
 		if err != nil {
-			fmt.Printf("%v", err)
+			fmt.Printf("%v\n", err)
 		}
 		return
 	}

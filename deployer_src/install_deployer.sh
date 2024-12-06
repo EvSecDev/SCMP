@@ -74,7 +74,8 @@ ApparmorProfilePath=/etc/apparmor.d/$(echo $executablePath | sed 's|^/||g' | sed
 ServiceDir="/etc/systemd/system"
 Service="scmpd.service"
 ServiceFilePath="$ServiceDir/$Service"
-remoteTransferBuffer="/tmp/scmpbuffer"
+remoteTransferBuffer="/tmp/.scmpbuffer"
+remoteBackupDir="/tmp/.scmpbackups"
 
 #### User Choices
 echo -e "Provide your choices for the installation. Press enter for the default.\n"
@@ -334,6 +335,7 @@ then
 @{serverkeylocation}=$SSHPrivateKeyPath
 @{updateexelocation}=$updateProgramPath
 @{tempTransferBuffer}=$remoteTransferBuffer
+@{tempBackupBuffer}=$remoteBackupDir
 
 @{profilelocation}=$ApparmorProfilePath
 @{pid}={[1-9],[1-9][0-9],[1-9][0-9][0-9],[1-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9][0-9],[1-4][0-9][0-9][0-9][0-9][0-9][0-9]}
@@ -399,9 +401,8 @@ profile SCMDsudo flags=(enforce) {
   /usr/bin/sha256sum rmpx -> SCMDfileops,
 
   # User defined commands for post deployment checks and reloads
-  /usr/bin/systemctl rmpx -> SCMDreloadops,
-  /usr/sbin/sysctl rmpx -> SCMDreloadops,
-  /usr/sbin/nft rmpx -> SCMDreloadops,
+  /usr/bin/systemctl rmUx
+  /usr/bin/nginx rmUx
 
   # /proc accesses
   /proc/stat r,
@@ -509,7 +510,8 @@ profile SCMDfileops flags=(enforce) {
 
   ## Allowed scope of deployment commands
   # as root(sudo) read and write over much of the system
-  /tmp/scmpdbuffer rw,
+  @{tempTransferBuffer} rw,
+  @{tempBackupBuffer}{/,/*} rw,
   /{,*} r,
   /root/{,**} rw,
   /etc/{,**} rw,
@@ -521,30 +523,14 @@ profile SCMDfileops flags=(enforce) {
   /home/{,**} rw,
   /usr/{,*} r,
 }
-profile SCMDreloadops flags=(enforce) {
-  # Commands Meta Access
-  /usr/{lib**,sbin/**,bin/**} rm,
-  /etc/ld.so.cache r,
-  /etc/locale.alias r,
-  /proc/filesystems r,
-  owner /proc/@{pid}/mounts r,
-  capability net_admin,
-  network netlink raw,
-  unix (create) type=stream,
-
-  ## Explicit denies for reload commands
-  # systemctl ptrace behavior - disabled
-  deny ptrace read,
-
-  ## Allow scope for reload commands
-  /etc/sysctl.conf r,
-  /proc/sys/** w,
-  /etc/nftables.conf r,
-  /etc/iproute2/** r,
-  /etc/protocols r,
-  /etc/nsswitch.conf r,
-}
+#profile SCMDreloadops flags=(enforce) {
+#  # Commands Meta Access
+#  /usr/{lib**,sbin/**,bin/**} rm,
+#  /etc/ld.so.cache r,
+#  /etc/locale.alias r,
+#}
 EOF
+	chmod 644 "$ApparmorProfilePath"
 	apparmor_parser -r "$ApparmorProfilePath"
 fi
 

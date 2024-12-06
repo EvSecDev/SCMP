@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"regexp"
 	"runtime"
 	"sync"
@@ -42,6 +41,7 @@ type SSHClientDefaults struct {
 	UseSSHAgent          bool   `yaml:"UseSSHAgent"`
 	SudoPassword         string `yaml:"SudoPassword"`
 	RemoteTransferBuffer string `yaml:"RemoteTransferBuffer"`
+	RemoteBackupDir      string `yaml:"RemoteBackupDir"`
 }
 
 // Struct for deployer endpoints config section - options here can override sshclientdefaults
@@ -53,6 +53,7 @@ type DeployerEndpoints struct {
 	UseSSHAgent          *bool  `yaml:"UseSSHAgent,omitempty"`
 	SudoPassword         string `yaml:"SudoPassword,omitempty"`
 	RemoteTransferBuffer string `yaml:"RemoteTransferBuffer,omitempty"`
+	RemoteBackupDir      string `yaml:"RemoteBackupDir,omitempty"`
 	IgnoreUniversalConfs bool   `yaml:"ignoreUniversalConfs,omitempty"`
 }
 
@@ -64,9 +65,10 @@ type EndpointInfo struct {
 	KeyAlgo              string
 	SudoPassword         string
 	RemoteTransferBuffer string
+	RemoteBackupDir      string
 }
 
-// Struct for metadata section
+// Struct for metadata json in config files
 type MetaHeader struct {
 	TargetFileOwnerGroup  string   `json:"FileOwnerGroup"`
 	TargetFilePermissions int      `json:"FilePermissions"`
@@ -75,6 +77,17 @@ type MetaHeader struct {
 }
 
 const Delimiter string = "#|^^^|#"
+
+// Struct for all deployment info for a file
+type CommitFileInfo struct {
+	Data            string
+	Hash            string
+	Action          string
+	FileOwnerGroup  string
+	FilePermissions int
+	ReloadRequired  bool
+	Reload          []string
+}
 
 // Fail tracker json line format
 type ErrorInfo struct {
@@ -89,13 +102,13 @@ var configFilePath string      // for printing recovery command to user
 var LogToJournald bool         // for optional logging to journald
 var CalledByGitHook bool       // for automatic rollback on parsing error
 var knownHostsFilePath string  // for loading known_hosts file
-var tmpRemoteFilePath string   // for ssh transfers to remote
 var RepositoryPath string      // for parsing commits
 var UniversalDirectory string  // for parsing commits
 var IgnoreDirectories []string // for parsing commits
 var OSPathSeparator string     // for parsing local files and paths
 var SHA256RegEx *regexp.Regexp // for validating hashes received from remote hosts
 var SHA1RegEx *regexp.Regexp   // for validating user supplied commit hashes
+var dryRunRequested bool       // for printing relevant information and bailing out before outbound remote connections are made
 
 // #### Written to in other functions - use mutex
 
@@ -117,7 +130,7 @@ var KnownHostMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Pusher ===="
-const progVersion string = "v1.5.1"
+const progVersion string = "v1.6.0"
 const usage = `
 Examples:
     controller --config </etc/scmpc.yaml> --manual-deploy --commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7> [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
@@ -129,23 +142,25 @@ Examples:
     controller --config </etc/scmpc.yaml> --seed-repo [--remote-hosts <www,proxy,db01>]
 
 Options:
-    -c, --config </path/to/yaml>                    Path to the configuration file [default: scmpc.yaml]
-    -a, --auto-deploy                               Use latest commit for deployment, normally used by git post-commit hook
-    -m, --manual-deploy                             Use specified commit ID for deployment (Requires '--commitid')
-    -d, --deploy-all                                Deploy all files in specified commit to specific hosts (Requires '--remote-hosts' and '--manual-deploy')
-    -r, --remote-hosts <host1,host2,host3,...>      Override hosts for deployment
-    -l, --local-files <file1,file2,...>             Override files for deployment from a specific commit (Requires '--manual-deploy')
-    -C, --commitid <hash>                           Commit ID (hash) of the commit to deploy configurations from
-    -f, --use-failtracker-only                      If previous deployment failed, use the failtracker to retry (Requires '--manual-deploy', but not '--commitid')
-    -q, --deployer-versions                         Query remote host deployer executable versions and print to stdout
-    -u, --deployer-update-file </path/to/binary>    Upload and update deployer executable with supplied signed ELF file
-    -n, --new-repo </path/to/repo>:<branchname>     Create a new repository at the given path with the given initial branch name
-    -s, --seed-repo                                 Retrieve existing files from remote hosts to seed the local repository (Requires user interaction)
-    -g, --disable-git-hook                          Disables the automatic deployment git post-commit hook for the current repository
-    -G, --enable-git-hook                           Enables the automatic deployment git post-commit hook for the current repository
-    -h, --help                                      Show this help menu
-    -V, --version                                   Show version and packages
-    -v, --versionid                                 Show only version number
+    -c, --config </path/to/yaml>               Path to the configuration file [default: scmpc.yaml]
+    -a, --auto-deploy                          Use latest commit for deployment, normally used by git post-commit hook
+    -m, --manual-deploy                        Use specified commit ID for deployment (Requires '--commitid')
+    -d, --deploy-all                           Deploy all files in specified commit to specific hosts (Requires '--remote-hosts')
+    -r, --remote-hosts <host1,host2,...>       Override hosts for deployment
+    -l, --local-files <file1,file2,...>        Override files for deployment
+    -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
+    -f, --use-failtracker-only                 If previous deployment failed, use the failtracker to retry (Requires '--manual-deploy', but not '--commitid')
+    -t, --test-config                          Test controller configuration syntax and configuration option validity
+    -T, --dry-run                              Prints available information and runs through all actions before initiating outbound connections
+    -q, --deployer-versions                    Query remote host deployer executable versions and print to stdout
+    -u, --deployer-update-file </path/to/exe>  Upload and update deployer executable with supplied signed ELF file
+    -n, --new-repo </path/to/repo>:<branch>    Create a new repository at the given path with the given initial branch name
+    -s, --seed-repo                            Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
+    -g, --disable-git-hook                     Disables the automatic deployment git post-commit hook for the current repository
+    -G, --enable-git-hook                      Enables the automatic deployment git post-commit hook for the current repository
+    -h, --help                                 Show this help menu
+    -V, --version                              Show version and packages
+    -v, --versionid                            Show only version number
 
 Documentation: <https://github.com/EvSecDev/SCMPusher>
 `
@@ -156,39 +171,44 @@ Documentation: <https://github.com/EvSecDev/SCMPusher>
 
 func main() {
 	// Program Argument Variables
-	var autoDeployFlagExists bool
+	var autoDeployRequested bool
+	var manualDeployRequested bool
 	var manualCommitID string
 	var hostOverride string
 	var fileOverride string
 	var deployerUpdateFile string
-	var manualDeployFlagExists bool
-	var useAllRepoFilesFlag bool
+	var allDeployRequested bool
 	var useFailTracker bool
+	var testConfig bool
 	var checkDeployerVersions bool
 	var createNewRepo string
 	var seedRepoFiles bool
 	var disableGitHook bool
-	var enabledGitHook bool
-	var versionFlagExists bool
-	var versionNumberFlagExists bool
+	var enableGitHook bool
+	var versionInfoRequested bool
+	var versionRequested bool
 
 	// Read Program Arguments - allowing both short and long args
 	flag.StringVar(&configFilePath, "c", "scmpc.yaml", "")
 	flag.StringVar(&configFilePath, "config", "scmpc.yaml", "")
-	flag.BoolVar(&autoDeployFlagExists, "a", false, "")
-	flag.BoolVar(&autoDeployFlagExists, "auto-deploy", false, "")
-	flag.BoolVar(&manualDeployFlagExists, "m", false, "")
-	flag.BoolVar(&manualDeployFlagExists, "manual-deploy", false, "")
+	flag.BoolVar(&autoDeployRequested, "a", false, "")
+	flag.BoolVar(&autoDeployRequested, "auto-deploy", false, "")
+	flag.BoolVar(&manualDeployRequested, "m", false, "")
+	flag.BoolVar(&manualDeployRequested, "manual-deploy", false, "")
 	flag.StringVar(&manualCommitID, "C", "", "")
 	flag.StringVar(&manualCommitID, "commitid", "", "")
 	flag.StringVar(&hostOverride, "r", "", "")
 	flag.StringVar(&hostOverride, "remote-hosts", "", "")
 	flag.StringVar(&fileOverride, "l", "", "")
 	flag.StringVar(&fileOverride, "local-files", "", "")
-	flag.BoolVar(&useAllRepoFilesFlag, "d", false, "")
-	flag.BoolVar(&useAllRepoFilesFlag, "deploy-all", false, "")
+	flag.BoolVar(&allDeployRequested, "d", false, "")
+	flag.BoolVar(&allDeployRequested, "deploy-all", false, "")
 	flag.BoolVar(&useFailTracker, "f", false, "")
 	flag.BoolVar(&useFailTracker, "use-failtracker-only", false, "")
+	flag.BoolVar(&testConfig, "t", false, "")
+	flag.BoolVar(&testConfig, "test-config", false, "")
+	flag.BoolVar(&dryRunRequested, "T", false, "")
+	flag.BoolVar(&dryRunRequested, "dry-run", false, "")
 	flag.BoolVar(&checkDeployerVersions, "q", false, "")
 	flag.BoolVar(&checkDeployerVersions, "deployer-versions", false, "")
 	flag.StringVar(&deployerUpdateFile, "u", "", "")
@@ -199,31 +219,31 @@ func main() {
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
 	flag.BoolVar(&disableGitHook, "g", false, "")
 	flag.BoolVar(&disableGitHook, "disable-git-hook", false, "")
-	flag.BoolVar(&enabledGitHook, "G", false, "")
-	flag.BoolVar(&enabledGitHook, "enable-git-hook", false, "")
-	flag.BoolVar(&versionFlagExists, "V", false, "")
-	flag.BoolVar(&versionFlagExists, "version", false, "")
-	flag.BoolVar(&versionNumberFlagExists, "v", false, "")
-	flag.BoolVar(&versionNumberFlagExists, "versionid", false, "")
+	flag.BoolVar(&enableGitHook, "G", false, "")
+	flag.BoolVar(&enableGitHook, "enable-git-hook", false, "")
+	flag.BoolVar(&versionInfoRequested, "V", false, "")
+	flag.BoolVar(&versionInfoRequested, "version", false, "")
+	flag.BoolVar(&versionRequested, "v", false, "")
+	flag.BoolVar(&versionRequested, "versionid", false, "")
 
 	// Custom help menu
 	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...\n%s", os.Args[0], usage) }
 	flag.Parse()
 
 	// Meta info print out
-	if versionFlagExists {
+	if versionInfoRequested {
 		fmt.Printf("Controller %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
 		fmt.Print("Packages: runtime encoding/hex strings strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 github.com/pkg/sftp encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal context fmt time golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 sync path/filepath encoding/binary github.com/go-git/go-git/v5/plumbing/format/diff gopkg.in/yaml.v2\n")
-		os.Exit(0)
-	} else if versionNumberFlagExists {
+		return
+	} else if versionRequested {
 		fmt.Println(progVersion)
-		os.Exit(0)
+		return
 	}
 
 	// New repository creation if requested
 	if createNewRepo != "" {
 		createNewRepository(createNewRepo)
-		os.Exit(0)
+		return
 	}
 
 	// Read config file from argument/default option
@@ -241,7 +261,7 @@ func main() {
 
 	// Set globals - see global section at top for descriptions
 	LogToJournald = config.Controller.LogtoJournald
-	CalledByGitHook = autoDeployFlagExists
+	CalledByGitHook = autoDeployRequested
 	knownHostsFilePath = config.SSHClient.KnownHostsFile
 	RepositoryPath = config.Controller.RepositoryPath
 	UniversalDirectory = config.UniversalDirectory
@@ -250,21 +270,22 @@ func main() {
 	SHA256RegEx = regexp.MustCompile(`^[a-fA-F0-9]{64}`)
 	SHA1RegEx = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 
-	// For user choice on toggling git hook
-	gitHookFileName := filepath.Join(RepositoryPath, ".git", "hooks", "post-commit")
-	disabledGitHookFileName := gitHookFileName + ".disabled"
-
 	// Parse User Choices
-	if useFailTracker && manualDeployFlagExists {
+	if testConfig {
+		// If user wants to test config, just exit once program gets to this point
+		// Any config errors will be discovered prior to this point and exit with whatever error happened
+		fmt.Printf("controller: configuration file %s test is successful\n", configFilePath)
+		return
+	} else if useFailTracker && manualDeployRequested {
 		// Retry last failed deployment
-		failureDeployment(config)
-	} else if useAllRepoFilesFlag && manualDeployFlagExists && hostOverride != "" && manualCommitID != "" {
+		failureDeployment(config, hostOverride)
+	} else if allDeployRequested && hostOverride != "" && manualCommitID != "" {
 		// Deployment of all repository files by user chosen commit
 		allDeployment(config, manualCommitID, hostOverride, fileOverride)
-	} else if autoDeployFlagExists {
+	} else if autoDeployRequested {
 		// Deployment of HEAD commit
-		autoDeployment(config, hostOverride)
-	} else if manualDeployFlagExists && manualCommitID != "" && !useAllRepoFilesFlag {
+		autoDeployment(config, hostOverride, fileOverride)
+	} else if manualDeployRequested && manualCommitID != "" && !allDeployRequested {
 		// User chosen commit
 		manualDeployment(config, manualCommitID, hostOverride, fileOverride)
 	} else if checkDeployerVersions {
@@ -273,33 +294,13 @@ func main() {
 	} else if deployerUpdateFile != "" {
 		// Push update file for deployer
 		updateDeployer(config, deployerUpdateFile, hostOverride)
-	} else if seedRepoFiles {
+	} else if seedRepoFiles && hostOverride != "" {
 		// Get user selected files from remote hosts to populate new local repository
 		seedRepositoryFiles(config, hostOverride)
 	} else if disableGitHook {
-		// Check presence
-		_, err := os.Stat(disabledGitHookFileName)
-
-		// Disable automatic git post-commit hook (if not already disabled)
-		if os.IsNotExist(err) {
-			err = os.Rename(gitHookFileName, disabledGitHookFileName)
-			if err != nil {
-				fmt.Printf("Failed to disable git post-commit hook (%v)\n", err)
-			}
-		}
-		fmt.Print("Git post-commit hook disabled.\n")
-	} else if enabledGitHook {
-		// Check presence
-		_, err := os.Stat(gitHookFileName)
-
-		// Enable automatic git post-commit hook (if not already enabled)
-		if os.IsNotExist(err) {
-			err := os.Rename(disabledGitHookFileName, gitHookFileName)
-			if err != nil {
-				fmt.Printf("Failed to enable git post-commit hook (%v)\n", err)
-			}
-		}
-		fmt.Print("Git post-commit hook enabled.\n")
+		toggleGitHook("disable")
+	} else if enableGitHook {
+		toggleGitHook("enable")
 	} else {
 		// No valid arguments or valid combination of arguments
 		fmt.Printf("No arguments specified or incorrect argument combination. Use '-h' or '--help' to guide your way.\n")

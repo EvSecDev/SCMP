@@ -2,6 +2,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -90,6 +92,14 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 	if info.RemoteTransferBuffer == "" {
 		info.RemoteTransferBuffer = SSHClientDefault.RemoteTransferBuffer
 	}
+
+	// Get remote backup buffer file path from endpoint or if missing use default
+	info.RemoteBackupDir = endpointInfo.RemoteBackupDir
+	if info.RemoteBackupDir == "" {
+		info.RemoteBackupDir = SSHClientDefault.RemoteBackupDir
+	}
+	// Ensure trailing slashes don't make their way into the path
+	info.RemoteBackupDir = strings.TrimSuffix(info.RemoteBackupDir, "/")
 
 	return
 }
@@ -268,5 +278,55 @@ func ResolveLinkToTarget(filePath string) (targetPath string, err error) {
 	// Return target path without top level directory name (host dir name) (this is remote host format now)
 	convertedPath := strings.ReplaceAll(targetPathArray[1], OSPathSeparator, "/")
 	targetPath = "/" + convertedPath
+	return
+}
+
+// Splits host directory name from the expected target file path
+// Requires localRepoPath be a relative path without leading slashes
+// Returned targetFilePath will contain a leading slash
+// Path separators are linux ("/")
+// Function does not return errors, but unexpected input will return nil outputs
+func separateHostDirFromPath(localRepoPath string) (hostDir string, targetFilePath string) {
+	// Bad - not a path, just a name
+	if !strings.Contains(localRepoPath, "/") {
+		return
+	}
+
+	// Separate on first occurence of path separator
+	pathSplit := strings.SplitN(localRepoPath, "/", 2)
+
+	// Bad - only accept length of 2
+	if len(pathSplit) != 2 {
+		return
+	}
+
+	// Retrieve the first array item as the host directory name
+	hostDir = pathSplit[0]
+
+	// Retrieve the second array item as the expected target path
+	targetFilePath = pathSplit[1]
+
+	// Add leading slash to path
+	targetFilePath = "/" + targetFilePath
+	return
+}
+
+// Takes a string input, and returns a SHA256 hexadecimal hash string
+func SHA256Sum(input string) (hash string) {
+	// Convert input string to byte array
+	inputBytes := []byte(input)
+
+	// Create new hashing function
+	hasher := sha256.New()
+
+	// Write input bytes into hasher
+	hasher.Write(inputBytes)
+
+	// Retrieve the raw hash
+	rawHash := hasher.Sum(nil)
+
+	// Format raw hash into hex
+	hash = hex.EncodeToString(rawHash)
+
 	return
 }

@@ -158,17 +158,3 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 	FailTracker += string(FailedInfo) + "\n"
 	FailTrackerMutex.Unlock()
 }
-
-// Ensure config is not missing required fields
-func checkConfigForEmpty(config *Config) (err error) {
-	if config.Controller.RepositoryPath == "" {
-		err = fmt.Errorf("RepositoryPath")
-	} else if config.SSHClient.KnownHostsFile == "" {
-		err = fmt.Errorf("KnownHostsFile")
-	} else if config.SSHClient.MaximumConcurrency == 0 {
-		err = fmt.Errorf("MaximumConcurrency")
-	} else if config.UniversalDirectory == "" {
-		err = fmt.Errorf("UniversalDirectory")
-	}
-	return
-}

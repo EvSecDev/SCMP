@@ -29,8 +29,8 @@ mv deployer_v* ~/Downloads/
 mv deployer_package* ~/Downloads/
 
 # Build updater
-./build.sh -b updater -f
-mv updater_v* ~/Downloads/
+#./build.sh -b updater -f
+#mv updater_v* ~/Downloads/
 
 # Generate release notes from git commit message
 

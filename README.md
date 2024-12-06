@@ -96,22 +96,22 @@ Options:
     -c, --config </path/to/yaml>                    Path to the configuration file [default: scmpc.yaml]
     -a, --auto-deploy                               Use latest commit for deployment, normally used by git post-commit hook
     -m, --manual-deploy                             Use specified commit ID for deployment (Requires '--commitid')
-    -d, --deploy-all                                Deploy all files in specified commit to specific hosts (Requires '--remote-hosts' and '--manual-deploy')
-    -r, --remote-hosts <host1,host2,host3,...>      Override hosts for deployment
-    -l, --local-files <file1,file2,...>             Override files for deployment from a specific commit (Requires '--manual-deploy')
+    -d, --deploy-all                                Deploy all files in specified commit to specific hosts (Requires '--remote-hosts')
+    -r, --remote-hosts <host1,host2,...>            Override hosts for deployment
+    -l, --local-files <file1,file2,...>             Override files for deployment
     -C, --commitid <hash>                           Commit ID (hash) of the commit to deploy configurations from
     -f, --use-failtracker-only                      If previous deployment failed, use the failtracker to retry (Requires '--manual-deploy', but not '--commitid')
+    -t, --test-config                               Test controller configuration syntax and configuration option validity
+    -T, --dry-run                                   Prints available information and runs through all actions before initiating outbound connections
     -q, --deployer-versions                         Query remote host deployer executable versions and print to stdout
-    -u, --deployer-update-file </path/to/binary>    Upload and update deployer executable with supplied signed ELF file
-    -n, --new-repo </path/to/repo>:<branchname>     Create a new repository at the given path with the given initial branch name
-    -s, --seed-repo                                 Retrieve existing files from remote hosts to seed the local repository (Requires user interaction)
+    -u, --deployer-update-file </path/to/exe>       Upload and update deployer executable with supplied signed ELF file
+    -n, --new-repo </path/to/repo>:<branch>         Create a new repository at the given path with the given initial branch name
+    -s, --seed-repo                                 Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
     -g, --disable-git-hook                          Disables the automatic deployment git post-commit hook for the current repository
     -G, --enable-git-hook                           Enables the automatic deployment git post-commit hook for the current repository
     -h, --help                                      Show this help menu
     -V, --version                                   Show version and packages
     -v, --versionid                                 Show only version number
-
-Documentation: <https://github.com/EvSecDev/SCMPusher>
 ```
 
 ### Deployer Help Menu
@@ -122,6 +122,8 @@ Usage: scmdeployer [OPTIONS]...
 Options:
     -c, --config </path/to/yaml>       Path to the configuration file [default: scmpd.yaml]
     -s, --start-server                 Start the Deployer SSH Server
+    -t, --test-config                  Test deployer configuration syntax validity
+    -T, --dry-run                      Runs through all actions and checks for error before starting server
     -h, --help                         Show this help menu
     -V, --version                      Show version and packages
     -v, --versionid                    Show only version number
@@ -175,33 +177,80 @@ The interface you will be using for this feature is extremely barebones. It look
 ============================================================
          Select File    Change Dir ^v  Exit
         [ # # ## ### ]  [ c0 ] [ c# ]  [ ! ]
-hostname:/# Type your selections: _
+  hostname:/# Type your selections: _
 ```
 
 If you wanted to change directories to `/etc/`, you'd type this and press enter:
-`hostname:/# Type your selections: c4`
+
+`  hostname:/# Type your selections: c4`
 
 If you wanted to select files `vmlinuz`, `initrd.img.old`, `initrd.img`, and then exit you'd type this and press enter:
-`hostname:/# Type your selections: 23 7 6 !`
+
+`  hostname:/# Type your selections: 23 7 6 !`
 
 If you were in `/etc/` and wanted to move up one directory, you'd type this and press enter:
-`hostname:/# Type your selections: c0`
+
+`  hostname:/# Type your selections: c0`
 
 The shortcuts will be listed below every directory so you won't need to remember them.
 You can type as many or as little options as you wish, they will all be added.
 Selected files will be saved before changing directories, so you can navigate the whole remote host file system saving files you want as you go.
 
-Once you have selected all your files and typed `!`, you will be asked if the config file requires reload commands, and if so, you can provided them one per line.
+Once you have selected all your files and typed `!`, you will be asked (file by file) if the config requires reload commands, and if so, you can provided them one per line.
 The controller will then take all the files and write them to their respective host directories in the local repository copying the remote host file path.
 
+The structure of the local repository is supposed to be a replica of the remote server filesystem, to facilitate editing and organizing files as you normally would on the remote system.
+```
+-----------------------------
+-> RepositoryDirectory
+  -> UniversalConfs
+    -> etc
+      -> resolv.conf
+      -> hosts
+      -> motd
+    -> home
+      -> user
+        -> .bashrc
+        -> .ssh
+          -> authorized_keys
+  -> Host1
+    -> etc
+      -> rsyslog.conf
+      -> motd
+    -> opt
+      -> program1
+        -> .env
+  -> Host2
+    -> etc
+      -> network
+        -> interfaces
+      -> hostname
+      -> crontab
+    -> home
+      -> user
+        -> .bashrc
+  -> Host3
+    -> root
+      -> .bashrc
+-----------------------------
+```
+
 ## NOTES
+
+### Warning about the known_hosts file
+
+Beware, using your existing known_hosts file from a standard SSH client is not recommended.
+In some implementations, multiple SSH clients do not play well writing hosts to a single known_hosts.
+In practice, this will look like the controller is continuously prompting you to trust keys for remote hosts you have already trusted.
+
+It is recommended to store the known_hosts file (path specified in the controller YAML configuration file) inside the root of repository.
 
 ### Reason for a separate SSH server (the Deployer)
 
 You might be asking yourself, "Why is there a custom SSH server for this program? I already have an SSH server".
 That is a good question, and if you don't care to read why, the controller fully supports a regular SSH server and you can ignore the Deployer program altogether.
 
-But as for why, I wanted extra security measures around this program that can read and write to almost everything on a given system. 
+But as for why, I wanted extra security measures around this program, since it supposed to read and write to almost everything on a given system.
 So I wrote an extremely stripped down, bare-bones SSH server as I could and applied security measures to that. 
 This reduces the attack surface immensely and allows for a very narrow set of privileges to be granted.
 
@@ -215,8 +264,8 @@ The Deployer program only supports:
 But don't worry (too much), I didn't make an SSH server from scratch.
 I am using the library x/crypto/ssh, and while I am creating my own implementation, it is so featureless that the risk of an high impact RCE is unlikely (in my own code, not the source library).
 The secondary affect of such a bare-bones server program also means I can tailor the installation to be extremely narrow.
-Not only can the entire server be run as a nologin non-root system user, it can also be wrapped in a very restrictive apparmor confinement, since the server only fulfills this one function (configuration deployment)
-With a standard SSH server, being more versatile and feature-rich, would need a comparatively more unrestricted profile (Not to mention that the SSH parent process is run as root).
+Not only can the entire server be run as a nologin non-root system user, it can also be wrapped in a very restrictive apparmor confinement, since the server only fulfills this one function (configuration deployment).
+comparatively, a standard SSH server (being more versatile and feature-rich) would need a more open apparmor profile (Not to mention that the SSH parent process is run as root).
 
 For example, the apparmor profile:
   - confines the server process to its own profile.
@@ -259,8 +308,10 @@ During the processing of a commit, any error before the controller connects to r
 This is intentional to ensure that the HEAD commit is the most accurate representation of what configurations are currently deployed in the network.
 
 One thing to note however, the controller does not perform garbage collection on the git repository.
-Therefore it is recommended to run the following commands on a regular schedule or occasionally to reduce disk space usage.
+Therefore it is recommended to run the following commands on a regular schedule or occasionally to reduce disk space usage (if the default git garbage collection schedule is too slow for you).
 ```
 git reflog expire --expire-unreachable=now --all
 git gc --prune=now
 ```
+
+OR if the repository was created using the controllers option `--new-repo`, then the garbage collection options should be set in the local repository config (As of controller v1.6.0).

@@ -56,6 +56,8 @@ SSHPort="2022"
 MaximumOutboundConnections="10"
 SudoPassword=""
 KnownHostsFile="$RepositoryPath/.known_hosts"
+remoteTransferBuffer="/tmp/.scmpbuffer"
+remoteBackupDir="/tmp/.scmpbackups"
 
 #### User Choices
 echo -e "Provide your choices for the installation. Press enter for the default.\n"
@@ -244,7 +246,9 @@ SSHClientDefaults:
   # Leave blank if sudo does not require a password
   SudoPassword: "$SudoPassword"
   # Remote file that is used for unprivileged file transfers
-  RemoteTransferBuffer: "/tmp/scmpdbuffer"
+  RemoteTransferBuffer: "$remoteTransferBuffer"
+  # Remote directory that is temporarily used to backup files in case deployment fails
+  RemoteBackupDir: "$remoteBackupDir"
 # Repo dir to house all configs that should be deployed to every host
 UniversalDirectory: "$UniversalDirectory"
 # Directories to not deploy in repository (must be relative path starting at root of repository)
@@ -335,6 +339,7 @@ profile SCMController @{exelocation} flags=(enforce) {
   network inet stream,
   network inet6 stream,
   unix (create) type=stream,
+  unix (create) type=dgram,
 
   ## Startup Configurations needed
   @{configlocations} r,

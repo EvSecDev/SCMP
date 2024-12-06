@@ -2,8 +2,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -127,7 +125,9 @@ func getCommitFiles(commit *object.Commit, DeployerEndpoints map[string]Deployer
 		}
 	}
 
-	// Error if output of processed data is not present
+	// Return specific error if no files - usually when user changes and commits files outside of host directories
+	// Usually occurs when all files are validated as "unsupported" - see above
+	// Don't change error text - used to return program back to main
 	if len(commitFiles) == 0 {
 		err = fmt.Errorf("no valid files in commit")
 		return
@@ -150,7 +150,7 @@ func getHostsAndFiles(commitFiles map[string]string, commitHostNames []string, r
 
 	// Loop hosts in config and prepare endpoint information and relevant configs for deployment
 	for endpointName, endpointInfo := range DeployerEndpoints {
-		// Used for fail tracker manual deployments - skip this host if not in override (if override was requested)
+		// Skip this host if not in override (if override was requested)
 		SkipHost := checkForHostOverride(hostOverride, endpointName)
 		if SkipHost {
 			continue
@@ -258,15 +258,12 @@ func getHostsAndFiles(commitFiles map[string]string, commitHostNames []string, r
 
 // Retrieves all file content for this deployment
 // Return vales provide the content keyed on local file path for the file data, metadata, hashes, and actions
-func loadFiles(allLocalFiles []string, commitFiles map[string]string, tree *object.Tree, preDeployedConfigs *int) (commitFileData map[string]string, commitFileMetadata map[string]map[string]interface{}, commitFileDataHashes map[string]string, commitFileActions map[string]string, err error) {
+func loadFiles(allLocalFiles []string, commitFiles map[string]string, tree *object.Tree, preDeployedConfigs *int) (commitFileInfo map[string]CommitFileInfo, err error) {
 	// Show progress to user
 	fmt.Print("Loading files for deployment... ")
 
-	// Initialize maps
-	commitFileData = make(map[string]string)                     // Map of target file paths and their associated content
-	commitFileMetadata = make(map[string]map[string]interface{}) // Map of target file paths and their associated extracted metadata
-	commitFileDataHashes = make(map[string]string)               // Map of target file paths and their associated content hashes
-	commitFileActions = make(map[string]string)                  // Map of target file paths and their associated file actions
+	// Initialize map of all local file paths and their associated info (content, metadata, hashes, and actions)
+	commitFileInfo = make(map[string]CommitFileInfo)
 
 	// Load file contents, metadata, hashes, and actions into their own maps
 	for _, commitFilePath := range allLocalFiles {
@@ -279,14 +276,19 @@ func loadFiles(allLocalFiles []string, commitFiles map[string]string, tree *obje
 		// Skip loading if file will be deleted
 		if commitFiles[commitFilePath] == "delete" {
 			// But, add it to the deploy target files so it can be deleted during ssh
-			commitFileActions[filePath] = commitFiles[commitFilePath]
+			commitFileInfo[filePath] = CommitFileInfo{Action: commitFiles[commitFilePath]}
 			continue
 		}
 
 		// Skip loading if file is sym link
 		if strings.Contains(commitFiles[commitFilePath], "symlinkcreate") {
 			// But, add it to the deploy target files so it can be ln'd during ssh
-			commitFileActions[filePath] = commitFiles[commitFilePath]
+			commitFileInfo[filePath] = CommitFileInfo{Action: commitFiles[commitFilePath]}
+			continue
+		}
+
+		// Skip loading other file types - safety blocker
+		if commitFiles[commitFilePath] != "create" {
 			continue
 		}
 
@@ -324,10 +326,7 @@ func loadFiles(allLocalFiles []string, commitFiles map[string]string, tree *obje
 		}
 
 		// SHA256 Hash the metadata-less contents
-		contentBytes := []byte(configContent)
-		hash := sha256.New()
-		hash.Write(contentBytes)
-		hashedBytes := hash.Sum(nil)
+		contentHash := SHA256Sum(configContent)
 
 		// Parse JSON into a generic map
 		var jsonMetadata MetaHeader
@@ -337,30 +336,25 @@ func loadFiles(allLocalFiles []string, commitFiles map[string]string, tree *obje
 			return
 		}
 
-		// Initialize inner map for metadata
-		commitFileMetadata[filePath] = make(map[string]interface{})
+		// Put all information gathered into struct
+		var info CommitFileInfo
+		info.FileOwnerGroup = jsonMetadata.TargetFileOwnerGroup
+		info.FilePermissions = jsonMetadata.TargetFilePermissions
+		info.ReloadRequired = jsonMetadata.ReloadRequired
+		info.Reload = jsonMetadata.ReloadCommands
+		info.Hash = contentHash
+		info.Data = configContent
+		info.Action = commitFiles[commitFilePath]
 
-		// Save metadata into its own map
-		commitFileMetadata[filePath]["FileOwnerGroup"] = jsonMetadata.TargetFileOwnerGroup
-		commitFileMetadata[filePath]["FilePermissions"] = jsonMetadata.TargetFilePermissions
-		commitFileMetadata[filePath]["ReloadRequired"] = jsonMetadata.ReloadRequired
-		commitFileMetadata[filePath]["Reload"] = jsonMetadata.ReloadCommands
-
-		// Save Hashes into its own map
-		commitFileDataHashes[filePath] = hex.EncodeToString(hashedBytes)
-
-		// Save content into its own map
-		commitFileData[filePath] = configContent
-
-		// Save file paths and actions into its own map
-		commitFileActions[filePath] = commitFiles[commitFilePath]
+		// Save info struct into map for this file
+		commitFileInfo[filePath] = info
 
 		// Increment config metric counter
 		*preDeployedConfigs++
 	}
 
 	// Error if theres nothing left after filtering
-	if len(commitFileActions) == 0 {
+	if len(commitFileInfo) == 0 {
 		err = fmt.Errorf("no files to load")
 		return
 	}
@@ -512,7 +506,7 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 		repoHostsandFiles[commitHost] = append(repoHostsandFiles[commitHost], commitPath)
 
 		// Skip file if not user requested file (if requested)
-		if len(fileOverrides) > 0 {
+		if len(fileOverride) > 0 {
 			var fileNotRequested bool
 			for _, overrideFile := range fileOverrides {
 				if repoFilePath == overrideFile {

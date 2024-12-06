@@ -37,7 +37,7 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 	// Load identity from file
 	SSHIdentity, err := os.ReadFile(SSHIdentityFile)
 	if err != nil {
-		err = fmt.Errorf("failed to read ssh identity file: %v", err)
+		err = fmt.Errorf("ssh identity file: %v", err)
 		return
 	}
 
@@ -73,7 +73,7 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 		var AgentConn net.Conn
 		AgentConn, err = net.Dial("unix", agentSock)
 		if err != nil {
-			err = fmt.Errorf("failed to connect to agent: %v", err)
+			err = fmt.Errorf("ssh agent: %v", err)
 			return
 		}
 
@@ -84,13 +84,13 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 		var sshAgentKeys []*agent.Key
 		sshAgentKeys, err = sshAgent.List()
 		if err != nil {
-			err = fmt.Errorf("failed to get list of keys from agent: %v", err)
+			err = fmt.Errorf("ssh agent key list: %v", err)
 			return
 		}
 
 		// Ensure keys are already loaded
 		if len(sshAgentKeys) == 0 {
-			err = fmt.Errorf("no keys found in agent")
+			err = fmt.Errorf("no keys found in agent (Did you forget something?)")
 			return
 		}
 
@@ -98,7 +98,7 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 		var PublicKey ssh.PublicKey
 		PublicKey, _, _, _, err = ssh.ParseAuthorizedKey(SSHIdentity)
 		if err != nil {
-			err = fmt.Errorf("failed to parse public key from identity file: %v", err)
+			err = fmt.Errorf("invalid public key in identity file: %v", err)
 			return
 		}
 
@@ -109,7 +109,7 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 		var signers []ssh.Signer
 		signers, err = sshAgent.Signers()
 		if err != nil {
-			err = fmt.Errorf("failed to get signers from agent: %v", err)
+			err = fmt.Errorf("ssh agent signers: %v", err)
 			return
 		}
 
@@ -128,7 +128,7 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 		// Parse the private key
 		PrivateKey, err = ssh.ParsePrivateKey(SSHIdentity)
 		if err != nil {
-			err = fmt.Errorf("failed to parse private key from identity file: %v", err)
+			err = fmt.Errorf("invalid private key in identity file: %v", err)
 			return
 		}
 
@@ -152,7 +152,7 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 		// Decrypt and parse private key with password
 		PrivateKey, err = ssh.ParsePrivateKeyWithPassphrase(SSHIdentity, []byte(passphrase))
 		if err != nil {
-			err = fmt.Errorf("failed to parse encrypted private key from identity file: %v", err)
+			err = fmt.Errorf("invalid encrypted private key in identity file: %v", err)
 			return
 		}
 
@@ -323,13 +323,19 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 	}
 
 	// Key was not found in known_hosts - Prompt user
-	fmt.Printf("Host %s not in known_hosts. Key: %s %s\nDo you want to add this key to known_hosts? [y/N/all]: ", cleanHost, pubKeyType, remotePubKey)
+	fmt.Printf("Host %s not in known_hosts. Key: %s %s\n", cleanHost, pubKeyType, remotePubKey)
+	fmt.Print("Do you want to add this key to known_hosts? [y/N/all]: ")
 
 	// Read user choice
 	reader := bufio.NewReader(os.Stdin)
-	input, _ := reader.ReadString('\n')
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		err = fmt.Errorf("failed to read user choice for known_hosts entry: %v", err)
+		return
+	}
 	input = strings.TrimSpace(input)
 
+	// User wants to trust all future pub key prompts
 	if strings.ToLower(input) == "all" {
 		// For the duration of this program run, all unknown remote host keys will be added to known_hosts
 		addAllUnknownHosts = true
@@ -344,6 +350,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 		return
 	}
 
+	// Add remote pubkey to known_hosts file
 	err = writeKnownHost(cleanHost, pubKeyType, remotePubKey)
 	if err != nil {
 		return

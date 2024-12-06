@@ -34,6 +34,8 @@ type Config struct {
 	} `yaml:"SSHServer"`
 }
 
+var dryRunRequested bool
+
 // ###################################
 //      EXCEPTION HANDLING
 // ###################################
@@ -64,6 +66,8 @@ const usage = `
 Options:
     -c, --config </path/to/yaml>       Path to the configuration file [default: scmpd.yaml]
     -s, --start-server                 Start the Deployer SSH Server
+    -t, --test-config                  Test deployer configuration syntax validity
+    -T, --dry-run                      Runs through all actions and checks for error before starting server
     -h, --help                         Show this help menu
     -V, --version                      Show version and packages
     -v, --versionid                    Show only version number
@@ -72,11 +76,12 @@ Documentation: <https://github.com/EvSecDev/SCMPusher>
 `
 
 func main() {
-	progVersion := "v1.0.2"
+	progVersion := "v1.0.3"
 
 	// Program Argument Variables
 	var configFilePath string
 	var startServerFlagExists bool
+	var testConfig bool
 	var versionFlagExists bool
 	var versionNumberFlagExists bool
 
@@ -85,6 +90,10 @@ func main() {
 	flag.StringVar(&configFilePath, "config", "scmpd.yaml", "")
 	flag.BoolVar(&startServerFlagExists, "s", false, "")
 	flag.BoolVar(&startServerFlagExists, "start-server", false, "")
+	flag.BoolVar(&testConfig, "t", false, "")
+	flag.BoolVar(&testConfig, "test-config", false, "")
+	flag.BoolVar(&dryRunRequested, "T", false, "")
+	flag.BoolVar(&dryRunRequested, "dry-run", false, "")
 	flag.BoolVar(&versionFlagExists, "V", false, "")
 	flag.BoolVar(&versionFlagExists, "version", false, "")
 	flag.BoolVar(&versionNumberFlagExists, "v", false, "")
@@ -118,14 +127,17 @@ func main() {
 	err = yaml.Unmarshal(yamlConfigFile, &config)
 	logError("Error unmarshaling config file", err, true)
 
-	// Start ssh server
+	// Parse User Choices
 	if startServerFlagExists {
 		RunSSHServer(config, progVersion)
-		os.Exit(0)
+	} else if testConfig {
+		// If user wants to test config, just exit once program gets to this point
+		// Any config errors will be discovered prior to this point and exit with whatever error happened
+		fmt.Printf("deployer: configuration file %s test is successful\n", configFilePath)
+	} else {
+		// Exit program without any arguments
+		fmt.Printf("No arguments specified! Use '-h' or '--help' to guide your way.\n")
 	}
-
-	// Exit program without any arguments
-	fmt.Printf("No arguments specified! Use '-h' or '--help' to guide your way.\n")
 }
 
 // ###################################
@@ -192,6 +204,12 @@ func RunSSHServer(config Config, progVersion string) {
 		// Return authorization
 		fmt.Printf("Authorized connection from %s for user %s authenticated by %s key\n", conn.RemoteAddr(), conn.User(), key.Type())
 		return nil, nil
+	}
+
+	// If user requested dry-run, gracefully exit
+	if dryRunRequested {
+		fmt.Printf("deployer: server startup test is successful\n")
+		return
 	}
 
 	// Start Listener

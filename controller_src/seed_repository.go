@@ -35,6 +35,11 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 	err := localSystemChecks()
 	logError("Error in system checks", err, false)
 
+	if dryRunRequested {
+		// Notify user that program is in dry run mode
+		fmt.Printf("\nRequested dry-run, aborting connections - outputting information collected for connections:\n\n")
+	}
+
 	// Loop hosts in config and prepare relevant host information for deployment
 	for endpointName, endpointInfo := range config.DeployerEndpoints {
 		// Use hosts user specifies if requested
@@ -47,6 +52,17 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 		var info EndpointInfo
 		info, err = retrieveEndpointInfo(endpointInfo, config.SSHClientDefault)
 		logError("Failed to retrieve endpoint information", err, false)
+
+		// If user requested dry run - print collected information so far and gracefully abort update
+		if dryRunRequested {
+			fmt.Printf("Host: %s\n", endpointName)
+			fmt.Printf("  Options:\n")
+			fmt.Printf("       Endpoint Address: %s\n", info.Endpoint)
+			fmt.Printf("       SSH User:         %s\n", info.EndpointUser)
+			fmt.Printf("       SSH Key:          %s\n", info.PrivateKey.PublicKey())
+			fmt.Printf("       Transfer Buffer:  %s\n", info.RemoteTransferBuffer)
+			continue
+		}
 
 		// Connect to the SSH server
 		client, err := connectToSSH(info.Endpoint, info.EndpointUser, info.PrivateKey, info.KeyAlgo)
@@ -89,6 +105,12 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 		if err != nil {
 			// All errors except permission denied exits selection menu
 			if !strings.Contains(err.Error(), "Permission denied") {
+				return
+			}
+
+			// Exit menu if it failed reading the first directory after ssh connection (i.e. "/")
+			if directory == "/" {
+				err = fmt.Errorf("permission denied when reading '/'")
 				return
 			}
 
@@ -379,7 +401,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	}
 
 	// Write config to file in repository
-	errNoFatal = os.WriteFile(configFilePath, []byte(configFile), 0640)
+	errNoFatal = os.WriteFile(configFilePath, []byte(configFile), 0600)
 	if errNoFatal != nil {
 		fmt.Printf("Failed to write file '%s' to local repository\n", configFilePath)
 		return

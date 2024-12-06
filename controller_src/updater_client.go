@@ -17,6 +17,7 @@ import (
 func updateDeployer(config Config, deployerUpdateFile string, hostOverride string) {
 	fmt.Printf("%s\n", progCLIHeader)
 	fmt.Printf("Pushing deployer update using executable at %s\n", deployerUpdateFile)
+	fmt.Print("Note: Systemd auto-restart will take approximately one minute\n")
 
 	// Load binary from file
 	deployerUpdateBinary, err := os.ReadFile(deployerUpdateFile)
@@ -25,9 +26,6 @@ func updateDeployer(config Config, deployerUpdateFile string, hostOverride strin
 	// Loop deployers
 	_, err = connectToDeployers(config, deployerUpdateBinary, hostOverride, false)
 	logError("Failed to update remote deployer executables", err, false)
-
-	// Show status to user
-	fmt.Print("Please wait for deployer services to auto-restart (1 min)\n")
 	fmt.Print("===========================================================\n")
 }
 
@@ -40,7 +38,9 @@ func getDeployerVersions(config Config, hostOverride string) {
 	logError("Failed to check remote deployer verions", err, false)
 
 	// Show versions to user
-	fmt.Printf("Deployer executable versions:\n%s", deployerVersions)
+	if deployerVersions != "" {
+		fmt.Printf("Deployer executable versions:\n%s", deployerVersions)
+	}
 	fmt.Print("================================================================\n")
 }
 
@@ -51,6 +51,11 @@ func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride
 	err = localSystemChecks()
 	if err != nil {
 		return
+	}
+
+	if dryRunRequested {
+		// Notify user that program is in dry run mode
+		fmt.Printf("\nRequested dry-run, aborting connections - outputting information collected for connections:\n\n")
 	}
 
 	// Loop over config endpoints for updater/version
@@ -67,6 +72,17 @@ func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride
 		if err != nil {
 			err = fmt.Errorf("failed to retrieve endpoint information for '%s': %v", endpointName, err)
 			return
+		}
+
+		// If user requested dry run - print collected information so far and gracefully abort update
+		if dryRunRequested {
+			fmt.Printf("Host: %s\n", endpointName)
+			fmt.Printf("  Options:\n")
+			fmt.Printf("       Endpoint Address: %s\n", info.Endpoint)
+			fmt.Printf("       SSH User:         %s\n", info.EndpointUser)
+			fmt.Printf("       SSH Key:          %s\n", info.PrivateKey.PublicKey())
+			fmt.Printf("       Transfer Buffer:  %s\n", info.RemoteTransferBuffer)
+			continue
 		}
 
 		// Connect to deployer
