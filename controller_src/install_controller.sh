@@ -330,9 +330,9 @@ if [[ $installAAProfileConfirmation == "y" ]] then
 ## Profile Begin
 profile SCMController @{exelocation} flags=(enforce) {
   # Receive signals
-  signal receive set=(stop term kill quit int, urg),
+  signal receive set=(stop term kill quit int urg),
   # Send signals to self
-  signal send set=(urg) peer=SCMController,
+  signal send set=(urg int) peer=SCMController,
 
   # Capabilities
   network netlink raw,

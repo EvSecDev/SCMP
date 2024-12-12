@@ -1,0 +1,39 @@
+# Call this profile by putting this line in the SCMDsudo profile
+#profile SCMDsudo flags=(enforce) {
+#....
+  /usr/sbin/nginx rmpx -> SCMDreloadNGINX,
+#....
+#}
+# Reload profile designed for `nginx -t`
+profile SCMDreloadNGINX flags=(enforce) {
+  # NGINX self accesses
+  /usr/sbin/nginx r,
+  capability net_bind_service,
+  capability dac_override,
+  network inet stream,
+  network inet6 stream,
+  unix (create) type=stream,
+  /etc/passwd r,
+  /etc/group r,
+  /etc/ssl/openssl.cnf r,
+  /etc/nsswitch.conf r,
+  /etc/ld.so.cache r,
+  /usr/lib/*-linux-gnu*/ld-linux*.so.* rm,
+  /usr/lib/*-linux-gnu*/libcrypt.so.* rm,
+  /usr/lib/*-linux-gnu*/libpcre*.so.* rm,
+  /usr/lib/*-linux-gnu*/libssl.so.* rm,
+  /usr/lib/*-linux-gnu*/libcrypto.so.* rm,
+  /usr/lib/*-linux-gnu*/libz.so.* rm,
+  /usr/lib/*-linux-gnu*/libc.so.* rm,
+  /usr/lib/*-linux-gnu*/libnss_systemd.so.* rm,
+  /usr/lib/*-linux-gnu*/libcap.so.* rm,
+  /usr/share/zoneinfo/** r,
+  /var/log/nginx/*.log rw,
+  /sys/devices/system/cpu/online r,
+  /proc/stat r,
+  /run/nginx.pid rw,
+
+  # NGINX reload accesses - config files
+  # This assumes your NGINX configs and site configs are in /etc/nginx
+  /etc/nginx/** r,
+}

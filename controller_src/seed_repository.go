@@ -29,6 +29,11 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 		}
 	}()
 
+	// Refused seeding without specific hosts specified
+	if hostOverride == "" {
+		logError("Invalid arguments", fmt.Errorf("remote-hosts cannot be empty when seeding the repository"), false)
+	}
+
 	fmt.Printf("==== Secure Configuration Management Repository Seeding ====\n")
 
 	// Check local system
@@ -40,17 +45,18 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 		fmt.Printf("\nRequested dry-run, aborting connections - outputting information collected for connections:\n\n")
 	}
 
-	// Loop hosts in config and prepare relevant host information for deployment
-	for endpointName, endpointInfo := range config.DeployerEndpoints {
-		// Use hosts user specifies if requested
-		SkipHost := checkForHostOverride(hostOverride, endpointName)
-		if SkipHost {
-			continue
+	// Retrieve user host choices and put into array
+	userHostChoices := strings.Split(hostOverride, ",")
+
+	// Loop hosts chosen by user and prepare relevant host information for deployment
+	for _, endpointName := range userHostChoices {
+		// Ensure user choice has an entry in the config
+		if config.DeployerEndpoints[endpointName].Endpoint == "" {
+			logError("Invalid host choice", fmt.Errorf("host %s does not exist in config", endpointName), false)
 		}
 
 		// Extract vars for endpoint information
-		var info EndpointInfo
-		info, err = retrieveEndpointInfo(endpointInfo, config.SSHClientDefault)
+		info, err := retrieveEndpointInfo(config.DeployerEndpoints[endpointName], config.SSHClientDefault)
 		logError("Failed to retrieve endpoint information", err, false)
 
 		// If user requested dry run - print collected information so far and gracefully abort update
@@ -290,6 +296,22 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 // Adds metadata header
 // Recreates directory structure of remote host in the local repository
 func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName string, client *ssh.Client, SudoPassword string, tmpRemoteFilePath string) (err error) {
+	// Recommended reload commands for known configuration files
+	// If user wants reloads, they will be prompted to use the reloads below if the file has the prefix of a map key (reloads are optional)
+	// names surrounded by '??' indicate sections that should be filled in with relevant info from user selected files
+	var DefaultReloadCommands = map[string][]string{
+		"/etc/apparmor.d/":     {"apparmor_parser -r /etc/apparmor.d/??baseDirName??"},
+		"/etc/crontab":         {"crontab -n /etc/crontab"},
+		"/etc/network/":        {"ifup -s -a", "systemctl restart networking.service", "systemctl is-active networking.service"},
+		"/etc/nftables":        {"nft -f /etc/nftables.conf -c", "systemctl restart nftables.service", "systemctl is-active nftables.service"},
+		"/etc/nginx":           {"nginx -t", "systemctl restart nginx.service", "systemctl is-active nginx.service"},
+		"/etc/rsyslog":         {"rsyslogd -N1 -f /etc/rsyslog.conf", "systemctl restart rsyslog.service", "systemctl is-active rsyslog.service"},
+		"/etc/ssh/sshd":        {"sshd -t", "systemctl restart ssh.service", "systemctl is-active ssh.service"},
+		"/etc/sysctl":          {"sysctl -p --dry-run", "sysctl -p"},
+		"/etc/systemd/system/": {"systemd-analyze verify /etc/systemd/system/??baseDirName??", "systemctl daemon-reload", "systemctl restart ??baseDirName??", "systemctl is-active ??baseDirName??"},
+		"/etc/zabbix":          {"zabbix_agent2 -T -c /etc/zabbix/zabbix_agent2.conf", "systemctl restart zabbix-agent2.service", "systemctl is-active zabbix-agent2.service"},
+	}
+
 	// Copy desired file to buffer location - MUST keep buffer file permissions for successful sftp
 	command := "cp --no-preserve=mode,ownership " + targetFilePath + " " + tmpRemoteFilePath
 	_, err = RunSSHCommand(client, command, SudoPassword)
@@ -354,26 +376,62 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		metadataHeader.ReloadRequired = true
 		var reloadCmds []string
 
-		// Get array of commands from user
-		fmt.Printf("Enter reload commands (press Enter after each command, leave an empty line to finish):\n")
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			cmd := scanner.Text()
-			if cmd == "" { // Done once empty line
-				// Get confirmation of input
-				fmt.Printf("Are these commands correct? [Y/n]: ")
-				userConfirmation, _ := reader.ReadString('\n')
-				userConfirmation = strings.TrimSpace(userConfirmation)
-				userConfirmation = strings.ToLower(userConfirmation)
-				if userConfirmation == "y" {
-					break
-				}
-				// Reset array of commands
-				reloadCmds = nil
-				fmt.Printf("Enter reload commands (press Enter after each command, leave an empty line to finish):\n")
+		// Search known files for a match
+		var userDoesNotWantDefaultReloads bool
+		for filePathPrefix, defaultReloadCommandArray := range DefaultReloadCommands {
+			if !strings.HasPrefix(targetFilePath, filePathPrefix) {
 				continue
 			}
-			reloadCmds = append(reloadCmds, cmd)
+
+			// Show user available commands and ask for confirmation
+			fmt.Printf("Selected file has default reload commands available.\n")
+			for _, command := range defaultReloadCommandArray {
+				// Replace placeholders in default commands with collected information
+				if strings.Contains(command, "??") {
+					command = strings.Replace(command, "??baseDirName??", filepath.Base(targetFilePath), 0)
+				}
+
+				// Print command on its own line
+				fmt.Printf("  - %s\n", command)
+			}
+			fmt.Printf("Do you want to use these? [y/N]: ")
+			userConfirmation, _ := reader.ReadString('\n')
+			userConfirmation = strings.TrimSpace(userConfirmation)
+			userConfirmation = strings.ToLower(userConfirmation)
+
+			// User did not say yes, skip using default reload commands
+			if userConfirmation != "y" {
+				userDoesNotWantDefaultReloads = true
+				break
+			}
+
+			// User does want default commands, save to array and stop default search
+			reloadCmds = defaultReloadCommandArray
+			break
+		}
+
+		// Get array of commands from user
+		if userDoesNotWantDefaultReloads {
+			fmt.Printf("Enter reload commands (press Enter after each command, leave an empty line to finish):\n")
+			scanner := bufio.NewScanner(os.Stdin)
+			for scanner.Scan() {
+				cmd := scanner.Text()
+				if cmd == "" { // Done once empty line
+					// Get confirmation of input
+					fmt.Printf("Are these commands correct? [Y/n]: ")
+					userConfirmation, _ := reader.ReadString('\n')
+					userConfirmation = strings.TrimSpace(userConfirmation)
+					userConfirmation = strings.ToLower(userConfirmation)
+					if userConfirmation == "y" {
+						break
+					}
+					// Reset array of commands
+					reloadCmds = nil
+					fmt.Printf("Enter reload commands (press Enter after each command, leave an empty line to finish):\n")
+					continue
+				}
+				reloadCmds = append(reloadCmds, cmd)
+			}
 		}
 
 		// Write user supplied command array to metadata header

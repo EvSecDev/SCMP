@@ -237,6 +237,16 @@ The structure of the local repository is supposed to be a replica of the remote 
 
 ## NOTES
 
+### Reload commands
+
+It is recommended to use some sort of pre-check/validation/test option for your first reload command for a particular config file.
+Something like `nginx -t` or `nft -f /etc/nftables.conf -c` ensures that the syntax of the file you are pushing is valid before enabling the new config.
+This also ensures that if the actual reload command (like `systemctl restart`) fails, that the system is left running the previously known-good config.
+
+If using the Deployer executable with the apparmor profile, it is recommended to either use one of the many sample reload command profiles or create your own.
+This adds an extra layer of security. Although, the default installation profile of confining sudo and which commands sudo can run (even if those commands themselves are unconfined) is safe enough for most purposes.
+If you do use the extra apparmor profiles, remember to append them to the existing Deployer apparmor profile to ensure they are protected from unauthorized writes.
+
 ### Warning about the known_hosts file
 
 Beware, using your existing known_hosts file from a standard SSH client is not recommended.

@@ -1,0 +1,24 @@
+# Call this profile by putting this line in the SCMDsudo profile
+#profile SCMDsudo flags=(enforce) {
+#....
+  /usr/bin/crontab rmpx -> SCMDreloadCrontab,
+#....
+#}
+# Reload profile designed for `crontab -n /etc/crontab`
+profile SCMDreloadCrontab flags=(enforce) {
+  # Crontab self accesses
+  /usr/bin/crontab r,
+  unix (create, connect) type=stream,
+  /etc/nsswitch.conf r,
+  /etc/passwd r,
+  /etc/ld.so.cache r,
+  /usr/lib/*-linux-gnu*/libc.so.* rm,
+  /usr/lib/*-linux-gnu*/ld-linux-*.so.* rm,
+  /usr/lib/locale/locale-archive r,
+  /usr/share/zoneinfo/** r,
+  /var/spool/cron/crontabs/tmp.* rw,
+
+  # Crontab reload accesses
+  /etc/crontab r,
+  /etc/cron*/** r,
+}

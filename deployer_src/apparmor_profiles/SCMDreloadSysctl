@@ -1,0 +1,27 @@
+# Call this profile by putting this line in the SCMDsudo profile
+#profile SCMDsudo flags=(enforce) {
+#....
+  /usr/sbin/sysctl rmpx -> SCMDreloadSysctl,
+#....
+#}
+# Reload profile designed for `sysctl -p --dry-run`, `sysctl -p`
+profile SCMDreloadSysctl flags=(enforce) {
+  # Sysctl self accesses
+  /usr/sbin/sysctl r,
+  capability net_admin,
+  capability sys_ptrace,
+  capability sys_admin,
+  capability sys_nice,
+  capability sys_rawio,
+  capability sys_resource,
+  capability sys_tty_config,
+  /etc/ld.so.cache r,
+  /etc/locale.alias r,
+  /usr/lib/*-linux-gnu*/libc.so.* rm,
+  /usr/lib/*-linux-gnu*/ld-linux-*.so.* rm,
+  /usr/lib/locale/locale-archive r,
+
+  # Sysctl reload accesses
+  /etc/sysctl.conf r,
+  /proc/sys/** w,
+}

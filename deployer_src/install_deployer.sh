@@ -69,11 +69,11 @@ SSHListenAddress="0.0.0.0"
 SSHListenPort="2022"
 AuthorizedUser="deployer"
 AuthorizedKeys=
-updateProgramPath="/usr/local/bin/scmpdupdater"
 ApparmorProfilePath=/etc/apparmor.d/$(echo $executablePath | sed 's|^/||g' | sed 's|/|.|g')
 ServiceDir="/etc/systemd/system"
 Service="scmpd.service"
 ServiceFilePath="$ServiceDir/$Service"
+updateProgramPath="/usr/local/bin/scmpdupdater"
 remoteTransferBuffer="/tmp/.scmpbuffer"
 remoteBackupDir="/tmp/.scmpbackups"
 
@@ -363,13 +363,16 @@ profile SCMDeployer @{exelocation} flags=(enforce) {
   /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
   /proc/sys/net/core/somaxconn r,
 
+  # Allow stdout to term for version prints
+  /dev/pts/* w,
+
   # Allow sudo execution for superuser deployment
   /usr/bin/sudo rmpx -> SCMDsudo,
 
   # For SFTP
   owner @{tempTransferBuffer} rw,
 
-  # For updater
+  # For updater - unconfined
   @{updateexelocation} rux,
 }
 profile SCMDsudo flags=(enforce) {
@@ -387,6 +390,7 @@ profile SCMDsudo flags=(enforce) {
   network unix stream,
   network unix dgram,
   network inet dgram,
+  network inet6 dgram,
 
   # Allow various command execution from controller for deployment
   /usr/bin/ls rmpx -> SCMDfileops,
@@ -401,8 +405,8 @@ profile SCMDsudo flags=(enforce) {
   /usr/bin/sha256sum rmpx -> SCMDfileops,
 
   # User defined commands for post deployment checks and reloads
-  /usr/bin/systemctl rmUx
-  /usr/bin/nginx rmUx
+  # If you want to confine reloads, find available profiles at https://github.com/EvSecDev/SCMPusher/tree/main/deployer_src/apparmor_profiles
+  /usr/bin/systemctl rmUx,
 
   # /proc accesses
   /proc/stat r,
@@ -456,29 +460,29 @@ profile SCMDsudo flags=(enforce) {
   /dev/null rw,
 
   ## Libraries needed for sudo - lib versions are wildcarded
-  /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.* r,
-  /usr/lib/x86_64-linux-gnu/libaudit.so.* rm,
-  /usr/lib/x86_64-linux-gnu/libselinux.so* rm,
-  /usr/lib/x86_64-linux-gnu/libc.so* rm,
-  /usr/lib/x86_64-linux-gnu/libcap-ng.so.* rm,
-  /usr/lib/x86_64-linux-gnu/libpcre*.so.* rm,
-  /usr/lib/x86_64-linux-gnu/libpam.so.* rm,
-  /usr/lib/x86_64-linux-gnu/libz.so.* rm,
-  /usr/lib/x86_64-linux-gnu/libm.so.* rm,
+  /usr/lib/*-linux-gnu*/ld-linux-x86-64.so.* r,
+  /usr/lib/*-linux-gnu*/libaudit.so.* rm,
+  /usr/lib/*-linux-gnu*/libselinux.so* rm,
+  /usr/lib/*-linux-gnu*/libc.so* rm,
+  /usr/lib/*-linux-gnu*/libcap-ng.so.* rm,
+  /usr/lib/*-linux-gnu*/libpcre*.so.* rm,
+  /usr/lib/*-linux-gnu*/libpam.so.* rm,
+  /usr/lib/*-linux-gnu*/libz.so.* rm,
+  /usr/lib/*-linux-gnu*/libm.so.* rm,
   /usr/libexec/sudo/libsudo_util.so.* rm,
   /usr/libexec/sudo/sudoers.so rm,
-  /usr/lib/x86_64-linux-gnu/libnss_systemd.so.* rm,
-  /usr/lib/x86_64-linux-gnu/libcap.so.* rm,
-  /usr/lib/x86_64-linux-gnu/security/pam_limits.so rm,
-  /usr/lib/x86_64-linux-gnu/security/pam_unix.so rm,
-  /usr/lib/x86_64-linux-gnu/security/pam_deny.so rm,
-  /usr/lib/x86_64-linux-gnu/security/pam_permit.so rm,
-  /usr/lib/x86_64-linux-gnu/security/pam_systemd.so rm,
-  /usr/lib/x86_64-linux-gnu/libcrypt.so.* rm,
-  /usr/lib/x86_64-linux-gnu/libpam_misc.so.* rm,
-  /usr/lib/x86_64-linux-gnu/gconv/gconv-modules.cache r,
-  /usr/lib/x86_64-linux-gnu/gconv/gconv-modules r,
-  /usr/lib/x86_64-linux-gnu/gconv/gconv-modules.d/ r,
+  /usr/lib/*-linux-gnu*/libnss_systemd.so.* rm,
+  /usr/lib/*-linux-gnu*/libcap.so.* rm,
+  /usr/lib/*-linux-gnu*/security/pam_limits.so rm,
+  /usr/lib/*-linux-gnu*/security/pam_unix.so rm,
+  /usr/lib/*-linux-gnu*/security/pam_deny.so rm,
+  /usr/lib/*-linux-gnu*/security/pam_permit.so rm,
+  /usr/lib/*-linux-gnu*/security/pam_systemd.so rm,
+  /usr/lib/*-linux-gnu*/libcrypt.so.* rm,
+  /usr/lib/*-linux-gnu*/libpam_misc.so.* rm,
+  /usr/lib/*-linux-gnu*/gconv/gconv-modules.cache r,
+  /usr/lib/*-linux-gnu*/gconv/gconv-modules r,
+  /usr/lib/*-linux-gnu*/gconv/gconv-modules.d/ r,
 }
 profile SCMDfileops flags=(enforce) {
   # Commands Meta Access
@@ -523,14 +527,9 @@ profile SCMDfileops flags=(enforce) {
   /home/{,**} rw,
   /usr/{,*} r,
 }
-#profile SCMDreloadops flags=(enforce) {
-#  # Commands Meta Access
-#  /usr/{lib**,sbin/**,bin/**} rm,
-#  /etc/ld.so.cache r,
-#  /etc/locale.alias r,
-#}
 EOF
 	chmod 644 "$ApparmorProfilePath"
+	chown root:root "$ApparmorProfilePath"
 	apparmor_parser -r "$ApparmorProfilePath"
 fi
 

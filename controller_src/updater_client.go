@@ -17,7 +17,7 @@ import (
 func updateDeployer(config Config, deployerUpdateFile string, hostOverride string) {
 	fmt.Printf("%s\n", progCLIHeader)
 	fmt.Printf("Pushing deployer update using executable at %s\n", deployerUpdateFile)
-	fmt.Print("Note: Systemd auto-restart will take approximately one minute\n")
+	fmt.Print("Note: Please wait 1 minute for deployer to start after update\n")
 
 	// Load binary from file
 	deployerUpdateBinary, err := os.ReadFile(deployerUpdateFile)
@@ -94,10 +94,20 @@ func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride
 			return
 		}
 
-		// If just checking version, Print
+		// Add version to output and continue to next host
 		if checkVersion {
 			returnedData = returnedData + fmt.Sprintf("%s:%s\n", endpointName, stdout)
+			continue
 		}
+
+		// Show update progress to user
+
+		if stdout == "Deployer update successful" {
+			fmt.Printf("Updated %s\n", endpointName)
+		} else {
+			fmt.Printf("Update Pushed to %s (did not receive confirmation)\n", endpointName)
+		}
+
 	}
 
 	return
@@ -106,7 +116,7 @@ func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride
 // Transfers updated deployer binary to remote temp buffer (file path from global var)
 // Calls custom ssh request type to start update process
 // If requested, will retrieve deployer version from SSH version in handshake and return
-func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointInfo EndpointInfo, checkVersion bool) (stdout string, err error) {
+func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointInfo EndpointInfo, checkVersion bool) (cmdOutput string, err error) {
 	// Connect to the SSH server
 	client, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
 	if err != nil {
@@ -118,7 +128,7 @@ func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointIn
 	if checkVersion {
 		// Get remote host deployer version
 		deployerSSHVersion := string(client.Conn.ServerVersion())
-		stdout = strings.Replace(deployerSSHVersion, "SSH-2.0-OpenSSH_", "", 1)
+		cmdOutput = strings.Replace(deployerSSHVersion, "SSH-2.0-OpenSSH_", "", 1)
 		return
 	}
 
@@ -161,6 +171,13 @@ func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointIn
 		return
 	}
 
+	// Command output
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		err = fmt.Errorf("failed to get stdout pipe: %v", err)
+		return
+	}
+
 	// Command Error
 	stderr, err := session.StderrPipe()
 	if err != nil {
@@ -199,12 +216,18 @@ func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointIn
 
 	// If the command had an error on the remote side
 	if len(updateError) > 0 {
-		err = fmt.Errorf("%s (check /tmp/updater.log on remote system for more information)", updateError)
+		err = fmt.Errorf("%s", updateError)
 		return
 	}
 
-	// Show progress to user
-	fmt.Printf("Updates Pushed to %s\n", endpointName)
+	// Read commands output from session
+	updateStdout, err := io.ReadAll(stdout)
+	if err != nil {
+		err = fmt.Errorf("error reading from io.Reader: %v", err)
+		return
+	}
+	// Convert bytes to string
+	cmdOutput = string(updateStdout)
 
 	return
 }

@@ -1,0 +1,56 @@
+# Call this profile by putting this line in the SCMDsudo profile
+#profile SCMDsudo flags=(enforce) {
+#....
+  /usr/sbin/sshd rmpx -> SCMDreloadSSHD,
+#....
+#}
+# Reload profile designed for `sshd -t`
+profile SCMDreloadSSHD flags=(enforce) {
+  # SSHd self accesses
+  /usr/sbin/sshd r,
+  capability setgid,
+  network netlink raw,
+  unix (create, connect) type=stream,
+  network inet dgram,
+  network inet6 dgram,
+  /etc/nsswitch.conf r,
+  /etc/passwd r,
+  /etc/gai.conf r,
+  /etc/ssl/openssl.cnf r,
+  /etc/ssh/ssh_host*{key,.pub} r,
+  /etc/ld.so.cache r,
+  /usr/lib/*-linux-gnu*/ld-linux-*.so.* rm,
+  /usr/lib/*-linux-gnu*/libcrypt.so.* rm,
+  /usr/lib/*-linux-gnu*/libwrap.so.* rm,
+  /usr/lib/*-linux-gnu*/libaudit.so.* rm,
+  /usr/lib/*-linux-gnu*/libpam.so.* rm,
+  /usr/lib/*-linux-gnu*/libsystemd.so.* rm,
+  /usr/lib/*-linux-gnu*/libselinux.so.* rm,
+  /usr/lib/*-linux-gnu*/libgssapi_krb*.so.* rm,
+  /usr/lib/*-linux-gnu*/libkrb5.so.* rm,
+  /usr/lib/*-linux-gnu*/libcom_err.so.* rm,
+  /usr/lib/*-linux-gnu*/libcrypto.so.* rm,
+  /usr/lib/*-linux-gnu*/libz.so.* rm,
+  /usr/lib/*-linux-gnu*/libc.so.* rm,
+  /usr/lib/*-linux-gnu*/libnsl.so.* rm,
+  /usr/lib/*-linux-gnu*/libcap-ng.so.* rm,
+  /usr/lib/*-linux-gnu*/libcap.so.* rm,
+  /usr/lib/*-linux-gnu*/libgcrypt.so.* rm,
+  /usr/lib/*-linux-gnu*/liblzma.so.* rm,
+  /usr/lib/*-linux-gnu*/libzstd.so.* rm,
+  /usr/lib/*-linux-gnu*/liblz*.so.* rm,
+  /usr/lib/*-linux-gnu*/libpcre*.so.* rm,
+  /usr/lib/*-linux-gnu*/libk*crypto.so.* rm,
+  /usr/lib/*-linux-gnu*/libkrb*support.so.* rm,
+  /usr/lib/*-linux-gnu*/libkeyutils.so.* rm,
+  /usr/lib/*-linux-gnu*/libresolv.so.* rm,
+  /usr/lib/*-linux-gnu*/libtirpc.so.* rm,
+  /usr/lib/*-linux-gnu*/libgpg-error.so.* rm,
+  /proc/sys/kernel/cap_last_cap r,
+  /proc/filesystems r,
+  /dev/null wr,
+
+  # SSHd reload accesses
+  /etc/ssh/sshd_config r,
+  /etc/ssh/sshd_config.d/{,**} r,
+}

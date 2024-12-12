@@ -141,6 +141,11 @@ func allDeployment(config Config, commitID string, hostOverride string, fileOver
 		}
 	}()
 
+	// Ensure specific hosts and a commit ID are chosen by user
+	if hostOverride == "" || commitID == "" {
+		logError("Invalid arguments", fmt.Errorf("remote-hosts and/or commitID cannot be empty"), false)
+	}
+
 	// Show progress to user
 	fmt.Printf("%s\n", progCLIHeader)
 	fmt.Print("     Starting all deployment\n")
@@ -363,6 +368,11 @@ func manualDeployment(config Config, commitID string, hostOverride string, fileO
 			logError("Controller panic while processing manual deployment", fmt.Errorf("%v", fatalError), true)
 		}
 	}()
+
+	// Ensure user specified a commit ID
+	if commitID == "" {
+		logError("Invalid arguments", fmt.Errorf("commitID cannot be empty"), false)
+	}
 
 	// Show progress to user
 	fmt.Printf("%s\n", progCLIHeader)

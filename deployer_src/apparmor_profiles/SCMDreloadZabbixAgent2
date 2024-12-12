@@ -1,0 +1,29 @@
+# Call this profile by putting this line in the SCMDsudo profile
+#profile SCMDsudo flags=(enforce) {
+#....
+  /usr/sbin/zabbix_agent2 rmpx -> SCMDreloadZabbixAgent2,
+#....
+#}
+# Reload profile designed for `zabbix_agent2 -T -c /etc/zabbix/zabbix_agent2.conf`
+profile SCMDreloadZabbixAgent2 flags=(enforce) {
+  # Agent self accesses
+  /usr/sbin/zabbix_agent2 r,
+  signal receive set=(urg) peer=SCMDreloadZabbixAgent2,
+  signal send set=(urg) peer=SCMDreloadZabbixAgent2,
+  /etc/ssl/openssl.cnf r,
+  /etc/ld.so.cache r,
+  /usr/lib/*-linux-gnu*/ld-linux-*.so.* r,
+  /usr/lib/*-linux-gnu*/libm.so.* r,
+  /usr/lib/*-linux-gnu*/libm.so.* rm,
+  /usr/lib/*-linux-gnu*/libpcre*.so.* rm,
+  /usr/lib/*-linux-gnu*/libz.so.* rm,
+  /usr/lib/*-linux-gnu*/libssl.so.* rm,
+  /usr/lib/*-linux-gnu*/libcrypto.so.* rm,
+  /usr/lib/*-linux-gnu*/libc.so.* rm,
+  /proc/[1-9]*/maps r,
+  /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+
+  # Agent reload accesses
+  /etc/zabbix/zabbix_agent2.conf r,
+  /etc/zabbix/zabbix_agent2.d/{,**} r,
+}

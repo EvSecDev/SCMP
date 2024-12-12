@@ -10,8 +10,10 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -35,6 +37,9 @@ type Config struct {
 }
 
 var dryRunRequested bool
+var UpdaterProgram string
+
+const progVersion string = "v1.1.0"
 
 // ###################################
 //      EXCEPTION HANDLING
@@ -76,7 +81,6 @@ Documentation: <https://github.com/EvSecDev/SCMPusher>
 `
 
 func main() {
-	progVersion := "v1.0.3"
 
 	// Program Argument Variables
 	var configFilePath string
@@ -106,12 +110,12 @@ func main() {
 	// Meta info print out
 	if versionFlagExists {
 		fmt.Printf("Deployer %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Print("Packages: runtime strings io github.com/pkg/sftp encoding/base64 flag fmt golang.org/x/crypto/ssh os/exec net os bytes encoding/binary gopkg.in/yaml.v2\n")
-		os.Exit(0)
+		fmt.Print("Packages: runtime strings io github.com/pkg/sftp encoding/base64 flag os/signal fmt golang.org/x/crypto/ssh os/exec net syscall os bytes encoding/binary gopkg.in/yaml.v2\n")
+		return
 	}
 	if versionNumberFlagExists {
 		fmt.Println(progVersion)
-		os.Exit(0)
+		return
 	}
 
 	// Grab config file
@@ -127,13 +131,17 @@ func main() {
 	err = yaml.Unmarshal(yamlConfigFile, &config)
 	logError("Error unmarshaling config file", err, true)
 
+	// Set global
+	UpdaterProgram = config.UpdaterProgram
+
 	// Parse User Choices
-	if startServerFlagExists {
-		RunSSHServer(config, progVersion)
-	} else if testConfig {
+	if testConfig {
 		// If user wants to test config, just exit once program gets to this point
 		// Any config errors will be discovered prior to this point and exit with whatever error happened
 		fmt.Printf("deployer: configuration file %s test is successful\n", configFilePath)
+	} else if startServerFlagExists {
+		// Server entry point
+		RunSSHServer(config, progVersion)
 	} else {
 		// Exit program without any arguments
 		fmt.Printf("No arguments specified! Use '-h' or '--help' to guide your way.\n")
@@ -228,6 +236,12 @@ func RunSSHServer(config Config, progVersion string) {
 			continue
 		}
 
+		// Setup Signal Handling Channel
+		signalReceived := make(chan os.Signal, 1)
+
+		// Start blocking SIGTERM signals while connection is being handled
+		signal.Notify(signalReceived, syscall.SIGTERM)
+
 		// Establish an SSH connection
 		sshConn, chans, reqs, err := ssh.NewServerConn(NewConnection, sshConfig)
 		if err != nil {
@@ -247,9 +261,22 @@ func RunSSHServer(config Config, progVersion string) {
 			}
 
 			// Handle the channel (e.g., execute commands, etc.)
-			handleChannel(newChannel, config.UpdaterProgram)
+			handleChannel(newChannel)
 		}
 		fmt.Printf("Closed connection from %s for user %s\n", sshConn.RemoteAddr(), sshConn.User())
+
+		// Check for sigterm, break processing loop and shutdown server gracefully
+		select {
+		case <-signalReceived:
+			// SIGTERM received, exit program
+			fmt.Printf("SCM Deployer (%s) SSH server shut down\n", progVersion)
+			return
+		default:
+			// No SIGTERM, continue processing connections
+			signal.Stop(signalReceived)
+			close(signalReceived)
+			continue
+		}
 	}
 }
 
@@ -258,7 +285,7 @@ func RunSSHServer(config Config, progVersion string) {
 // ###################################
 
 // Define a handler for SSH connections
-func handleChannel(newChannel ssh.NewChannel, UpdaterProgram string) {
+func handleChannel(newChannel ssh.NewChannel) {
 	// Recover from panic
 	defer func() {
 		if r := recover(); r != nil {
@@ -275,16 +302,16 @@ func handleChannel(newChannel ssh.NewChannel, UpdaterProgram string) {
 	defer channel.Close()
 
 	// Loop client requests - Only allow SFTP or Exec
-	for req := range requests {
-		switch req.Type {
+	for request := range requests {
+		switch request.Type {
 		case "exec":
-			command, err := StripPayloadHeader(req.Payload)
+			command, err := StripPayloadHeader(request.Payload)
 			if err != nil {
 				logError("SSH request error", fmt.Errorf("exec: failed to strip request payload header: %v", err), false)
 				break
 			}
-			if req.WantReply {
-				req.Reply(true, nil)
+			if request.WantReply {
+				request.Reply(true, nil)
 			}
 			err = executeCommand(channel, command)
 			if err != nil {
@@ -292,18 +319,18 @@ func handleChannel(newChannel ssh.NewChannel, UpdaterProgram string) {
 				break
 			}
 		case "subsystem":
-			subsystem, err := StripPayloadHeader(req.Payload)
+			subsystem, err := StripPayloadHeader(request.Payload)
 			if err != nil {
 				logError("SSH request error", fmt.Errorf("subsystem: failed to strip request payload header: %v", err), false)
 				break
 			}
 			if subsystem != "sftp" {
-				req.Reply(false, nil)
+				request.Reply(false, nil)
 				logError("SSH request error", fmt.Errorf("received unauthorized subsystem %s", subsystem), false)
 				break
 			}
-			if req.WantReply {
-				req.Reply(true, nil)
+			if request.WantReply {
+				request.Reply(true, nil)
 			}
 			// Handle SFTP
 			err = HandleSFTP(channel)
@@ -312,25 +339,15 @@ func handleChannel(newChannel ssh.NewChannel, UpdaterProgram string) {
 				break
 			}
 		case "update":
-			// Retrieve new deployer binary from payload of request
-			TransferBuffer, err := StripPayloadHeader(req.Payload)
+			// Run Update
+			err = HandleUpdate(channel, request)
 			if err != nil {
-				logError("SSH request error", fmt.Errorf("update: failed to strip request payload header: %v", err), false)
+				logError("SSH request error: update", err, false)
 				break
 			}
-			req.Reply(true, nil)
-			// Run updater program given the location of the new deployer binary
-			command := UpdaterProgram + " -src " + TransferBuffer
-			err = executeCommand(channel, command)
-			if err != nil {
-				logError("SSH request error", fmt.Errorf("failed updater execution: %v", err), false)
-				break
-			}
-			// Last log entry before exit
-			fmt.Printf("Received update request, running update program\n")
 		default:
-			logError("SSH request error", fmt.Errorf("unauthorized request type %s received", req.Type), false)
-			req.Reply(false, nil) // Reject unknown requests
+			logError("SSH request error", fmt.Errorf("unauthorized request type %s received", request.Type), false)
+			request.Reply(false, nil) // Reject unknown requests
 		}
 		channel.Close()
 	}
@@ -347,7 +364,6 @@ func executeCommand(channel ssh.Channel, receivedCommand string) (err error) {
 
 	// Prep command and args for execution
 	cmd := exec.Command(commandBinary, commandArray[1:]...)
-
 	// Init command buffers
 	var stdout, stderr, channelBuff bytes.Buffer
 	cmd.Stdout = &stdout
@@ -385,6 +401,7 @@ func executeCommand(channel ssh.Channel, receivedCommand string) (err error) {
 	// Determine exit code to send back
 	var exitCode int
 	if err != nil {
+		fmt.Printf("DEBUG: command error: %v\n", err.Error())
 		if exitError, ok := err.(*exec.ExitError); ok {
 			// Command failed with a non-zero exit code
 			exitCode = exitError.ExitCode()
@@ -436,7 +453,44 @@ func HandleSFTP(channel ssh.Channel) (err error) {
 	return
 }
 
+// Use file path inside SSH request payload to run defined update program
+func HandleUpdate(channel ssh.Channel, request *ssh.Request) (err error) {
+	// Retrieve new deployer binary path from payload of request
+	updateSourceFile, err := StripPayloadHeader(request.Payload)
+	if err != nil {
+		err = fmt.Errorf("failed to strip request payload header: %v", err)
+		return
+	}
+
+	// Send confirmation of payload receipt
+	if request.WantReply {
+		request.Reply(true, nil)
+	}
+
+	// Log update start
+	fmt.Printf("Received update request, running update program\n")
+
+	// Run updater program given the location of the new deployer binary
+	command := UpdaterProgram + " -src " + updateSourceFile
+	err = executeCommand(channel, command)
+	if err != nil {
+		// return error
+		err = fmt.Errorf("failed updater execution: %v", err)
+
+		// Some errors dont get written to the channel in executeCommand function
+		var execErr bytes.Buffer
+		execErr.Write([]byte(err.Error()))
+		io.Copy(channel.Stderr(), &execErr)
+		return
+	}
+
+	// Update succeeded - log
+	fmt.Printf("Stopping SCM Deployer SSH server... (update)\n")
+	return
+}
+
 // Removes header from SSH request payload and returns string text
+// Also validates that the payload length matches the payloads header
 func StripPayloadHeader(request []byte) (payload string, err error) {
 	// Ignore things less than header length
 	if len(request) < 4 {

@@ -279,13 +279,13 @@ func main() {
 	} else if useFailTracker && manualDeployRequested {
 		// Retry last failed deployment
 		failureDeployment(config, hostOverride)
-	} else if allDeployRequested && hostOverride != "" && manualCommitID != "" {
+	} else if allDeployRequested {
 		// Deployment of all repository files by user chosen commit
 		allDeployment(config, manualCommitID, hostOverride, fileOverride)
 	} else if autoDeployRequested {
 		// Deployment of HEAD commit
 		autoDeployment(config, hostOverride, fileOverride)
-	} else if manualDeployRequested && manualCommitID != "" && !allDeployRequested {
+	} else if manualDeployRequested {
 		// User chosen commit
 		manualDeployment(config, manualCommitID, hostOverride, fileOverride)
 	} else if checkDeployerVersions {
@@ -294,7 +294,7 @@ func main() {
 	} else if deployerUpdateFile != "" {
 		// Push update file for deployer
 		updateDeployer(config, deployerUpdateFile, hostOverride)
-	} else if seedRepoFiles && hostOverride != "" {
+	} else if seedRepoFiles {
 		// Get user selected files from remote hosts to populate new local repository
 		seedRepositoryFiles(config, hostOverride)
 	} else if disableGitHook {
