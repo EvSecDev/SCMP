@@ -2,7 +2,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
@@ -15,38 +14,68 @@ import (
 
 // Entry point for updating remote deployer binary
 func updateDeployer(config Config, deployerUpdateFile string, hostOverride string) {
-	fmt.Printf("%s\n", progCLIHeader)
-	fmt.Printf("Pushing deployer update using executable at %s\n", deployerUpdateFile)
-	fmt.Print("Note: Please wait 1 minute for deployer to start after update\n")
+	printMessage(VerbosityStandard, "%s\n", progCLIHeader)
+	printMessage(VerbosityStandard, "Pushing deployer update using executable at %s\n", deployerUpdateFile)
+	printMessage(VerbosityStandard, "Note: Please wait 15 seconds for deployer to start after update\n")
 
 	// Load binary from file
 	deployerUpdateBinary, err := os.ReadFile(deployerUpdateFile)
 	logError("failed loading deployer executable file", err, true)
 
 	// Loop deployers
-	_, err = connectToDeployers(config, deployerUpdateBinary, hostOverride, false)
+	_, err = connectToDeployers(config, deployerUpdateBinary, hostOverride, "update")
 	logError("Failed to update remote deployer executables", err, false)
-	fmt.Print("===========================================================\n")
+	printMessage(VerbosityStandard, "===========================================================\n")
+}
+
+// Entry point for updating remote updater binary
+func updateUpdater(config Config, updaterUpdateFile string, hostOverride string) {
+	printMessage(VerbosityStandard, "%s\n", progCLIHeader)
+	printMessage(VerbosityStandard, "Pushing updater update using executable at %s\n", updaterUpdateFile)
+
+	// Load binary from file
+	updaterUpdateBinary, err := os.ReadFile(updaterUpdateFile)
+	logError("failed loading deployer executable file", err, true)
+
+	// Loop deployers - set mode to updateUpdater (also the ssh request type)
+	_, err = connectToDeployers(config, updaterUpdateBinary, hostOverride, "updateUpdater")
+	logError("Failed to update remote deployer executables", err, false)
+	printMessage(VerbosityStandard, "===========================================================\n")
 }
 
 // Entry point for checking remote deployer binary version
-func getDeployerVersions(config Config, hostOverride string) {
-	fmt.Printf("%s\n", progCLIHeader)
+func getDeployerVersion(config Config, hostOverride string) {
+	printMessage(VerbosityStandard, "%s\n", progCLIHeader)
 
 	// Loop deployers
-	deployerVersions, err := connectToDeployers(config, nil, hostOverride, true)
+	deployerVersions, err := connectToDeployers(config, nil, hostOverride, "getDeployerVersion")
 	logError("Failed to check remote deployer verions", err, false)
 
 	// Show versions to user
 	if deployerVersions != "" {
-		fmt.Printf("Deployer executable versions:\n%s", deployerVersions)
+		printMessage(VerbosityStandard, "Deployer executable versions:\n%s", deployerVersions)
 	}
-	fmt.Print("================================================================\n")
+	printMessage(VerbosityStandard, "================================================================\n")
+}
+
+// Entry point for checking remote updater binary version
+func getUpdaterVersion(config Config, hostOverride string) {
+	printMessage(VerbosityStandard, "%s\n", progCLIHeader)
+
+	// Loop deployers
+	updaterVersions, err := connectToDeployers(config, nil, hostOverride, "getUpdaterVersion")
+	logError("Failed to check remote updater verions", err, false)
+
+	// Show versions to user
+	if updaterVersions != "" {
+		printMessage(VerbosityStandard, "Updater executable versions:\n%s", updaterVersions)
+	}
+	printMessage(VerbosityStandard, "================================================================\n")
 }
 
 // Semi-generic connect to remote deployer endpoints
 // Used for checking versions and updating binary of deployer
-func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride string, checkVersion bool) (returnedData string, err error) {
+func connectToDeployers(config Config, updateBinary []byte, hostOverride string, mode string) (returnedData string, err error) {
 	// Check local system
 	err = localSystemChecks()
 	if err != nil {
@@ -55,14 +84,17 @@ func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride
 
 	if dryRunRequested {
 		// Notify user that program is in dry run mode
-		fmt.Printf("\nRequested dry-run, aborting connections - outputting information collected for connections:\n\n")
+		printMessage(VerbosityStandard, "\nRequested dry-run, aborting connections - outputting information collected for connections:\n\n")
 	}
 
 	// Loop over config endpoints for updater/version
 	for endpointName, endpointInfo := range config.DeployerEndpoints {
+		printMessage(VerbosityProgress, "Host %s\n", endpointName)
+
 		// Use hosts user specifies if requested
-		SkipHost := checkForHostOverride(hostOverride, endpointName)
-		if SkipHost {
+		skipHost := checkForOverride(hostOverride, endpointName)
+		if skipHost {
+			printMessage(VerbosityProgress, "  Host not desired\n")
 			continue
 		}
 
@@ -76,18 +108,18 @@ func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride
 
 		// If user requested dry run - print collected information so far and gracefully abort update
 		if dryRunRequested {
-			fmt.Printf("Host: %s\n", endpointName)
-			fmt.Printf("  Options:\n")
-			fmt.Printf("       Endpoint Address: %s\n", info.Endpoint)
-			fmt.Printf("       SSH User:         %s\n", info.EndpointUser)
-			fmt.Printf("       SSH Key:          %s\n", info.PrivateKey.PublicKey())
-			fmt.Printf("       Transfer Buffer:  %s\n", info.RemoteTransferBuffer)
+			printMessage(VerbosityStandard, "Host: %s\n", endpointName)
+			printMessage(VerbosityStandard, "  Options:\n")
+			printMessage(VerbosityStandard, "       Endpoint Address: %s\n", info.Endpoint)
+			printMessage(VerbosityStandard, "       SSH User:         %s\n", info.EndpointUser)
+			printMessage(VerbosityStandard, "       SSH Key:          %s\n", info.PrivateKey.PublicKey())
+			printMessage(VerbosityStandard, "       Transfer Buffer:  %s\n", info.RemoteTransferBuffer)
 			continue
 		}
 
 		// Connect to deployer
 		var stdout string
-		stdout, err = deployerClient(deployerUpdateBinary, endpointName, info, checkVersion)
+		stdout, err = deployerClient(updateBinary, endpointName, info, mode)
 		if err != nil {
 			// Print error for host - bail further updating
 			err = fmt.Errorf("host '%s': %v", endpointName, err)
@@ -95,19 +127,17 @@ func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride
 		}
 
 		// Add version to output and continue to next host
-		if checkVersion {
+		if mode == "getDeployerVersion" || mode == "getUpdaterVersion" {
 			returnedData = returnedData + fmt.Sprintf("%s:%s\n", endpointName, stdout)
 			continue
 		}
 
 		// Show update progress to user
-
-		if stdout == "Deployer update successful" {
-			fmt.Printf("Updated %s\n", endpointName)
+		if strings.ToLower(stdout) == "update successful" {
+			printMessage(VerbosityStandard, "Updated %s\n", endpointName)
 		} else {
-			fmt.Printf("Update Pushed to %s (did not receive confirmation)\n", endpointName)
+			printMessage(VerbosityStandard, "Update Pushed to %s (did not receive confirmation)\n", endpointName)
 		}
-
 	}
 
 	return
@@ -116,7 +146,9 @@ func connectToDeployers(config Config, deployerUpdateBinary []byte, hostOverride
 // Transfers updated deployer binary to remote temp buffer (file path from global var)
 // Calls custom ssh request type to start update process
 // If requested, will retrieve deployer version from SSH version in handshake and return
-func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointInfo EndpointInfo, checkVersion bool) (cmdOutput string, err error) {
+func deployerClient(updateBinary []byte, endpointName string, endpointInfo EndpointInfo, mode string) (cmdOutput string, err error) {
+	printMessage(VerbosityProgress, "Host %s: Connecting to SSH server\n", endpointName)
+
 	// Connect to the SSH server
 	client, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
 	if err != nil {
@@ -125,17 +157,22 @@ func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointIn
 	}
 	defer client.Close()
 
-	if checkVersion {
+	if mode == "getDeployerVersion" {
 		// Get remote host deployer version
 		deployerSSHVersion := string(client.Conn.ServerVersion())
 		cmdOutput = strings.Replace(deployerSSHVersion, "SSH-2.0-OpenSSH_", "", 1)
 		return
 	}
 
-	// SFTP to default temp file
-	err = RunSFTP(client, deployerUpdateBinary, endpointInfo.RemoteTransferBuffer)
-	if err != nil {
-		return
+	// Transfer update file to remote if in update mode
+	if mode == "update" || mode == "updateUpdater" {
+		printMessage(VerbosityProgress, "  Transferring update file to remote\n")
+
+		// SFTP to default temp file
+		err = RunSFTP(client, updateBinary, endpointInfo.RemoteTransferBuffer)
+		if err != nil {
+			return
+		}
 	}
 
 	// Open new session
@@ -146,28 +183,22 @@ func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointIn
 	}
 	defer session.Close()
 
-	// Create payload with length header
-	var requestPayload []byte
-	payload := []byte(endpointInfo.RemoteTransferBuffer)
-	lengthBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(lengthBytes, uint32(len(payload)))
-
-	// Add length of payload as header beginning
-	requestPayload = append(requestPayload, lengthBytes...)
-
-	// Add the payload data
-	requestPayload = append(requestPayload, payload...)
-
 	// Set custom request
-	requestType := "update"
-	wantReply := true
-	reqAccepted, err := session.SendRequest(requestType, wantReply, requestPayload)
-	if err != nil {
-		err = fmt.Errorf("failed to create update session: %v", err)
+	var requestType string
+	if mode == "updateUpdater" {
+		requestType = mode
+	} else if mode == "update" {
+		requestType = mode
+	} else if mode == "getUpdaterVersion" {
+		requestType = mode
+	} else {
+		err = fmt.Errorf("invalid mode: unsupported SSH request type")
 		return
 	}
-	if !reqAccepted {
-		err = fmt.Errorf("server did not accept request type '%s'", requestType)
+
+	// Generate request and send
+	err = sendCustomSSHRequest(session, requestType, true, endpointInfo.RemoteTransferBuffer)
+	if err != nil {
 		return
 	}
 
@@ -186,18 +217,24 @@ func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointIn
 	}
 
 	// Command stdin
-	stdin, err := session.StdinPipe()
+	var stdin io.WriteCloser
+	stdin, err = session.StdinPipe()
 	if err != nil {
 		err = fmt.Errorf("failed to get stdin pipe: %v", err)
 		return
 	}
 	defer stdin.Close()
 
-	// Write sudo password to stdin
-	_, err = stdin.Write([]byte(endpointInfo.SudoPassword))
-	if err != nil {
-		err = fmt.Errorf("failed to write to command stdin: %v", err)
-		return
+	// Send sudo password if updating deployer
+	if mode == "update" || mode == "updateUpdater" {
+		printMessage(VerbosityProgress, "  Writing sudo password to stdin\n")
+
+		// Write sudo password to stdin
+		_, err = stdin.Write([]byte(endpointInfo.SudoPassword))
+		if err != nil {
+			err = fmt.Errorf("failed to write to command stdin: %v", err)
+			return
+		}
 	}
 
 	// Close stdin to signal no more writing
@@ -206,6 +243,8 @@ func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointIn
 		err = fmt.Errorf("failed to close stdin: %v", err)
 		return
 	}
+
+	printMessage(VerbosityProgress, "  Reading stderr from remote\n")
 
 	// Read error output from session
 	updateError, err := io.ReadAll(stderr)
@@ -216,9 +255,11 @@ func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointIn
 
 	// If the command had an error on the remote side
 	if len(updateError) > 0 {
-		err = fmt.Errorf("%s", updateError)
+		err = fmt.Errorf("%s ", updateError)
 		return
 	}
+
+	printMessage(VerbosityProgress, "  Reading stdout from remote\n")
 
 	// Read commands output from session
 	updateStdout, err := io.ReadAll(stdout)
@@ -227,7 +268,8 @@ func deployerClient(deployerUpdateBinary []byte, endpointName string, endpointIn
 		return
 	}
 	// Convert bytes to string
-	cmdOutput = string(updateStdout)
+	stdoutString := string(updateStdout)
+	cmdOutput = strings.ReplaceAll(strings.ReplaceAll(stdoutString, "\n", ""), "\r", "")
 
 	return
 }

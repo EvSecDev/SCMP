@@ -1,0 +1,51 @@
+Controller:
+  # Path to the root of the git repository
+  RepositoryPath: "$repositoryPath"
+  LogtoJournald: $LogJournalBool
+SSHClient:
+  # Change where remote hosts public keys will be stored (don't use .ssh/known_hosts) - recommended to keep in the root of the repository (otherwise, changed your apparmor profile)
+  KnownHostsFile: "$KnownHostsFile"
+  # Limit number of ssh outbound connections at once
+  MaximumConnectionsAtOnce: $MaximumOutboundConnections
+# Defaults for SSH Client - applies to all endpoints. Can be overriden under each endpoint host
+SSHClientDefaults:
+  endpointPort: 2022
+  endpointUser: "deployer"
+  # File path for client's SSH key
+  SSHIdentityFile: "$SSHIdentityPath"
+  # Set to true if you want to use your SSH agent to retrieve the private key (requires pubkey file path in identity file)
+  UseSSHAgent: $SSHAgentBool
+  # Password that will be used to run sudo commands on remote host
+  # Leave blank if sudo does not require a password
+  SudoPassword: "$SudoPassword"
+  # Remote file that is used for unprivileged file transfers
+  RemoteTransferBuffer: "$remoteTransferBuffer"
+  # Remote directory that is temporarily used to backup files in case deployment fails
+  RemoteBackupDir: "$remoteBackupDir"
+# Repo dir to house all configs that should be deployed to every host
+UniversalDirectory: "$UniversalDirectory"
+# List of directories for universal configs by groups of hosts
+UniversalGroups:
+#  UniversalConfs_Group1:
+#    - "examplehost1"
+#    - "examplehost2"
+#    - "examplehost3"
+#  UniversalConfs_Group2:
+#    - "examplehost8"
+#    - "examplehost12"
+# Directories to not deploy in repository (must be relative path starting at root of repository)
+IgnoreDirectories:
+  - "Templates"
+# Remote hosts to receive configurations
+DeployerEndpoints:
+  # name of each endpoint must have a matching directory name in the root of the git repo
+  #examplehost:
+  #  endpoint: "127.0.0.1"
+  #examplehost2:
+  #  endpoint: "127.0.0.2"
+  #  endpointPort: 2022
+  #  endpointUser: "deployer"
+  #  SSHIdentityFile: "~/.ssh/private.key"
+  #  SudoPassword: ""
+  #  UseSSHAgent: false
+  #  ignoreUniversalConfs: true

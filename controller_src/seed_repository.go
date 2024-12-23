@@ -34,7 +34,7 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 		logError("Invalid arguments", fmt.Errorf("remote-hosts cannot be empty when seeding the repository"), false)
 	}
 
-	fmt.Printf("==== Secure Configuration Management Repository Seeding ====\n")
+	printMessage(VerbosityStandard, "==== Secure Configuration Management Repository Seeding ====\n")
 
 	// Check local system
 	err := localSystemChecks()
@@ -42,7 +42,7 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 
 	if dryRunRequested {
 		// Notify user that program is in dry run mode
-		fmt.Printf("\nRequested dry-run, aborting connections - outputting information collected for connections:\n\n")
+		printMessage(VerbosityStandard, "\nRequested dry-run, aborting connections - outputting information collected for connections:\n\n")
 	}
 
 	// Retrieve user host choices and put into array
@@ -61,12 +61,12 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 
 		// If user requested dry run - print collected information so far and gracefully abort update
 		if dryRunRequested {
-			fmt.Printf("Host: %s\n", endpointName)
-			fmt.Printf("  Options:\n")
-			fmt.Printf("       Endpoint Address: %s\n", info.Endpoint)
-			fmt.Printf("       SSH User:         %s\n", info.EndpointUser)
-			fmt.Printf("       SSH Key:          %s\n", info.PrivateKey.PublicKey())
-			fmt.Printf("       Transfer Buffer:  %s\n", info.RemoteTransferBuffer)
+			printMessage(VerbosityStandard, "Host: %s\n", endpointName)
+			printMessage(VerbosityStandard, "  Options:\n")
+			printMessage(VerbosityStandard, "       Endpoint Address: %s\n", info.Endpoint)
+			printMessage(VerbosityStandard, "       SSH User:         %s\n", info.EndpointUser)
+			printMessage(VerbosityStandard, "       SSH Key:          %s\n", info.PrivateKey.PublicKey())
+			printMessage(VerbosityStandard, "       Transfer Buffer:  %s\n", info.RemoteTransferBuffer)
 			continue
 		}
 
@@ -90,7 +90,7 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 		}
 	}
 
-	fmt.Printf("============================================================\n")
+	printMessage(VerbosityStandard, "============================================================\n")
 }
 
 // Runs the CLI-based menu that user will use to select which files to download
@@ -121,7 +121,7 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 			}
 
 			// Show progress to user
-			fmt.Printf("Error: unable to read '%s'\n", directory)
+			printMessage(VerbosityStandard, "Error: unable to read '%s'\n", directory)
 
 			// Set next loop directory to parent directory
 			directory = directoryStack[len(directoryStack)-2]
@@ -185,7 +185,7 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 		numberOfDirEntries := len(dirList)
 
 		// Show Menu - Print the directory contents in columns
-		fmt.Printf("============================================================\n")
+		printMessage(VerbosityStandard, "============================================================\n")
 		numberOfColumns := 4
 		maxRows := (numberOfDirEntries + numberOfColumns - 1) / numberOfColumns
 		columnWidth := maxLength + 4
@@ -206,16 +206,16 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 				}
 
 				// Print the file name
-				fmt.Printf("%-4d %-*s", index+1, columnWidth, name)
+				printMessage(VerbosityStandard, "%-4d %-*s", index+1, columnWidth, name)
 			}
 			// Newline before next row
-			fmt.Println()
+			printMessage(VerbosityStandard, "\n")
 		}
 		// User prompt
-		fmt.Printf("\n============================================================\n")
-		fmt.Printf("         Select File     Change Dir ^v   Exit\n")
-		fmt.Printf("         [ # # ## ### ]  [ c0 ] [ c# ]   [ ! ]\n")
-		fmt.Printf("%s:%s# Type your selections: ", endpointName, directory)
+		printMessage(VerbosityStandard, "\n============================================================\n")
+		printMessage(VerbosityStandard, "         Select File     Change Dir ^v   Exit\n")
+		printMessage(VerbosityStandard, "         [ # # ## ### ]  [ c0 ] [ c# ]   [ ! ]\n")
+		printMessage(VerbosityStandard, "%s:%s# Type your selections: ", endpointName, directory)
 
 		// Read user input
 		reader := bufio.NewReader(os.Stdin)
@@ -227,7 +227,7 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 		// Clear menu rows - add to row count to account for the prompts
 		maxRows += 6
 		for maxRows > 0 {
-			fmt.Print("\033[A\033[K")
+			printMessage(VerbosityStandard, "\033[A\033[K")
 			maxRows--
 		}
 
@@ -377,9 +377,11 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		var reloadCmds []string
 
 		// Search known files for a match
-		var userDoesNotWantDefaultReloads bool
+		var userDoesNotWantDefaults, fileHasNoDefaults bool
 		for filePathPrefix, defaultReloadCommandArray := range DefaultReloadCommands {
 			if !strings.HasPrefix(targetFilePath, filePathPrefix) {
+				// Target file path does not match any defauts, skipping file
+				fileHasNoDefaults = true
 				continue
 			}
 
@@ -388,7 +390,8 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 			for _, command := range defaultReloadCommandArray {
 				// Replace placeholders in default commands with collected information
 				if strings.Contains(command, "??") {
-					command = strings.Replace(command, "??baseDirName??", filepath.Base(targetFilePath), 0)
+					fmt.Printf("DEBUG: ?? present\n")
+					command = strings.Replace(command, "??baseDirName??", filepath.Base(targetFilePath), -1)
 				}
 
 				// Print command on its own line
@@ -401,7 +404,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 
 			// User did not say yes, skip using default reload commands
 			if userConfirmation != "y" {
-				userDoesNotWantDefaultReloads = true
+				userDoesNotWantDefaults = true
 				break
 			}
 
@@ -411,7 +414,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		}
 
 		// Get array of commands from user
-		if userDoesNotWantDefaultReloads {
+		if userDoesNotWantDefaults || fileHasNoDefaults {
 			fmt.Printf("Enter reload commands (press Enter after each command, leave an empty line to finish):\n")
 			scanner := bufio.NewScanner(os.Stdin)
 			for scanner.Scan() {
@@ -440,28 +443,32 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		metadataHeader.ReloadRequired = false
 	}
 
+	printMessage(VerbosityProgress, "Adding JSON metadata header to file %v\n", configFilePath)
+
 	// Marshal metadata JSON
 	metadata, errNoFatal := json.MarshalIndent(metadataHeader, "", "  ")
 	if errNoFatal != nil {
-		fmt.Printf("Failed to marshal metadata header into JSON format for file %s\n", configFilePath)
+		printMessage(VerbosityStandard, "Failed to marshal metadata header into JSON format for file %s: %v\n", configFilePath, errNoFatal)
 		return
 	}
 
 	// Add header to file contents
 	configFile := Delimiter + "\n" + string(metadata) + "\n" + Delimiter + "\n" + fileContents
 
+	printMessage(VerbosityProgress, "Writing file %v to repository\n", configFilePath)
+
 	// Create any missing directories in repository
 	configParentDirs := filepath.Dir(configFilePath)
 	errNoFatal = os.MkdirAll(configParentDirs, os.ModePerm)
 	if errNoFatal != nil {
-		fmt.Printf("Failed to create missing directories in local repository for file '%s'\n", configFilePath)
+		printMessage(VerbosityStandard, "Failed to create missing directories in local repository for file '%s': %v\n", configFilePath, errNoFatal)
 		return
 	}
 
 	// Write config to file in repository
 	errNoFatal = os.WriteFile(configFilePath, []byte(configFile), 0600)
 	if errNoFatal != nil {
-		fmt.Printf("Failed to write file '%s' to local repository\n", configFilePath)
+		printMessage(VerbosityStandard, "Failed to write file '%s' to local repository: %v\n", configFilePath, errNoFatal)
 		return
 	}
 

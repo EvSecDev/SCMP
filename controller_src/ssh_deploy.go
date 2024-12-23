@@ -13,7 +13,10 @@ import (
 // ###################################
 
 // SSH's into a remote host to deploy files and run reload commands
-func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName string, commitFilePaths []string, endpointInfo EndpointInfo, commitFileInfo map[string]CommitFileInfo) {
+func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo EndpointInfo, commitFileInfo map[string]CommitFileInfo) {
+	// Grab endpoint name
+	endpointName := endpointInfo.EndpointName
+
 	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
@@ -27,6 +30,11 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 	// Acquire a token from the semaphore channel
 	semaphore <- struct{}{}
 	defer func() { <-semaphore }() // Release the token when the goroutine finishes
+
+	// Grab files for this host
+	commitFilePaths := endpointInfo.DeploymentFiles
+
+	printMessage(VerbosityProgress, "Host %s: Grouping config files by reload commands\n", endpointName)
 
 	// Separate files with and without reload commands
 	commitFileByCommand := make(map[string][]string)
@@ -47,6 +55,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		}
 	}
 
+	printMessage(VerbosityProgress, "Host %s: Connecting to SSH server\n", endpointName)
+
 	// Connect to the SSH server
 	sshClient, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
 	if err != nil {
@@ -54,6 +64,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		return
 	}
 	defer sshClient.Close()
+
+	printMessage(VerbosityProgress, "Host %s: Connected to SSH server\n", endpointName)
 
 	// Get sudo password from info map
 	SudoPassword := endpointInfo.SudoPassword
@@ -64,6 +76,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 
 	// Need local metric in order to determine what number of configs for this specific host succeeded (to increment global host metric counter)
 	var postDeployedConfigsLocal int
+
+	printMessage(VerbosityProgress, "Host %s: Preparing remote config backup directory\n", endpointName)
 
 	// Create backup directory
 	command := "mkdir " + tmpBackupPath
@@ -76,12 +90,18 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		}
 	}
 
+	printMessage(VerbosityProgress, "Host %s: Starting deployment for configs with reload commands\n", endpointName)
+
 	// Loop over command groups and deploy files that need reload commands
-	for _, commitFilePaths := range commitFileByCommand {
+	for reloadID, commitFilePaths := range commitFileByCommand {
+		printMessage(VerbosityData, "Host %s: Starting deployment for configs with reload command ID %v\n", endpointName, reloadID)
+
 		// Deploy all files for this specific reload command set
 		var targetFilePaths []string
 		backupFileHashes := make(map[string]string)
 		for index, commitFilePath := range commitFilePaths {
+			printMessage(VerbosityData, "Host %s: Starting deployment for config %s\n", endpointName, commitFilePath)
+
 			// Move index up one to differentiate between first array item and entire host failure - offset is tracked in record failure function
 			commitIndex := index + 1
 
@@ -90,6 +110,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 			// Reminder:
 			// targetFilePath   should be the file path as expected on the remote system
 			// commitFilePath   should be the local file path within the commit repository - is REQUIRED to reference keys in the big config information maps (commitFileData, commitFileActions, ect.)
+
+			printMessage(VerbosityData, "Host %s: Backing up config %s\n", endpointName, targetFilePath)
 
 			// Create a backup config on remote host if remote file already exists
 			oldRemoteFileHash, err := backupOldConfig(sshClient, SudoPassword, targetFilePath, tmpBackupPath)
@@ -100,9 +122,11 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 
 			// Compare hashes and skip to next file deployment if remote is same as local
 			if oldRemoteFileHash == commitFileInfo[commitFilePath].Hash {
-				fmt.Printf("\rHost '%s': file '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
+				printMessage(VerbosityStandard, "\rHost '%s': file '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
 				continue
 			}
+
+			printMessage(VerbosityData, "Host %s: Transferring config %s to remote\n", endpointName, commitFilePath)
 
 			// Transfer config file to remote with correct ownership and permissions
 			err = createFile(sshClient, SudoPassword, targetFilePath, tmpRemoteFilePath, commitFileInfo[commitFilePath].Data, commitFileInfo[commitFilePath].Hash, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
@@ -125,25 +149,37 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		// Since all the files use the same command array, just pick out one file to get the reload command array from
 		commandReloadArray := commitFileInfo[commitFilePaths[0]].Reload
 
+		printMessage(VerbosityProgress, "Host %s: Starting execution of reload commands\n", endpointName)
+
 		// Run all the commands required by this config file group
 		var ReloadFailed bool
 		for _, command := range commandReloadArray {
+			printMessage(VerbosityData, "Host %s: Running reload command '%v'\n", endpointName, command)
+
 			_, err = RunSSHCommand(sshClient, command, SudoPassword)
 			if err != nil {
 				// Record this failed command - first failure always stops reloads
 				// Record failures using the arry of all files for this command group and signal to record all the files using index "0"
-				recordDeploymentFailure(endpointName, targetFilePaths, 0, fmt.Errorf("failed SSH Command on host during reload command %s: %v", command, err))
+				recordDeploymentFailure(endpointName, commitFilePaths, 0, fmt.Errorf("failed SSH Command on host during reload command %s: %v", command, err))
 				ReloadFailed = true
 				break
 			}
 		}
 		// Restore configs and skip to next reload group if reload failed
 		if ReloadFailed {
+			printMessage(VerbosityProgress, "Host %s: Starting restoration of backup configs after reload failure\n", endpointName)
+
 			// Restore all config files for this group
-			for index, targetFilePath := range targetFilePaths {
+			for index, commitFilePath := range commitFilePaths {
 				// Move index up one to differentiate between first array item and entire host failure - offset is tracked in record failure function
 				commitIndex := index + 1
 
+				// Separate path back into target format
+				_, targetFilePath := separateHostDirFromPath(commitFilePath)
+
+				printMessage(VerbosityData, "Host %s: Restoring config file %s due to failed reload command\n", endpointName, targetFilePath)
+
+				// Put backup file into origina location
 				err = restoreOldConfig(sshClient, targetFilePath, tmpBackupPath, backupFileHashes[targetFilePath], SudoPassword)
 				if err != nil {
 					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
@@ -156,8 +192,12 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		postDeployedConfigsLocal += len(commitFilePaths)
 	}
 
+	printMessage(VerbosityProgress, "Host %s: Starting deployment for configs without reload commands\n", endpointName)
+
 	// Loop through target files and deploy (non-reload required configs)
 	for index, commitFilePath := range commitFilesNoReload {
+		printMessage(VerbosityData, "Host %s: Starting deployment for config %s\n", endpointName, commitFilePath)
+
 		// Move index up one to differentiate between first array item and entire host failure - offset is tracked in record failure function
 		commitIndex := index + 1
 
@@ -172,6 +212,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 
 		// Delete file on remote if deleted in repo
 		if targetFileAction == "delete" {
+			printMessage(VerbosityData, "Host %s: Deleting config %s\n", endpointName, targetFilePath)
+
 			err = deleteFile(sshClient, SudoPassword, targetFilePath)
 			if err != nil {
 				// Only record errors where removal of the specific file failed
@@ -180,7 +222,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 				}
 
 				// Other errors (removing empty parent dirs) are not recorded
-				fmt.Printf("Warning: Host %s: %v\n", endpointName, err)
+				printMessage(VerbosityStandard, "Warning: Host %s: %v\n", endpointName, err)
 			}
 
 			// Done deleting (or recording error) - Next deployment file
@@ -189,6 +231,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 
 		// Create symbolic link if requested
 		if strings.Contains(targetFileAction, "symlinkcreate") {
+			printMessage(VerbosityData, "Host %s: Creating symlink %s\n", endpointName, targetFilePath)
+
 			err = createSymLink(sshClient, SudoPassword, targetFilePath, targetFileAction)
 			if err != nil {
 				recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
@@ -197,6 +241,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 			// Done creating link (or recording error) - Next deployment file
 			continue
 		}
+
+		printMessage(VerbosityData, "Host %s: Backing up config %s\n", endpointName, targetFilePath)
 
 		// Create a backup config on remote host if remote file already exists
 		oldRemoteFileHash, err := backupOldConfig(sshClient, SudoPassword, targetFilePath, tmpBackupPath)
@@ -207,9 +253,11 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 
 		// Compare hashes and skip to next file deployment if remote is same as local
 		if oldRemoteFileHash == commitFileInfo[commitFilePath].Hash {
-			fmt.Printf("\rHost '%s': file '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
+			printMessage(VerbosityStandard, "\rHost '%s': file '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
 			continue
 		}
+
+		printMessage(VerbosityData, "Host %s: Transferring config %s to remote\n", endpointName, commitFilePath)
 
 		// Transfer config file to remote with correct ownership and permissions
 		err = createFile(sshClient, SudoPassword, targetFilePath, tmpRemoteFilePath, commitFileInfo[commitFilePath].Data, commitFileInfo[commitFilePath].Hash, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
@@ -226,6 +274,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		postDeployedConfigsLocal++
 	}
 
+	printMessage(VerbosityProgress, "Host %s: Cleaning up remote temporary directories\n", endpointName)
+
 	// Cleanup temporary files
 	command = "rm -r " + tmpRemoteFilePath + " " + tmpBackupPath
 	_, err = RunSSHCommand(sshClient, command, SudoPassword)
@@ -233,9 +283,11 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointName str
 		// Only print error if there was a file to remove in the first place
 		if !strings.Contains(err.Error(), "No such file or directory") {
 			// Failures to remove the tmp files are not critical, but notify the user regardless
-			fmt.Printf(" Warning! Failed to cleanup temporary buffer files: %v\n", err)
+			printMessage(VerbosityStandard, " Warning! Failed to cleanup temporary buffer files: %v\n", err)
 		}
 	}
+
+	printMessage(VerbosityProgress, "Host %s: Writing to global metric counters\n", endpointName)
 
 	// Lock and write to metric var - increment success configs by local file counter
 	MetricCountMutex.Lock()

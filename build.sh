@@ -21,21 +21,31 @@ deployerSRCdir="deployer_src"
 updaterSRCdir="deployer_src/updater_src"
 signerSRCdir="deployer_src/signing_src"
 
+controllerCONFdir="controller_configs"
+deployerCONFdir="deployer_configs"
+
 function usage {
 	echo "Usage $0
 
 Options:
+  -b <prog>   Which program to build (controller, controllerpkg, deployer, deployerpkg, updater, signer)
   -a <arch>   Architecture of compiled binary (amd64, arm64) [default: amd64]
-  -b <prog>   Which program to build (controller, controllerpkg, deployer, deployerpkg, updater)
   -o <os>     Which operating system to build for (linux, windows) [default: linux]
-  -f          Build nicely named binary
+  -f          Build nicely named binary (does not apply to package builds)
   -n          Don't add signatures to binary
+  -u          Update go packages for a given program (use -b to choose which program, *pkg options not applicable)
 "
 }
 
 function controller_binary {
+	# Always ensure we start in the root of the repository
+	cd $repoRoot/
+
 	# Move into dir
 	cd $controllerSRCdir
+
+	# Run tests
+	go test
 
 	# Vars for build
 	inputGoSource="*.go"
@@ -52,7 +62,7 @@ function controller_binary {
 	if [[ $3 == true ]]
 	then
 		# Get version
-		version=$(./$outputEXE -v)
+		version=$(./$outputEXE --versionid)
 		controllerEXE=""$outputEXE"_"$version"_$GOOS-$GOARCH-static"
 
 		# Rename with version
@@ -62,8 +72,26 @@ function controller_binary {
 }
 
 function controller_package {
-	# Move into dir
+	# Always ensure we start in the root of the repository
+	cd $repoRoot/
+
+	# Read in config files for install script
+	defaultInstallOptions="$controllerCONFdir/default_install_options.txt"
+	defaultConfigYaml="$controllerCONFdir/scmpc.yaml"
+	defaultApparmorProfile="$controllerCONFdir/apparmor_profile_template"
+
+	# Create installation script
+	cp "$controllerCONFdir/install_script_template.sh" "$repoRoot/install_controller.sh"
+	awk '{if ($0 ~ /#{{DEFAULTS_PLACEHOLDER}}/) {while((getline line < "'$defaultInstallOptions'") > 0) print line} else print $0}' install_controller.sh > .d && mv .d install_controller.sh
+	awk '{if ($0 ~ /#{{CONFIG_PLACEHOLDER}}/) {while((getline line < "'$defaultConfigYaml'") > 0) print line} else print $0}' install_controller.sh > .d && mv .d install_controller.sh
+	awk '{if ($0 ~ /#{{AAPROF_PLACEHOLDER}}/) {while((getline line < "'$defaultApparmorProfile'") > 0) print line} else print $0}' install_controller.sh > .d && mv .d install_controller.sh
+	chmod 750 "$repoRoot/install_controller.sh"
+
+	# Move into src dir
 	cd $repoRoot/$controllerSRCdir
+
+	# Run tests
+	go test
 
 	# Vars for build
 	inputGoSource="*.go"
@@ -77,12 +105,12 @@ function controller_package {
 	cd $repoRoot
 
 	# Get version
-	version=$(./$outputEXE -v)
+	version=$(./$outputEXE --versionid)
 	controllerPKG=""$outputEXE"_installer_"$version"_$GOOS-$GOARCH.sh"
 
-	# Create install script
+	# Create install script with embedded executable
 	tar -cvzf $outputEXE.tar.gz $outputEXE
-	cp $repoRoot/$controllerSRCdir/install_controller.sh $controllerPKG
+	mv $repoRoot/install_controller.sh $controllerPKG
 	cat $outputEXE.tar.gz | base64 >> $controllerPKG
 	sha256sum $controllerPKG > "$controllerPKG".sha256
 
@@ -109,11 +137,17 @@ function sign_binary {
 }
 
 function deployer_binary {
+	# Always ensure we start in the root of the repository
+	cd $repoRoot/
+
 	# Move into dir
 	cd $deployerSRCdir
 
+	# Run tests
+	go test
+
 	# Vars for build
-	inputGoSource="deployer.go"
+	inputGoSource="*.go"
 	outputEXE="deployer"
 	export CGO_ENABLED=0
 	export GOARCH=$1
@@ -135,7 +169,7 @@ function deployer_binary {
 	if [[ $3 == true ]]
 	then
 		# Get version
-		version=$(./$outputEXE -v)
+		version=$(./$outputEXE --versionid)
 		DeployerEXE="deployer_"$version"_$GOOS-$GOARCH-static"
 
 		# Rename with version
@@ -145,8 +179,25 @@ function deployer_binary {
 }
 
 function deployer_package {
+	# Always ensure we start in the root of the repository
+	cd $repoRoot/
+
+	# Read in config files for install script
+	defaultInstallOptions="$deployerCONFdir/default_install_options.txt"
+	defaultSystemdService="$deployerCONFdir/scmpd.service"
+	defaultConfigYaml="$deployerCONFdir/scmpd.yaml"
+	defaultApparmorProfile="$deployerCONFdir/apparmor_profile_template"
+
+	# Create installation script
+	cp "$deployerCONFdir/install_script_template.sh" "$repoRoot/install_deployer.sh"
+	awk '{if ($0 ~ /#{{DEFAULTS_PLACEHOLDER}}/) {while((getline line < "'$defaultInstallOptions'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
+	awk '{if ($0 ~ /#{{CONFIG_PLACEHOLDER}}/) {while((getline line < "'$defaultConfigYaml'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
+	awk '{if ($0 ~ /#{{AAPROF_PLACEHOLDER}}/) {while((getline line < "'$defaultApparmorProfile'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
+	awk '{if ($0 ~ /#{{SYSTEMD_SERVICE_PLACEHOLDER}}/) {while((getline line < "'$defaultSystemdService'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
+	chmod 750 "$repoRoot/install_deployer.sh"
+
 	# Vars for build
-	inputGoSource="deployer.go"
+	inputGoSource="*.go"
 	outputEXE="deployer"
 	packagingDir="packaging"
 	export CGO_ENABLED=0
@@ -155,6 +206,7 @@ function deployer_package {
 
 	# Build binary
 	cd $repoRoot/$deployerSRCdir
+	go test
 	go build -o $outputEXE -a -ldflags '-s -w -buildid= -extldflags "-static"' $inputGoSource
 
 	# Sign by default, skip if user requested nosig
@@ -166,7 +218,7 @@ function deployer_package {
 	fi
 
 	# Get version
-	version=$(./$outputEXE -v)
+	version=$(./$outputEXE --versionid)
 
 	# Rename package with version
 	DeployerPKG=""$outputEXE"_package_"$version"_$GOOS-$GOARCH.tar.gz"
@@ -182,9 +234,9 @@ function deployer_package {
 	# Create packaged install script
 	# Move relevant files into packaging dir
 	mkdir $packagingDir
-	cp install_deployer.sh $packagingDir/
+	mv $repoRoot/install_deployer.sh $packagingDir/
 	mv $outputEXE $packagingDir/$outputEXE
-	mv "$updaterEXE" $packagingDir/
+	mv $updaterEXE $packagingDir/
 
 	# Create installation tar
 	cd $packagingDir
@@ -201,6 +253,9 @@ function deployer_package {
 }
 
 function updater_binary {
+	# Always ensure we start in the root of the repository
+	cd $repoRoot/
+
 	# Move into dir
 	cd $repoRoot/$updaterSRCdir
 
@@ -217,17 +272,43 @@ function updater_binary {
 	# Move back to repo root dir
 	cd $repoRoot
 
+        # Sign by default, skip if user requested nosig
+        if [[ $4 == false ]]
+        then
+                # Sign updater
+                sign_binary ""$repoRoot"/"$outputEXE""
+                cd $repoRoot
+        fi
+
 	# Rename to more descriptive if full build was requested
 	if [[ $3 == true ]]
 	then
 		# Get version of built binary
-		version=$(./$outputEXE -v)
+		version=$(./$outputEXE --versionid)
 		updaterEXE=""$outputEXE"_"$version"_$GOOS-$GOARCH-static"
 
 		# Rename with version
 		mv $outputEXE $updaterEXE
 		sha256sum $updaterEXE > $repoRoot/"$updaterEXE".sha256
 	fi
+}
+
+function update_go_packages {
+	# Always ensure we start in the root of the repository
+	cd $repoRoot/
+
+	# By program, id src directory variable name
+	srcDirVar="${1}SRCdir"
+
+	# Move into src dir
+	cd ${!srcDirVar}
+
+	# Run go updates
+	echo "==== Updating $1 Go packages ===="
+	go get -u all
+	go mod verify
+	go mod tidy
+	echo "==== Updates Finished ===="
 }
 
 ## START
@@ -238,7 +319,7 @@ architecture="amd64"
 os="linux"
 
 # Argument parsing
-while getopts 'a:b:o:fnh' opt
+while getopts 'a:b:o:fnuh' opt
 do
 	case "$opt" in
 	  'a')
@@ -256,14 +337,24 @@ do
 	  'n')
 	    nosig='true'
 	    ;;
+	  'u')
+		updatepackages='true'
+		;;
 	  'h')
-	    echo "Unknown Option"
 	    usage
 	    exit 0
  	    ;;
 	esac
 done
 
+# Using the builtopt cd into the src dir and update packages then exit
+if [[ $updatepackages == true ]]
+then
+	update_go_packages "$buildopt"
+	exit 0
+fi
+
+# Binary builds
 if [[ $buildopt == controller ]]
 then
 	controller_binary "$architecture" "$os" "$buildfull"
@@ -282,7 +373,7 @@ then
 	echo "Complete: deployer package built"
 elif [[ $buildopt == updater ]]
 then
-	updater_binary "$architecture" "$os" "$buildfull"
+	updater_binary "$architecture" "$os" "$buildfull" "$nosig"
 	echo "Complete: updater binary built"
 fi
 

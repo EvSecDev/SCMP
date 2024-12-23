@@ -44,20 +44,7 @@ echo "========================================"
 read -p "Press enter to begin the installation"
 echo "========================================"
 
-# Default choices
-executablePath="/usr/local/bin/scmcontroller"
-RepositoryPath="~/SCMGit"
-BranchName="main"
-configFilePath="$RepositoryPath/scmpc.yaml"
-LogJournalBool="false"
-UniversalDirectory="universalconfigs"
-SSHIdentityPath="~/.ssh/scmp_ssh.key"
-SSHPort="2022"
-MaximumOutboundConnections="10"
-SudoPassword=""
-KnownHostsFile="$RepositoryPath/.known_hosts"
-remoteTransferBuffer="/tmp/.scmpbuffer"
-remoteBackupDir="/tmp/.scmpbackups"
+#{{DEFAULTS_PLACEHOLDER}}
 
 #### User Choices
 echo -e "Provide your choices for the installation. Press enter for the default.\n"
@@ -225,48 +212,7 @@ fi
 
 # Put config in user choosen location
 cat > "$configFilePath" <<EOF
-Controller:
-  # Path to the root of the git repository
-  RepositoryPath: "$repositoryPath"
-  LogtoJournald: $LogJournalBool
-SSHClient:
-  # Change where remote hosts public keys will be stored (don't use .ssh/known_hosts) - recommended to keep in the root of the repository (otherwise, changed your apparmor profile)
-  KnownHostsFile: "$KnownHostsFile"
-  # Limit number of ssh outbound connections at once
-  MaximumConnectionsAtOnce: $MaximumOutboundConnections
-# Defaults for SSH Client - applies to all endpoints. Can be overriden under each endpoint host
-SSHClientDefaults:
-  endpointPort: 2022
-  endpointUser: "deployer"
-  # File path for client's SSH key
-  SSHIdentityFile: "$SSHIdentityPath"
-  # Set to true if you want to use your SSH agent to retrieve the private key (requires pubkey in identity file)
-  UseSSHAgent: $SSHAgentBool
-  # Password that will be used to run sudo commands on remote host
-  # Leave blank if sudo does not require a password
-  SudoPassword: "$SudoPassword"
-  # Remote file that is used for unprivileged file transfers
-  RemoteTransferBuffer: "$remoteTransferBuffer"
-  # Remote directory that is temporarily used to backup files in case deployment fails
-  RemoteBackupDir: "$remoteBackupDir"
-# Repo dir to house all configs that should be deployed to every host
-UniversalDirectory: "$UniversalDirectory"
-# Directories to not deploy in repository (must be relative path starting at root of repository)
-IgnoreDirectories:
-  - "Templates"
-# Remote hosts to receive configurations
-DeployerEndpoints:
-  # name of each endpoint must have a matching directory name in the root of the git repo
-  #examplehost:
-  #  endpoint: "127.0.0.1"
-  #examplehost2:
-  #  endpoint: "127.0.0.2"
-  #  endpointPort: 2022
-  #  endpointUser: "deployer"
-  #  SSHIdentityFile: "~/.ssh/private.key"
-  #  SudoPassword: ""
-  #  UseSSHAgent: false
-  #  ignoreUniversalConfs: true
+#{{CONFIG_PLACEHOLDER}}
 EOF
 echo "[+] Successfully created controller configuration  in '$configFilePath'"
 
@@ -300,60 +246,12 @@ git add . || logError "failed to git add, please fix error, disable hook, git ad
 git commit -m 'Added controller configuration and universal directory' --author 'SCMPController <scmpc@localhost>' || logError "failed to git commit, please fix error, disable hook, and re-commit" "false"
 echo "[+] Successfully committed controller files to new repository"
 
-# Install git hook script
-if [[ $InstallHookConfirmation == "y" ]]
-then
-	echo "#!/bin/bash
-$executablePath --auto-deploy -c $configFilePath
-" > $RepositoryPath/.git/hooks/post-commit || logError "failed to write post-commit hook to git repository" "true"
-	chmod 750 $RepositoryPath/.git/hooks/post-commit
-	echo "[+] Successfully created git post-commit hook in git repository"
-fi
-
 if [[ $installAAProfileConfirmation == "y" ]] then
 	# Identify apparmor profile path
 	ApparmorProfilePath=/etc/apparmor.d/$(echo $executablePath | sed 's|/|.|')
 	#
 	cat > "$ApparmorProfilePath" <<EOF
-### Apparmor Profile for the Secure Configuration Management Controller
-## This is a very locked down profile made for Debian systems
-## Variables - add to if required
-@{exelocation}=$executablePath
-@{repolocations}={$RepositoryPath}
-@{configlocations}={$configFilePath}
-@{serverkeylocations}={$SSHIdentityPath}
-
-@{profilelocation}=$ApparmorProfilePath
-@{pid}={[1-9],[1-9][0-9],[1-9][0-9][0-9],[1-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9][0-9],[1-4][0-9][0-9][0-9][0-9][0-9][0-9]}
-@{home}={/root,/home/*}
-
-## Profile Begin
-profile SCMController @{exelocation} flags=(enforce) {
-  # Receive signals
-  signal receive set=(stop term kill quit int urg),
-  # Send signals to self
-  signal send set=(urg int) peer=SCMController,
-
-  # Capabilities
-  network netlink raw,
-  network inet stream,
-  network inet6 stream,
-  unix (create) type=stream,
-  unix (create) type=dgram,
-
-  ## Startup Configurations needed
-  @{configlocations} r,
-  @{serverkeylocations} r,
-
-  ## Program Accesses
-  /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
-
-  ## Repository access
-  # allow read/write for files in repository (write is needed for seeding operations)
-  @{repolocations}/** rw,
-  # allow locking in git's directory (for commit rollback on early error)
-  @{repolocations}/.git/** k,
-}
+#{{AAPROF_PLACEHOLDER}}
 EOF
 	#
 	apparmor_parser -r $ApparmorProfilePath

@@ -15,9 +15,8 @@ There are three parts to this tool (two of which are optional), the controller, 
 The controller utilizes a local git repository of a specific structure to track configuration files that should be applied to every host administered, and specific config overrides as well as host-specific configurations.
 Using the Go x/crypto/ssh package, this program will SSH into the hosts defined in the configuration file and write the relevant configurations as well as handle the reloading of the associated service/program if required.
   The deployment method is currently only SSH by key authentication using password sudo for remote commands (password login authentication is currently not supported).
- - In automatic deployment mode, every time you commit a change to the git repository, the program will be called with the 'post-commit' hook and will deploy the changed files to their designated remote hosts.
- - In manual deployment mode, you can choose a specific commit ID from your repository and deploy the changed files in that specific commit to their designated remote hosts.
- - In manual deployment mode with failtracker, the program will read the last failure json (if present) and extract the commitid, hosts, and files that failed and attempt to redeploy.
+ - In deploy changes mode, you can choose a specific commit ID (or specify none and use the latest commit) from your repository and deploy the changed files in that specific commit to their designated remote hosts.
+ - In deploy failure mode, the program will read the last failure json (if present) and extract the commitid, hosts, and files that failed and attempt to redeploy.
  - In deploy all mode, with a comma separated list of hosts, you can deploy every relevant file in the repo to the chosen hosts for a given commit (usually, the head commit). 
 
 Although this program does need permissions on remote systems for writing system-wide configuration files and potentially restarting services, it does NOT need to SSH as root.
@@ -65,6 +64,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - One-time manual deployment to specific hosts and/or specific files
 - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
 - Deploy all (or a subset of) relevant files (even unchanged) to a newly created remote host
+- Group hosts together to allow single universal configuration files to deploy to all or a subset of remote hosts
 - Concurrent SSH Connections to handle a large number of remote hosts (and option to limit concurrency)
 - Support for regular SSH servers (if you don't want to use the Deployer program)
 - Key-based SSH authentication (by file or ssh-agent, per host or all hosts)
@@ -84,34 +84,36 @@ If you like what this program can do or want to expand functionality yourself, f
 Usage: controller [OPTIONS]...
 
 Examples:
-    controller --config </etc/scmpc.yaml> --manual-deploy --commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7> [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-    controller --config </etc/scmpc.yaml> --manual-deploy --use-failtracker-only
-    controller --config </etc/scmpc.yaml> --deploy-all --remote-hosts <www,proxy,db01> [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
+    controller --config </etc/scmpc.yaml> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
+    controller --config </etc/scmpc.yaml> --deploy-failures
+    controller --config </etc/scmpc.yaml> --deploy-all [--remote-hosts <www,proxy,db01>] [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
     controller --config </etc/scmpc.yaml> --deployer-versions [--remote-hosts <www,proxy,db01>]
     controller --config </etc/scmpc.yaml> --deployer-update-file <~/Downloads/deployer> [--remote-hosts <www,proxy,db01>]
     controller --new-repo /opt/repo1:main
     controller --config </etc/scmpc.yaml> --seed-repo [--remote-hosts <www,proxy,db01>]
 
 Options:
-    -c, --config </path/to/yaml>                    Path to the configuration file [default: scmpc.yaml]
-    -a, --auto-deploy                               Use latest commit for deployment, normally used by git post-commit hook
-    -m, --manual-deploy                             Use specified commit ID for deployment (Requires '--commitid')
-    -d, --deploy-all                                Deploy all files in specified commit to specific hosts (Requires '--remote-hosts')
-    -r, --remote-hosts <host1,host2,...>            Override hosts for deployment
-    -l, --local-files <file1,file2,...>             Override files for deployment
-    -C, --commitid <hash>                           Commit ID (hash) of the commit to deploy configurations from
-    -f, --use-failtracker-only                      If previous deployment failed, use the failtracker to retry (Requires '--manual-deploy', but not '--commitid')
-    -t, --test-config                               Test controller configuration syntax and configuration option validity
-    -T, --dry-run                                   Prints available information and runs through all actions before initiating outbound connections
-    -q, --deployer-versions                         Query remote host deployer executable versions and print to stdout
-    -u, --deployer-update-file </path/to/exe>       Upload and update deployer executable with supplied signed ELF file
-    -n, --new-repo </path/to/repo>:<branch>         Create a new repository at the given path with the given initial branch name
-    -s, --seed-repo                                 Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
-    -g, --disable-git-hook                          Disables the automatic deployment git post-commit hook for the current repository
-    -G, --enable-git-hook                           Enables the automatic deployment git post-commit hook for the current repository
-    -h, --help                                      Show this help menu
-    -V, --version                                   Show version and packages
-    -v, --versionid                                 Show only version number
+    -c, --config </path/to/yaml>               Path to the configuration file [default: scmpc.yaml]
+    -d, --deploy-changes                       Deploy changed files in the specified commit [commit default: head]
+    -a, --deploy-all                           Deploy all files in specified commit [commit default: head]
+    -f, --deploy-failures                      Deploy failed files/hosts using failtracker file from last failed deployment
+    -r, --remote-hosts <host1,host2,...>       Override hosts for deployment
+    -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository)
+    -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
+    -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
+    -q, --deployer-versions                    Query remote host deployer executable versions
+    -Q, --updater-versions                     Query remote host updater executable versions
+    -u, --deployer-update-file </path/to/exe>  Upload and update deployer executable with supplied signed ELF file
+    -U, --updater-update-file </path/to/exe>   Upload and update updater executable with supplied signed ELF file
+    -n, --new-repo </path/to/repo>:<branch>    Create a new repository at the given path with the given initial branch name
+    -s, --seed-repo                            Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
+    -g, --disable-git-hook                     Disables the automatic deployment git post-commit hook for the current repository
+    -G, --enable-git-hook                      Enables the automatic deployment git post-commit hook for the current repository
+    -t, --test-config                          Test controller configuration syntax and configuration option validity
+    -v, --verbosity <0...4>                    Increase details and frequency of progress messages (Higher number is more verbose) [default: 1]
+    -h, --help                                 Show this help menu
+    -V, --version                              Show version and packages
+        --versionid                            Show only version number
 ```
 
 ### Deployer Help Menu
@@ -120,13 +122,14 @@ Options:
 Usage: scmdeployer [OPTIONS]...
 
 Options:
-    -c, --config </path/to/yaml>       Path to the configuration file [default: scmpd.yaml]
-    -s, --start-server                 Start the Deployer SSH Server
-    -t, --test-config                  Test deployer configuration syntax validity
-    -T, --dry-run                      Runs through all actions and checks for error before starting server
-    -h, --help                         Show this help menu
-    -V, --version                      Show version and packages
-    -v, --versionid                    Show only version number
+    -c, --config </path/to/yaml>  Path to the configuration file [default: scmpd.yaml]
+    -s, --start-server            Start the Deployer SSH Server
+    -t, --test-config             Test deployer configuration syntax validity
+    -T, --dry-run                 Runs through all actions and checks for error before starting server
+    -v, --verbosity <0...4>       Increase details and frequency of progress messages (Higher number = more verbose) [default: 1]
+    -h, --help                    Show this help menu
+    -V, --version                 Show version and packages
+        --versionid               Show only version number
 ```
 
 ## Setup walk-through
@@ -237,6 +240,20 @@ The structure of the local repository is supposed to be a replica of the remote 
 
 ## NOTES
 
+### Universal Configs
+
+This program's objective of simplifying configuration management would not be complete without the ability to deploy the same file to all or groups of hosts.
+To this end, there are two features that make this possible: UniversalConfs and UniversalGroups.
+
+UniversalConfs is a directory in the root of your repository that will contain a filesystem-like directory structure underneath it.
+Configuration files in this directory will be applicable for deployment to all hosts.
+If a particular host should need a slightly different version of the UniversalConf config, then a file with an identical path and name should be put under the host directory to stop that host from using the universal config.
+If a particular host should not ever use the UniversalConf configs, then the config option `ignoreUniversalConfs` should be set to true under that particular host in the DeployerEndpoints YAML section of the main config.
+
+UniversalGroups is a set of directories that will only apply to a subset of hosts.
+The functionality is identical to the UniversalConfs directory, but will only apply to hosts that are apart of the group.
+You can specify the directory name and the hosts that should use the directory in the main YAML config.
+
 ### Reload commands
 
 It is recommended to use some sort of pre-check/validation/test option for your first reload command for a particular config file.
@@ -269,7 +286,7 @@ The Deployer program only supports:
   - one authentication method (username+key)
   - one channel at a time
   - one request at a time
-  - three request types, exec, update, and sftp
+  - two request types, exec and sftp
 
 But don't worry (too much), I didn't make an SSH server from scratch.
 I am using the library x/crypto/ssh, and while I am creating my own implementation, it is so featureless that the risk of an high impact RCE is unlikely (in my own code, not the source library).

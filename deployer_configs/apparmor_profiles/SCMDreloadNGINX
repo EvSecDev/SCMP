@@ -16,6 +16,9 @@ profile SCMDreloadNGINX flags=(enforce) {
   /etc/passwd r,
   /etc/group r,
   /etc/ssl/openssl.cnf r,
+  /etc/ssl/certs/** r, 
+  # Consider reducing the scope of this to your exact NGINX private keys
+  /etc/ssl/private/** r,
   /etc/nsswitch.conf r,
   /etc/ld.so.cache r,
   /usr/lib/*-linux-gnu*/ld-linux*.so.* rm,

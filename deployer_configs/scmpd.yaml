@@ -1,0 +1,8 @@
+UpdaterProgram: "$updateProgramPath"
+SSHServer:
+  ListenAddress: "$SSHListenAddress"
+  ListenPort: "$SSHListenPort"
+  SSHPrivKeyFile: "$SSHPrivateKeyPath"
+  AuthorizedUser: "$AuthorizedUser"
+  AuthorizedKeys:
+    - "$AuthorizedKeys"

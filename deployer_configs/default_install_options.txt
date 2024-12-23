@@ -1,0 +1,15 @@
+# Default choices
+executablePath="/usr/local/bin/scmdeployer"
+configFilePath="/etc/scmpd.yaml"
+SSHPrivateKeyPath="/usr/local/share/scmp_ssh.key"
+SSHListenAddress="0.0.0.0"
+SSHListenPort="2022"
+AuthorizedUser="deployer"
+AuthorizedKeys=
+ApparmorProfilePath=/etc/apparmor.d/$(echo $executablePath | sed 's|^/||g' | sed 's|/|.|g')
+ServiceDir="/etc/systemd/system"
+Service="scmpd.service"
+ServiceFilePath="$ServiceDir/$Service"
+updateProgramPath="/usr/local/bin/scmpdupdater"
+remoteTransferBuffer="/tmp/.scmpbuffer"
+remoteBackupDir="/tmp/.scmpbackups"

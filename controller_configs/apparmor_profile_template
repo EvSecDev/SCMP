@@ -1,0 +1,40 @@
+### Apparmor Profile for the Secure Configuration Management Controller
+## This is a very locked down profile made for Debian systems
+## Variables - add to if required
+@{exelocation}=$executablePath
+@{repolocations}={$RepositoryPath}
+@{configlocations}={$configFilePath}
+@{serverkeylocations}={$SSHIdentityPath}
+
+@{profilelocation}=$ApparmorProfilePath
+@{pid}={[1-9],[1-9][0-9],[1-9][0-9][0-9],[1-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9][0-9],[1-4][0-9][0-9][0-9][0-9][0-9][0-9]}
+@{home}={/root,/home/*}
+
+## Profile Begin
+profile SCMController @{exelocation} flags=(enforce) {
+  # Receive signals
+  signal receive set=(stop term kill quit int urg),
+  # Send signals to self
+  signal send set=(urg int) peer=SCMController,
+
+  # Capabilities
+  network netlink raw,
+  network inet stream,
+  network inet6 stream,
+  unix (create) type=stream,
+  unix (create) type=dgram,
+
+  ## Startup Configurations needed
+  @{configlocations} r,
+  @{serverkeylocations} r,
+
+  ## Program Accesses
+  /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
+  /usr/share/zoneinfo/** r,
+
+  ## Repository access
+  # allow read/write for files in repository (write is needed for seeding operations)
+  @{repolocations}/** rw,
+  # allow locking in git's directory (for commit rollback on early error)
+  @{repolocations}/.git/** k,
+}

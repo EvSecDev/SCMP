@@ -28,6 +28,8 @@ func createNewRepository(newRepoInfo string) {
 	absoluteRepoPath, err := filepath.Abs(repoPath)
 	logError("Failed to get absolute path to new repository", err, false)
 
+	printMessage(VerbosityProgress, "Creating new repository at %v\n", absoluteRepoPath)
+
 	// Get individual dir names
 	pathDirs := strings.Split(absoluteRepoPath, OSPathSeparator)
 
@@ -64,6 +66,8 @@ func createNewRepository(newRepoInfo string) {
 	err = os.Chdir(repoPath)
 	logError("Failed to change into new repository directory", err, false)
 
+	printMessage(VerbosityProgress, "Setting initial branch name to %v\n", initialBranchName)
+
 	// Format branch name
 	if initialBranchName != "refs/heads/"+initialBranchName {
 		initialBranchName = "refs/heads/" + initialBranchName
@@ -81,6 +85,8 @@ func createNewRepository(newRepoInfo string) {
 		Bare:        false,
 	}
 
+	printMessage(VerbosityProgress, "Initializing git repository\n")
+
 	// Create git repo
 	repo, err := git.PlainInitWithOptions(repoPath, plainInitOptions)
 	logError("Failed to init git repository", err, false)
@@ -89,6 +95,8 @@ func createNewRepository(newRepoInfo string) {
 	gitConfigPath := repoPath + "/.git/config"
 	gitConfigFileBytes, err := os.ReadFile(gitConfigPath)
 	logError("Failed to read git config file", err, false)
+
+	printMessage(VerbosityProgress, "Setting initial git repository configuration options\n")
 
 	// Write options to config file if no garbage collection section
 	if !strings.Contains(string(gitConfigFileBytes), "[gc]") {
@@ -110,6 +118,8 @@ func createNewRepository(newRepoInfo string) {
 		logError("Failed to write git garbage collection options", err, false)
 		gitConfigFile.Close()
 	}
+
+	printMessage(VerbosityProgress, "Adding example config metadata header files\n")
 
 	// Create a working tree
 	worktree, err := repo.Worktree()
@@ -150,6 +160,8 @@ func createNewRepository(newRepoInfo string) {
 		logError("Failed to add universal file", err, false)
 	}
 
+	printMessage(VerbosityProgress, "Creating an initial commit in repository\n")
+
 	// Create initial commit
 	_, err = worktree.Commit("Initial commit", &git.CommitOptions{
 		Author: &object.Signature{
@@ -158,4 +170,20 @@ func createNewRepository(newRepoInfo string) {
 		},
 	})
 	logError("Failed to create first commit", err, false)
+
+	printMessage(VerbosityProgress, "Adding a (disabled) git post-commit hook to call controller on commits\n")
+
+	// Post commit path and contents
+	postCommitFilePath := absoluteRepoPath + "/.git/hooks/post-commit.disabled"
+	postCommit := fmt.Sprintf(`#!/bin/bash
+	%v --git-hook-mode --deploy-changes -c %v`, os.Args[0], configFilePath)
+
+	// Open post-commit file path
+	file, err := os.OpenFile(postCommitFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0750)
+	logError("Error opening post-commit file", err, false)
+	defer file.Close()
+
+	// Write the post-commit to the hook file
+	_, err = file.WriteString(postCommit)
+	logError("Error writing to post-commit file", err, false)
 }

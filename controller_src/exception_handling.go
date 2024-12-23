@@ -119,7 +119,7 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 	if LogToJournald {
 		err := CreateJournaldLog(Message)
 		if err != nil {
-			fmt.Printf("Failed to create journald entry: %v\n", err)
+			printMessage(VerbosityStandard, "Failed to create journald entry: %v\n", err)
 		}
 	}
 
@@ -148,8 +148,8 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 	// Marshal info string to a json format
 	FailedInfo, err := json.Marshal(info)
 	if err != nil {
-		fmt.Printf("Failed to create Fail Tracker Entry for host %s file(s) %v\n", endpointName, fileArray)
-		fmt.Printf("    Error: %s\n", Message)
+		printMessage(VerbosityStandard, "Failed to create Fail Tracker Entry for host %s file(s) %v\n", endpointName, fileArray)
+		printMessage(VerbosityStandard, "    Error: %s\n", Message)
 		return
 	}
 

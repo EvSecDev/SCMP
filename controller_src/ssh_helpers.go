@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -217,12 +218,15 @@ func connectToSSH(endpointSocket string, endpointUser string, PrivateKey ssh.Sig
 
 	// Loop so some network errors can recover and try again
 	for attempts := 0; attempts <= maxConnectionAttempts; attempts++ {
+		printMessage(VerbosityProgress, "Endpoint %s: Establishing connection to SSH server (%d/%d)\n", endpointSocket, attempts, maxConnectionAttempts)
+
 		// Connect to the SSH server
 		client, err = ssh.Dial("tcp", endpointSocket, SSHconfig)
 
 		// Determine if error is recoverable
 		if err != nil {
 			if strings.Contains(err.Error(), "no route to host") {
+				printMessage(VerbosityProgress, "Endpoint %s: No route to SSH server (%d/%d)\n", endpointSocket, attempts, maxConnectionAttempts)
 				// Re-attempt after waiting for network path
 				time.Sleep(200 * time.Millisecond)
 				continue
@@ -363,7 +367,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 // Writes new public key for remote host to known_hosts file
 func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (err error) {
 	// Show progress to user
-	fmt.Printf("Writing new host entry in known_hosts... ")
+	printMessage(VerbosityStandard, "Writing new host entry in known_hosts... ")
 
 	// Get Salt
 	salt := make([]byte, 20)
@@ -399,8 +403,69 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	}
 
 	// Show progress to user
-	fmt.Printf("Success\n")
+	printMessage(VerbosityStandard, "Success\n")
 	return
+}
+
+// Wrapper function for session.SendRequest
+// Takes any request type and payload string and generates a conforming SSH request type
+// Most SSH servers (that understand the request type) should be able to accept the request
+// Has built in timeout to prevent hanging on wantReply
+func sendCustomSSHRequest(session *ssh.Session, requestType string, wantReply bool, payloadString string) (err error) {
+	printMessage(VerbosityProgress, "  Sending update request\n")
+
+	// Create payload with length header
+	var requestPayload []byte
+	payload := []byte(payloadString)
+	lengthBytes := make([]byte, 4)
+	binary.BigEndian.PutUint32(lengthBytes, uint32(len(payload)))
+
+	// Add length of payload as header beginning
+	requestPayload = append(requestPayload, lengthBytes...)
+
+	// Add the payload data
+	requestPayload = append(requestPayload, payload...)
+
+	// Set timeout for request to be accepted
+	timeoutDuration := 30 * time.Second
+	timeout := time.After(timeoutDuration)
+
+	// Create a channel to capture the result of the request
+	result := make(chan struct {
+		reqAccepted bool
+		err         error
+	}, 1)
+
+	// Run the request in a separate Goroutine
+	go func() {
+		// Send the request
+		var reqAccepted bool
+		reqAccepted, err = session.SendRequest(requestType, wantReply, requestPayload)
+		result <- struct {
+			reqAccepted bool
+			err         error
+		}{reqAccepted, err}
+	}()
+
+	// Wait for either the result or the timeout
+	select {
+	case res := <-result:
+		printMessage(VerbosityProgress, "  Sent update request\n")
+		// Check if request had an error or was denied by remote
+		if res.err != nil {
+			err = fmt.Errorf("failed to create update session: %v", res.err)
+			return
+		}
+		if !res.reqAccepted {
+			err = fmt.Errorf("server did not accept request type '%s'", requestType)
+			return
+		}
+
+		return
+	case <-timeout:
+		err = fmt.Errorf("request timeout: server did not respond in %d seconds", int(timeoutDuration.Seconds()))
+		return
+	}
 }
 
 // Transfers byte content to remote temp buffer (based on global temp buffer file path)

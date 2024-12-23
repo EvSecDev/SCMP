@@ -5,27 +5,31 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing/format/diff"
+	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 // ###################################
 //      PARSING FUNCTIONS
 // ###################################
 
-// Checks for user-chosen host override with given host
-func checkForHostOverride(hostOverride string, currentHost string) (SkipHost bool) {
-	// Allow user override hosts
-	if hostOverride != "" {
-		userHostChoices := strings.Split(hostOverride, ",")
-		for _, userHostChoice := range userHostChoices {
-			if userHostChoice == currentHost {
-				SkipHost = false
+// Checks for user-chosen host/file override with given host/file
+// Returns immediately if override is empty
+func checkForOverride(override string, current string) (skip bool) {
+	// Allow user override hosts or files
+	if override != "" {
+		userHostChoices := strings.Split(override, ",")
+		for _, userChoice := range userHostChoices {
+			// Don't skip if current is user choice
+			if userChoice == current {
+				skip = false
 				return
 			}
-			SkipHost = true
+			skip = true
 		}
 	}
 	return
@@ -41,11 +45,15 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		return
 	}
 
+	printMessage(VerbosityFullData, "      Address: %v\n", endpointAddr)
+
 	// Get port from endpoint or if missing use default
 	endpointPort := endpointInfo.EndpointPort
 	if endpointPort == 0 {
 		endpointPort = SSHClientDefault.EndpointPort
 	}
+
+	printMessage(VerbosityFullData, "      Port: %v\n", endpointPort)
 
 	// Network Address Parsing
 	info.Endpoint, err = ParseEndpointAddress(endpointAddr, endpointPort)
@@ -54,17 +62,23 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		return
 	}
 
+	printMessage(VerbosityFullData, "      Socket: %v\n", info.Endpoint)
+
 	// Get user from endpoint or if missing use default
 	info.EndpointUser = endpointInfo.EndpointUser
 	if info.EndpointUser == "" {
 		info.EndpointUser = SSHClientDefault.EndpointUser
 	}
 
+	printMessage(VerbosityFullData, "      User: %v\n", info.EndpointUser)
+
 	// Get identity file from endpoint or if missing use default
 	identityFile := endpointInfo.SSHIdentityFile
 	if identityFile == "" {
 		identityFile = SSHClientDefault.SSHIdentityFile
 	}
+
+	printMessage(VerbosityFullData, "      SSH Identity File: %v\n", identityFile)
 
 	// Get sshagent bool from endpoint or if missing use default
 	var useSSHAgent bool
@@ -73,6 +87,8 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 	} else {
 		useSSHAgent = SSHClientDefault.UseSSHAgent
 	}
+
+	printMessage(VerbosityData, "      Using SSH Agent?: %v\n", useSSHAgent)
 
 	// Get SSH Private Key from the supplied identity file
 	info.PrivateKey, info.KeyAlgo, err = SSHIdentityToKey(identityFile, useSSHAgent)
@@ -87,11 +103,15 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		info.SudoPassword = SSHClientDefault.SudoPassword
 	}
 
+	printMessage(VerbosityFullData, "      Sudo Password: %v\n", info.SudoPassword)
+
 	// Get remote transfer buffer file path from endpoint or if missing use default
 	info.RemoteTransferBuffer = endpointInfo.RemoteTransferBuffer
 	if info.RemoteTransferBuffer == "" {
 		info.RemoteTransferBuffer = SSHClientDefault.RemoteTransferBuffer
 	}
+
+	printMessage(VerbosityFullData, "      Remote Transfer Buffer: %v\n", info.RemoteTransferBuffer)
 
 	// Get remote backup buffer file path from endpoint or if missing use default
 	info.RemoteBackupDir = endpointInfo.RemoteBackupDir
@@ -100,6 +120,71 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 	}
 	// Ensure trailing slashes don't make their way into the path
 	info.RemoteBackupDir = strings.TrimSuffix(info.RemoteBackupDir, "/")
+
+	printMessage(VerbosityFullData, "      Remote Backup Directory: %v\n", info.RemoteBackupDir)
+
+	return
+}
+
+// Retrieves file paths in maps per host and universal conf dir
+func mapAllRepoFiles(tree *object.Tree) (allHostsFiles map[string]map[string]struct{}, universalFiles map[string]struct{}, universalGroupFiles map[string]map[string]struct{}, err error) {
+	// Retrieve files from commit tree
+	repoFiles := tree.Files()
+
+	// Initialize maps
+	allHostsFiles = make(map[string]map[string]struct{})
+	universalFiles = make(map[string]struct{})
+	universalGroupFiles = make(map[string]map[string]struct{})
+
+	// Retrieve all non-changed repository files for this host (and universal dir) for later deduping
+	for {
+		// Go to next file in list
+		var repoFile *object.File
+		repoFile, err = repoFiles.Next()
+		if err != nil {
+			// Break at end of list
+			if err == io.EOF {
+				err = nil
+				break
+			}
+
+			// Fail if next file doesnt work
+			err = fmt.Errorf("failed retrieving commit file: %v", err)
+			return
+		}
+
+		// Split host dir and target path
+		commitSplit := strings.SplitN(repoFile.Name, OSPathSeparator, 2)
+
+		// Skip repo files in root of repository
+		if len(commitSplit) <= 1 {
+			continue
+		}
+
+		// Get host dir part and target file path part
+		commitHost := commitSplit[0]
+		commitPath := commitSplit[1]
+
+		// Add tgt file path in main Universal directory to map for later deduping
+		if commitHost == UniversalDirectory {
+			universalFiles[commitPath] = struct{}{}
+		}
+
+		// Add files by universal group dirs to map for later deduping
+		for universalGroup, _ := range UniversalGroups {
+			if commitHost == universalGroup {
+				// Repo file is under one of the universal group directories
+				universalGroupFiles[universalGroup] = make(map[string]struct{})
+				universalGroupFiles[universalGroup][commitPath] = struct{}{}
+			}
+		}
+
+		// Add files by their host to the map
+		if _, hostExists := allHostsFiles[commitHost]; !hostExists {
+			allHostsFiles[commitHost] = make(map[string]struct{})
+		}
+		allHostsFiles[commitHost][commitPath] = struct{}{}
+	}
 
 	return
 }
@@ -144,7 +229,7 @@ func extractMetadata(fileContents string) (metadataSection string, remainingCont
 //	any files in the root of the repository
 //	dirs present in global ignoredirectories array
 //	dirs that do not have a match in the controllers config
-func validateCommittedFiles(commitHostNames *[]string, DeployerEndpoints map[string]DeployerEndpoints, rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
+func validateCommittedFiles(commitHosts map[string]struct{}, DeployerEndpoints map[string]DeployerEndpoints, rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
 	// Nothing to validate
 	if rawFile == nil {
 		return
@@ -164,6 +249,8 @@ func validateCommittedFiles(commitHostNames *[]string, DeployerEndpoints map[str
 
 	// Get the path
 	path = rawFile.Path()
+
+	printMessage(VerbosityData, "Validating committed file %s\n", path)
 
 	// File exists, but no path - technically valid
 	if path == "" {
@@ -194,31 +281,10 @@ func validateCommittedFiles(commitHostNames *[]string, DeployerEndpoints map[str
 	fileDirNames := strings.SplitN(path, OSPathSeparator, 2)
 	hostDirName := fileDirNames[0]
 
-	// Ensure the commit host directory name is a valid hostname in yaml DeployerEndpoints
-	var NoHostMatch bool
-	for availableHost := range DeployerEndpoints {
-		if hostDirName == availableHost || hostDirName == UniversalDirectory {
-			NoHostMatch = false
-			break
-		}
-		NoHostMatch = true
-	}
-	if NoHostMatch {
-		err = fmt.Errorf("repository host directory '%s' has no matching host in YAML config", hostDirName)
-	}
+	// Add host to map
+	commitHosts[hostDirName] = struct{}{}
 
-	// Check if host dir is already in the slice (avoid adding many duplicates to slice
-	var HostAlreadyPresent bool
-	for _, host := range *commitHostNames {
-		if host == hostDirName {
-			HostAlreadyPresent = true
-		}
-	}
-
-	// Add the hosts directory name to the slice to filter deployer endpoints later
-	if !HostAlreadyPresent {
-		*commitHostNames = append(*commitHostNames, hostDirName)
-	}
+	printMessage(VerbosityData, "Validated committed file %s\n", path)
 
 	return
 }
