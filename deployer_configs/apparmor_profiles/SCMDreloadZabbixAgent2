@@ -20,6 +20,7 @@ profile SCMDreloadZabbixAgent2 flags=(enforce) {
   /usr/lib/*-linux-gnu*/libssl.so.* rm,
   /usr/lib/*-linux-gnu*/libcrypto.so.* rm,
   /usr/lib/*-linux-gnu*/libc.so.* rm,
+  /usr/lib/*-linux-gnu*/libsqlite*.so.* rm,
   /proc/[1-9]*/maps r,
   /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
 

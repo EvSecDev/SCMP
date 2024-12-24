@@ -51,7 +51,7 @@ profile SCMDeployer @{exelocation} flags=(enforce) {
 }
 profile SCMDsudo flags=(enforce) {
   # Read self
-  /usr/bin/sudo r,
+  /usr/bin/sudo rm,
   / r,
 
   # Capabilities
@@ -128,6 +128,7 @@ profile SCMDsudo flags=(enforce) {
   /etc/host.conf r,
   /etc/hosts r,
   /etc/resolv.conf r,
+  /etc/gai.conf r,
 
   # /dev accesses
   /dev/tty rw,

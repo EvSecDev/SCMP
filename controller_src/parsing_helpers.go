@@ -189,6 +189,54 @@ func mapAllRepoFiles(tree *object.Tree) (allHostsFiles map[string]map[string]str
 	return
 }
 
+// Searches through all repository files and ensures that hosts that have an identical file to a universal file only deploy the host file
+func findDeniedUniversalFiles(endpointName string, hostFiles map[string]struct{}, universalFiles map[string]struct{}, universalGroupFiles map[string]map[string]struct{}) (deniedUniversalFiles map[string]struct{}) {
+	deniedUniversalFiles = make(map[string]struct{})
+
+	// Record denied files for global universal files
+	for universalFile, _ := range universalFiles {
+		_, hostHasUniversalOverride := hostFiles[universalFile]
+		if hostHasUniversalOverride {
+			// host has a file path that is also present in the universal dir
+			// should not deploy universal files if host has an identical file path
+			deniedFilePath := filepath.Join(UniversalDirectory, universalFile)
+			deniedUniversalFiles[deniedFilePath] = struct{}{}
+		}
+	}
+
+	// Get universal groups this host is a part of
+	hostUniversalGroups := make(map[string]struct{}) // Store group names for this host
+	for universalGroup, hosts := range UniversalGroups {
+		for _, host := range hosts {
+			if endpointName == host {
+				hostUniversalGroups[universalGroup] = struct{}{}
+			}
+		}
+	}
+
+	// Find overlaps between group files and host files - record overlapping group files in denied map
+	for groupName, groupFiles := range universalGroupFiles {
+		// Skip groups not applicable to this host
+		_, hostIsInGroup := hostUniversalGroups[groupName]
+		if !hostIsInGroup {
+			continue
+		}
+
+		// Find overlap files
+		for groupFile, _ := range groupFiles {
+			_, hostHasUniversalOverride := hostFiles[groupFile]
+			if hostHasUniversalOverride {
+				// host has a file path that is also present in the group universal dir
+				// should not deploy group universal files if host has an identical file path
+				deniedFilePath := filepath.Join(groupName, groupFile)
+				deniedUniversalFiles[deniedFilePath] = struct{}{}
+			}
+		}
+	}
+
+	return
+}
+
 // Function to extract and validate metadata JSON from file contents
 func extractMetadata(fileContents string) (metadataSection string, remainingContent string, err error) {
 	// Add newline so file content doesnt have empty line at the top

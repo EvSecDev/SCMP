@@ -197,7 +197,7 @@ func recordDeploymentError(commitID string) (err error) {
 	}
 
 	printMessage(VerbosityStandard, "\nPlease fix the errors, then run the following command to redeploy OR create new commit if file corrections are needed:\n")
-	printMessage(VerbosityStandard, "%s -c %s --manual-deploy --use-failtracker-only\n", PathToExe, configFilePath)
+	printMessage(VerbosityStandard, "%s -c %s --deploy-failures\n", PathToExe, configFilePath)
 
 	// Add FailTracker string to repo working directory fail file
 	FailTrackerPath := filepath.Join(RepositoryPath, FailTrackerFile)
