@@ -37,9 +37,21 @@ Options:
 "
 }
 
+function check_for_dev_artifacts {
+	srcDir=$1
+        # Quick check for any left over debug prints
+        if egrep -R "DEBUG" $srcDir/*.go
+        then
+                echo "  Debug print found in source code. You might want to remove that before release."
+        fi
+}
+
 function controller_binary {
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
+
+	# Check for things not supposed to be in a release
+	check_for_dev_artifacts "$controllerSRCdir"
 
 	# Move into dir
 	cd $controllerSRCdir
@@ -74,6 +86,9 @@ function controller_binary {
 function controller_package {
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
+
+	# Check for things not supposed to be in a release
+	check_for_dev_artifacts "$controllerSRCdir"
 
 	# Read in config files for install script
 	defaultInstallOptions="$controllerCONFdir/default_install_options.txt"
@@ -140,6 +155,9 @@ function deployer_binary {
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
 
+	# Check for things not supposed to be in a release
+	check_for_dev_artifacts "$deployerSRCdir"
+
 	# Move into dir
 	cd $deployerSRCdir
 
@@ -181,6 +199,9 @@ function deployer_binary {
 function deployer_package {
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
+
+	# Check for things not supposed to be in a release
+	check_for_dev_artifacts "$deployerSRCdir"
 
 	# Read in config files for install script
 	defaultInstallOptions="$deployerCONFdir/default_install_options.txt"
@@ -255,6 +276,9 @@ function deployer_package {
 function updater_binary {
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
+
+	# Check for things not supposed to be in a release
+	check_for_dev_artifacts "$updaterSRCdir"
 
 	# Move into dir
 	cd $repoRoot/$updaterSRCdir

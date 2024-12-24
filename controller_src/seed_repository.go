@@ -384,13 +384,13 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 				fileHasNoDefaults = true
 				continue
 			}
+			fileHasNoDefaults = false
 
 			// Show user available commands and ask for confirmation
 			fmt.Printf("Selected file has default reload commands available.\n")
 			for _, command := range defaultReloadCommandArray {
 				// Replace placeholders in default commands with collected information
 				if strings.Contains(command, "??") {
-					fmt.Printf("DEBUG: ?? present\n")
 					command = strings.Replace(command, "??baseDirName??", filepath.Base(targetFilePath), -1)
 				}
 
@@ -405,6 +405,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 			// User did not say yes, skip using default reload commands
 			if userConfirmation != "y" {
 				userDoesNotWantDefaults = true
+				fileHasNoDefaults = false
 				break
 			}
 
