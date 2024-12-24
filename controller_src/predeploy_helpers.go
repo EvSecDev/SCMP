@@ -96,7 +96,7 @@ func localSystemChecks() (err error) {
 
 // Opens repository and retrieves details about given commit
 // If commitID is empty, will default to using HEAD commit
-func getCommit(commitID string) (tree *object.Tree, commit *object.Commit, err error) {
+func getCommit(commitID *string) (tree *object.Tree, commit *object.Commit, err error) {
 	printMessage(VerbosityProgress, "Retrieving commit and tree from git repository\n")
 
 	// Open the repository
@@ -107,7 +107,7 @@ func getCommit(commitID string) (tree *object.Tree, commit *object.Commit, err e
 	}
 
 	// If no commitID, assume they want to use the HEAD commit
-	if commitID == "" {
+	if *commitID == "" {
 		// Get the pointer to the HEAD commit
 		var ref *plumbing.Reference
 		ref, err = repo.Head()
@@ -117,17 +117,17 @@ func getCommit(commitID string) (tree *object.Tree, commit *object.Commit, err e
 		}
 
 		// Set HEAD commitID
-		commitID = ref.Hash().String()
+		*commitID = ref.Hash().String()
 	}
 
 	// Verify commit ID string content
-	if !SHA1RegEx.MatchString(commitID) {
+	if !SHA1RegEx.MatchString(*commitID) {
 		err = fmt.Errorf("invalid commit ID: hash is not 40 characters and/or is not hexadecimal")
 		return
 	}
 
 	// Set hash
-	commitHash := plumbing.NewHash(commitID)
+	commitHash := plumbing.NewHash(*commitID)
 
 	// Get the commit
 	commit, err = repo.CommitObject(commitHash)

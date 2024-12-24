@@ -398,6 +398,10 @@ func getFailTrackerCommit() (commitID string, failTrackerPath string, failures [
 	commitRegexMatches := failCommitRegEx.FindStringSubmatch(lastFailTracker)
 
 	// Extract the commit hash hex from the failtracker
+	if len(commitRegexMatches) < 2 {
+		err = fmt.Errorf("commitid missing from failtracker file")
+		return
+	}
 	commitID = commitRegexMatches[1]
 
 	// Remove commit line from the failtracker contents using the commit regex

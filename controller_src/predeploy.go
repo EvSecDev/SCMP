@@ -25,7 +25,8 @@ func preDeployment(deployMode string, deployerEndpoints map[string]DeployerEndpo
 	}
 
 	// Open repo and get details - using HEAD commit if commitID is empty
-	tree, commit, err := getCommit(commitID)
+	// Pass by reference to ensure commitID can be used later if user did not specify one
+	tree, commit, err := getCommit(&commitID)
 	logError("Error retrieving commit details", err, true)
 
 	// Retrieve all files/hosts for deployment
