@@ -133,7 +133,7 @@ func getCommitFiles(commit *object.Commit, DeployerEndpoints map[string]Deployer
 
 // Retrieves all files for current commit (regardless if changed)
 // This is used to also get all files in commit for deployment of unchanged files when requested
-func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, err error) {
+func getRepoFiles(tree *object.Tree, deployerEndpoints map[string]DeployerEndpoints, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, err error) {
 	// Initialize maps
 	commitFiles = make(map[string]string)
 	commitHosts = make(map[string]struct{})
@@ -165,15 +165,12 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 
 		printMessage(VerbosityData, "  Filtering file %s\n", repoFilePath)
 
-		// Always ignore files in root of repository
-		if !strings.ContainsRune(repoFilePath, []rune(OSPathSeparator)[0]) {
-			printMessage(VerbosityFullData, "    Ignoring file in root of repo\n")
+		// Ensure file is valid against config
+		commitHost, SkipFile := validateRepoFile(repoFilePath, deployerEndpoints)
+		if SkipFile {
+			// Not valid, skip
 			continue
 		}
-
-		// Split host and path
-		commitSplit := strings.SplitN(repoFilePath, OSPathSeparator, 2)
-		commitHost := commitSplit[0]
 
 		// Skip file if not user requested file (if requested)
 		skipFile := checkForOverride(fileOverride, repoFilePath)

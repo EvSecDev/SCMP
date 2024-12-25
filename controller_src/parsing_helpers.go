@@ -305,35 +305,70 @@ func validateCommittedFiles(commitHosts map[string]struct{}, DeployerEndpoints m
 		return
 	}
 
-	// Always ignore files in root of repository
-	if !strings.ContainsRune(path, []rune(OSPathSeparator)[0]) {
-		SkipFile = true
+	// Ensure file is valid against config
+	hostDirName, SkipFile := validateRepoFile(path, DeployerEndpoints)
+	if SkipFile {
+		// Not valid, skip
 		return
 	}
-
-	// SkipFile if inside ignore directories array
-	if len(IgnoreDirectories) > 0 {
-		// Get just the dirs
-		commitDir := filepath.Dir(path)
-
-		// When committed file directory is prefixed by an ignore directory, skip file
-		for _, ignoreDir := range IgnoreDirectories {
-			if strings.HasPrefix(commitDir, ignoreDir) {
-				SkipFile = true
-				return
-			}
-		}
-	}
-
-	// Retrieve the host directory name for this file
-	fileDirNames := strings.SplitN(path, OSPathSeparator, 2)
-	hostDirName := fileDirNames[0]
 
 	// Add host to map
 	commitHosts[hostDirName] = struct{}{}
 
 	printMessage(VerbosityData, "Validated committed file %s\n", path)
 
+	return
+}
+
+// Checks to ensure a given repository relative file path is:
+//  1. A top-level directory name that is a valid host name as in deployerEndpoints
+//  2. A top-level directory name that is the universal config directory
+//  3. A top-level directory name that is the a valid universal config group as in UniversalGroups
+//  4. A file inside any directory (i.e. not a file just in root of repo)
+//  5. A file not inside any of the IgnoreDirectories
+func validateRepoFile(path string, deployerEndpoints map[string]DeployerEndpoints) (topLevelDir string, SkipFile bool) {
+	// Always ignore files in root of repository
+	if !strings.ContainsRune(path, []rune(OSPathSeparator)[0]) {
+		SkipFile = true
+		printMessage(VerbosityData, "  File is in root of repo\n")
+		return
+	}
+
+	// Get top-level directory name
+	fileDirNames := strings.SplitN(path, OSPathSeparator, 2)
+	topLevelDir = fileDirNames[0]
+
+	// SkipFile if inside ignore directories array
+	if len(IgnoreDirectories) > 0 {
+		// When committed file directory is prefixed by an ignore directory, skip file
+		for _, ignoreDir := range IgnoreDirectories {
+			if topLevelDir == ignoreDir {
+				SkipFile = true
+				printMessage(VerbosityData, "  File is in an ignore directory\n")
+				return
+			}
+		}
+	}
+
+	// Ensure directory name is valid against config options
+	for configHost, _ := range deployerEndpoints {
+		// file top-level dir is a valid host or the universal directory
+		if topLevelDir == configHost || topLevelDir == UniversalDirectory {
+			SkipFile = false
+			return
+		}
+		SkipFile = true
+	}
+	for universalGroup, _ := range UniversalGroups {
+		// file top-level dir is a universal group
+		if topLevelDir == universalGroup {
+			SkipFile = false
+			return
+		}
+		SkipFile = true
+	}
+
+	printMessage(VerbosityData, "  File is not in deployerEndpoints or a Universal\n")
 	return
 }
 

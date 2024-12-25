@@ -37,7 +37,7 @@ func preDeployment(deployMode string, deployerEndpoints map[string]DeployerEndpo
 		commitFiles, commitHosts, err = getCommitFiles(commit, deployerEndpoints, fileOverride)
 	} else if deployMode == "deployAll" {
 		// Use changed and unchanged files
-		commitFiles, commitHosts, err = getRepoFiles(tree, fileOverride)
+		commitFiles, commitHosts, err = getRepoFiles(tree, deployerEndpoints, fileOverride)
 	} else if deployMode == "deployFailures" {
 		// Use failed files/hosts from last failtracker
 		commitFiles, commitHosts, err = getFailedFiles(failures, fileOverride)
