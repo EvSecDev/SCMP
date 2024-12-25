@@ -46,6 +46,104 @@ function check_for_dev_artifacts {
         fi
 }
 
+function create_apparmor_profile {
+	startDelimiter="  # User defined commands for post deployment checks and reloads"
+	workingDeployerProfileFile="$1"
+	optionalProfileDirectory="deployer_configs/apparmor_profiles/"
+
+	# Get a list of profile files (exclude directories)
+	files=($(find "$optionalProfileDirectory" -maxdepth 1 -type f))
+
+	# Extract only the file names (remove directory path)
+	file_names=()
+	for file in "${files[@]}"; do
+		file_names+=("$(basename "$file")")
+	done
+
+	# Display the files and allow the user to select using numbers only
+	echo "Select apparmor profiles by number (enter numbers separated by space, use the 'Done' option number to finish:"
+	select file in "${file_names[@]}" "Done"; do
+	    case $file in
+	        "Done")
+	            break
+	            ;;
+	        *)
+	            # Get the full path of the selected file
+	            selected_file="${files[${REPLY}-1]}"
+
+	            # Check if a valid file was selected (not an empty selection)
+	            if [ -n "$selected_file" ]; then
+	                # Add the selected file to the list of selected files
+	                selected_files+=("$selected_file")
+	                echo "Selected: $file"
+	            else
+	                echo "Invalid choice. Please select a valid number."
+	            fi
+	            ;;
+	    esac
+	done
+
+	# Create working copy of apparmor profile
+	cp deployer_configs/apparmor_profile_template $workingDeployerProfileFile
+
+	for file in "${selected_files[@]}"
+	do
+	        echo "Adding apparmor profile from $file"
+
+	        # Get caller profile name
+	        callerProfileName=$(grep "#profile" $file | cut -d" " -f2)
+	        if [[ -z $callerProfileName ]]
+	        then
+	                echo "Could not find the caller profile name in $file"
+	                exit 1
+	        fi
+
+	        # Get profile caller lines
+	        reloadProfileCallerLines=$(grep -oPz '(?s)(?<='"$startDelimiter"')(.*?)(?=#})' $file | tr -d '\0' | egrep -v "^$")
+	        if [[ -z $reloadProfileCallerLines ]]
+	        then
+	                echo "Could not identify reload profile caller lines in $file"
+	                exit 1
+	        fi
+
+	        # Find start delimiter for reload profile
+	        reloadProfileStartDelimiter=$(grep "^profile" $file)
+	        if [[ -z $reloadProfileStartDelimiter ]]
+	        then
+	                echo "Could not find where the reload profile starts in $file"
+	                exit 1
+	        fi
+
+	        # Get reload profile contents
+	        reloadProfile=$(sed -n '/'"$reloadProfileStartDelimiter"'/,/}$/p' $file)
+        	if [[ -z $reloadProfile ]]
+	        then
+	                echo "No reload profile found in $file"
+	                exit 1
+	        fi
+
+	        # Ensure start delimiter exists in caller apparmor profile
+	        if ! sed -n '/profile '"$callerProfileName"'/,/}$/p' $workingDeployerProfileFile | grep "$startDelimiter" >/dev/null
+	        then
+	                echo "Profile $callerProfileName from $file does not have the startDelimiter - Not continuing"
+	                exit 1
+	        fi
+
+	        # Add reload profile call into template file
+	        echo "$reloadProfileCallerLines" > .t
+	        sed -i "/$startDelimiter/ r .t" $workingDeployerProfileFile
+	        rm .t
+	        if ! grep "$reloadProfileCallerLines" $workingDeployerProfileFile >/dev/null
+	        then
+	                echo "Failed to add reload profile caller lines from $file to $workingDeployerProfileFile"
+	                exit 1
+	        fi
+
+	        # Write the reload profile to the end of the template file
+	        echo "$reloadProfile" >> $workingDeployerProfileFile
+	done
+}
+
 function controller_binary {
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
@@ -208,14 +306,19 @@ function deployer_package {
 	defaultSystemdService="$deployerCONFdir/scmpd.service"
 	defaultConfigYaml="$deployerCONFdir/scmpd.yaml"
 	defaultApparmorProfile="$deployerCONFdir/apparmor_profile_template"
+	workingApparmorProfile="$defaultApparmorProfile.build"
+
+	# Ask what deployer apparmor profiles to add to install script
+	create_apparmor_profile "$workingApparmorProfile"
 
 	# Create installation script
 	cp "$deployerCONFdir/install_script_template.sh" "$repoRoot/install_deployer.sh"
 	awk '{if ($0 ~ /#{{DEFAULTS_PLACEHOLDER}}/) {while((getline line < "'$defaultInstallOptions'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
 	awk '{if ($0 ~ /#{{CONFIG_PLACEHOLDER}}/) {while((getline line < "'$defaultConfigYaml'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
-	awk '{if ($0 ~ /#{{AAPROF_PLACEHOLDER}}/) {while((getline line < "'$defaultApparmorProfile'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
+	awk '{if ($0 ~ /#{{AAPROF_PLACEHOLDER}}/) {while((getline line < "'$workingApparmorProfile'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
 	awk '{if ($0 ~ /#{{SYSTEMD_SERVICE_PLACEHOLDER}}/) {while((getline line < "'$defaultSystemdService'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
 	chmod 750 "$repoRoot/install_deployer.sh"
+	rm $workingApparmorProfile
 
 	# Vars for build
 	inputGoSource="*.go"

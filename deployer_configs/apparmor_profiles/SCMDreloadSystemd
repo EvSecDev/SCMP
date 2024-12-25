@@ -1,9 +1,8 @@
 # Call this profile by putting this line in the SCMDsudo profile
 #profile SCMDsudo flags=(enforce) {
-#....
+  # User defined commands for post deployment checks and reloads
   /usr/bin/systemctl rmpx -> SCMDreloadSystemd,
   /usr/bin/systemd-analyze rmpx -> SCMDreloadSystemd,
-#....
 #}
 # Reload profile designed for `systemd-analyze verify */path/to/servicefile*`, `systemctl restart *service*`, `systemctl is-active *service*`, `systemctl daemon-reload`
 profile SCMDreloadSystemd flags=(enforce) {

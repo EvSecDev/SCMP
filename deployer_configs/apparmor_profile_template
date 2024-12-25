@@ -78,9 +78,8 @@ profile SCMDsudo flags=(enforce) {
   /usr/bin/chmod rmpx -> SCMDfileops,
   /usr/bin/sha256sum rmpx -> SCMDfileops,
 
-  # User defined commands for post deployment checks and reloads
   # If you want to confine reloads, find available profiles at https://github.com/EvSecDev/SCMPusher/tree/main/deployer_src/apparmor_profiles
-  /usr/bin/systemctl rmUx,
+  # User defined commands for post deployment checks and reloads
 
   # /proc accesses
   /proc/stat r,

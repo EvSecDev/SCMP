@@ -1,8 +1,7 @@
 # Call this profile by putting this line in the SCMDsudo profile
 #profile SCMDsudo flags=(enforce) {
-#....
+  # User defined commands for post deployment checks and reloads
   /usr/sbin/sshd rmpx -> SCMDreloadSSHD,
-#....
 #}
 # Reload profile designed for `sshd -t`
 profile SCMDreloadSSHD flags=(enforce) {

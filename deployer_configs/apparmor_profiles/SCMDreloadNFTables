@@ -1,8 +1,7 @@
 # Call this profile by putting this line in the SCMDsudo profile
 #profile SCMDsudo flags=(enforce) {
-#....
+  # User defined commands for post deployment checks and reloads
   /usr/sbin/nft rmpx -> SCMDreloadNFTables,
-#....
 #}
 # Reload profile designed for `nft -f /etc/nftables.conf -c`
 profile SCMDreloadNFTables flags=(enforce) {

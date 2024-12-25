@@ -1,8 +1,7 @@
 # Call this profile by putting this line in the SCMDsudo profile
 #profile SCMDsudo flags=(enforce) {
-#....
+  # User defined commands for post deployment checks and reloads
   /usr/sbin/sysctl rmpx -> SCMDreloadSysctl,
-#....
 #}
 # Reload profile designed for `sysctl -p --dry-run`, `sysctl -p`
 profile SCMDreloadSysctl flags=(enforce) {

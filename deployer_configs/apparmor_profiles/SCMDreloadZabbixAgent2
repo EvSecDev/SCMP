@@ -1,8 +1,7 @@
 # Call this profile by putting this line in the SCMDsudo profile
 #profile SCMDsudo flags=(enforce) {
-#....
+  # User defined commands for post deployment checks and reloads
   /usr/sbin/zabbix_agent2 rmpx -> SCMDreloadZabbixAgent2,
-#....
 #}
 # Reload profile designed for `zabbix_agent2 -T -c /etc/zabbix/zabbix_agent2.conf`
 profile SCMDreloadZabbixAgent2 flags=(enforce) {

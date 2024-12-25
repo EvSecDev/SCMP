@@ -1,9 +1,8 @@
 # Call this profile by putting this line in the SCMDsudo profile
 #profile SCMDsudo flags=(enforce) {
-#....
+  # User defined commands for post deployment checks and reloads
   /usr/sbin/ifup rmpx -> SCMDreloadIfUpDown2,
   /usr/share/ifupdown2/__main__.py rmpx -> SCMDreloadIfUpDown2,
-#....
 #}
 # Reload profile designed for `ifup -s -a`
 profile SCMDreloadIfUpDown2 flags=(enforce) {

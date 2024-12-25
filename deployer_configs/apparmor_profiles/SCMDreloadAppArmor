@@ -1,8 +1,7 @@
 # Call this profile by putting this line in the SCMDsudo profile
 #profile SCMDsudo flags=(enforce) {
-#....
+  # User defined commands for post deployment checks and reloads
   /usr/sbin/apparmor_parser rmpx -> SCMDreloadAppArmor,
-#....
 #}
 # Reload profile designed for `apparmor_parser -r /etc/apparmor.d/*file*`
 profile SCMDreloadAppArmor flags=(enforce) {
