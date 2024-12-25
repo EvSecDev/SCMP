@@ -298,7 +298,7 @@ func validateCommittedFiles(commitHosts map[string]struct{}, DeployerEndpoints m
 	// Get the path
 	path = rawFile.Path()
 
-	printMessage(VerbosityData, "Validating committed file %s\n", path)
+	printMessage(VerbosityData, "  Validating committed file %s\n", path)
 
 	// File exists, but no path - technically valid
 	if path == "" {
@@ -315,7 +315,7 @@ func validateCommittedFiles(commitHosts map[string]struct{}, DeployerEndpoints m
 	// Add host to map
 	commitHosts[hostDirName] = struct{}{}
 
-	printMessage(VerbosityData, "Validated committed file %s\n", path)
+	printMessage(VerbosityData, "  Validated committed file %s\n", path)
 
 	return
 }
@@ -330,7 +330,7 @@ func validateRepoFile(path string, deployerEndpoints map[string]DeployerEndpoint
 	// Always ignore files in root of repository
 	if !strings.ContainsRune(path, []rune(OSPathSeparator)[0]) {
 		SkipFile = true
-		printMessage(VerbosityData, "  File is in root of repo\n")
+		printMessage(VerbosityData, "    File is in root of repo\n")
 		return
 	}
 
@@ -344,7 +344,7 @@ func validateRepoFile(path string, deployerEndpoints map[string]DeployerEndpoint
 		for _, ignoreDir := range IgnoreDirectories {
 			if topLevelDir == ignoreDir {
 				SkipFile = true
-				printMessage(VerbosityData, "  File is in an ignore directory\n")
+				printMessage(VerbosityData, "    File is in an ignore directory\n")
 				return
 			}
 		}
@@ -368,7 +368,7 @@ func validateRepoFile(path string, deployerEndpoints map[string]DeployerEndpoint
 		SkipFile = true
 	}
 
-	printMessage(VerbosityData, "  File is not in deployerEndpoints or a Universal\n")
+	printMessage(VerbosityData, "    File is not in deployerEndpoints or a Universal\n")
 	return
 }
 
