@@ -444,7 +444,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		metadataHeader.ReloadRequired = false
 	}
 
-	printMessage(VerbosityProgress, "Adding JSON metadata header to file %v\n", configFilePath)
+	printMessage(VerbosityProgress, "Adding JSON metadata header to file %s\n", configFilePath)
 
 	// Marshal metadata JSON
 	metadata, errNoFatal := json.MarshalIndent(metadataHeader, "", "  ")
@@ -456,7 +456,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	// Add header to file contents
 	configFile := Delimiter + "\n" + string(metadata) + "\n" + Delimiter + "\n" + fileContents
 
-	printMessage(VerbosityProgress, "Writing file %v to repository\n", configFilePath)
+	printMessage(VerbosityProgress, "Writing file %s to repository\n", configFilePath)
 
 	// Create any missing directories in repository
 	configParentDirs := filepath.Dir(configFilePath)

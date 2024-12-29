@@ -241,18 +241,6 @@ then
 	systemctl stop $Service
 fi
 
-# Setup Systemd Service
-if [[ $CreateSystemdServiceConfirmation == "y" ]]
-then
-  cat > "$ServiceFilePath" <<EOF
-#{{SYSTEMD_SERVICE_PLACEHOLDER}}
-EOF
-  # reload units and enable
-  systemctl daemon-reload || logError "failed to reload systemd daemon for new unit" "true"
-  systemctl enable $Service || logError "failed to enable systemd service" "false"
-  echo "[+] Systemd service installed and enabled, start it with 'systemctl start $Service'"
-fi
-
 # Create SSH Key
 if [[ $UserSuppliedKey == "false" ]]
 then
@@ -309,11 +297,23 @@ cat > "$configFilePath" <<EOF
 EOF
 echo "[+] Successfully created deployer configuration at $configFilePath"
 
+# Setup Systemd Service
+if [[ $CreateSystemdServiceConfirmation == "y" ]]
+then
+  cat > "$ServiceFilePath" <<EOF
+#{{SYSTEMD_SERVICE_PLACEHOLDER}}
+EOF
+  # reload units, enable, and start
+  systemctl daemon-reload || logError "failed to reload systemd daemon for new unit" "true"
+  systemctl enable $Service || logError "failed to enable systemd service" "false"
+  systemctl start $Service || logError "failed to start systemd service" "true"
+  echo "[+] Systemd service installed, enabled, and started."
+fi
+
 # Cleanup
 rm updater deployer
 
 echo "==== Finished Installation ===="
 echo ""
-echo "Don't forget to start the deployer systemd service when desired"
-echo ""
+rm $0 2>/dev/null
 exit 0

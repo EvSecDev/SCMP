@@ -45,7 +45,7 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		return
 	}
 
-	printMessage(VerbosityFullData, "      Address: %v\n", endpointAddr)
+	printMessage(VerbosityFullData, "      Address: %s\n", endpointAddr)
 
 	// Get port from endpoint or if missing use default
 	endpointPort := endpointInfo.EndpointPort
@@ -53,7 +53,7 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		endpointPort = SSHClientDefault.EndpointPort
 	}
 
-	printMessage(VerbosityFullData, "      Port: %v\n", endpointPort)
+	printMessage(VerbosityFullData, "      Port: %d\n", endpointPort)
 
 	// Network Address Parsing
 	info.Endpoint, err = ParseEndpointAddress(endpointAddr, endpointPort)
@@ -62,7 +62,7 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		return
 	}
 
-	printMessage(VerbosityFullData, "      Socket: %v\n", info.Endpoint)
+	printMessage(VerbosityFullData, "      Socket: %s\n", info.Endpoint)
 
 	// Get user from endpoint or if missing use default
 	info.EndpointUser = endpointInfo.EndpointUser
@@ -70,7 +70,7 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		info.EndpointUser = SSHClientDefault.EndpointUser
 	}
 
-	printMessage(VerbosityFullData, "      User: %v\n", info.EndpointUser)
+	printMessage(VerbosityFullData, "      User: %s\n", info.EndpointUser)
 
 	// Get identity file from endpoint or if missing use default
 	identityFile := endpointInfo.SSHIdentityFile
@@ -78,7 +78,7 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		identityFile = SSHClientDefault.SSHIdentityFile
 	}
 
-	printMessage(VerbosityFullData, "      SSH Identity File: %v\n", identityFile)
+	printMessage(VerbosityFullData, "      SSH Identity File: %s\n", identityFile)
 
 	// Get sshagent bool from endpoint or if missing use default
 	var useSSHAgent bool
@@ -88,7 +88,7 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		useSSHAgent = SSHClientDefault.UseSSHAgent
 	}
 
-	printMessage(VerbosityData, "      Using SSH Agent?: %v\n", useSSHAgent)
+	printMessage(VerbosityData, "      Using SSH Agent?: %t\n", useSSHAgent)
 
 	// Get SSH Private Key from the supplied identity file
 	info.PrivateKey, info.KeyAlgo, err = SSHIdentityToKey(identityFile, useSSHAgent)
@@ -103,7 +103,7 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		info.SudoPassword = SSHClientDefault.SudoPassword
 	}
 
-	printMessage(VerbosityFullData, "      Sudo Password: %v\n", info.SudoPassword)
+	printMessage(VerbosityFullData, "      Sudo Password: %s\n", info.SudoPassword)
 
 	// Get remote transfer buffer file path from endpoint or if missing use default
 	info.RemoteTransferBuffer = endpointInfo.RemoteTransferBuffer
@@ -111,7 +111,7 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 		info.RemoteTransferBuffer = SSHClientDefault.RemoteTransferBuffer
 	}
 
-	printMessage(VerbosityFullData, "      Remote Transfer Buffer: %v\n", info.RemoteTransferBuffer)
+	printMessage(VerbosityFullData, "      Remote Transfer Buffer: %s\n", info.RemoteTransferBuffer)
 
 	// Get remote backup buffer file path from endpoint or if missing use default
 	info.RemoteBackupDir = endpointInfo.RemoteBackupDir
@@ -121,7 +121,7 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 	// Ensure trailing slashes don't make their way into the path
 	info.RemoteBackupDir = strings.TrimSuffix(info.RemoteBackupDir, "/")
 
-	printMessage(VerbosityFullData, "      Remote Backup Directory: %v\n", info.RemoteBackupDir)
+	printMessage(VerbosityFullData, "      Remote Backup Directory: %s\n", info.RemoteBackupDir)
 
 	return
 }
@@ -330,7 +330,7 @@ func validateRepoFile(path string, deployerEndpoints map[string]DeployerEndpoint
 	// Always ignore files in root of repository
 	if !strings.ContainsRune(path, []rune(OSPathSeparator)[0]) {
 		SkipFile = true
-		printMessage(VerbosityData, "    File is in root of repo\n")
+		printMessage(VerbosityData, "    File is in root of repo, skipping\n")
 		return
 	}
 
@@ -344,7 +344,7 @@ func validateRepoFile(path string, deployerEndpoints map[string]DeployerEndpoint
 		for _, ignoreDir := range IgnoreDirectories {
 			if topLevelDir == ignoreDir {
 				SkipFile = true
-				printMessage(VerbosityData, "    File is in an ignore directory\n")
+				printMessage(VerbosityData, "    File is in an ignore directory, skipping\n")
 				return
 			}
 		}
@@ -368,7 +368,7 @@ func validateRepoFile(path string, deployerEndpoints map[string]DeployerEndpoint
 		SkipFile = true
 	}
 
-	printMessage(VerbosityData, "    File is not in deployerEndpoints or a Universal\n")
+	printMessage(VerbosityData, "    File is not in deployerEndpoints or a Universal, skipping\n")
 	return
 }
 

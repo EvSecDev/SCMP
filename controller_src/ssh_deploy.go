@@ -94,7 +94,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 	// Loop over command groups and deploy files that need reload commands
 	for reloadID, commitFilePaths := range commitFileByCommand {
-		printMessage(VerbosityData, "Host %s: Starting deployment for configs with reload command ID %v\n", endpointName, reloadID)
+		printMessage(VerbosityData, "Host %s: Starting deployment for configs with reload command ID %s\n", endpointName, reloadID)
 
 		// Deploy all files for this specific reload command set
 		var targetFilePaths []string
@@ -154,7 +154,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 		// Run all the commands required by this config file group
 		var ReloadFailed bool
 		for _, command := range commandReloadArray {
-			printMessage(VerbosityData, "Host %s: Running reload command '%v'\n", endpointName, command)
+			printMessage(VerbosityData, "Host %s: Running reload command '%s'\n", endpointName, command)
 
 			_, err = RunSSHCommand(sshClient, command, SudoPassword)
 			if err != nil {

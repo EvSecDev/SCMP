@@ -235,6 +235,12 @@ func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commi
 			continue
 		}
 
+		// Check if host state is marked as offline, if so, skip this host
+		if endpointInfo.HostState == "offline" {
+			printMessage(VerbosityFullData, "    Host is marked as offline, skipping\n")
+			continue
+		}
+
 		// Record universal files that are NOT to be used for this host (host has an override file)
 		deniedUniversalFiles := findDeniedUniversalFiles(endpointName, allHostsFiles[endpointName], universalFiles, universalGroupFiles)
 
@@ -512,7 +518,7 @@ func getFailedFiles(failures []string, fileOverride string) (commitFiles map[str
 
 		// Add failed files to array (Only create, deleted/symlinks dont get added to failtracker)
 		for _, failedFile := range errorInfo.Files {
-			printMessage(VerbosityData, "Parsing failure for file %v\n", failedFile)
+			printMessage(VerbosityData, "Parsing failure for file %s\n", failedFile)
 
 			// Skip this file if not in override (if override was requested)
 			skipFile := checkForOverride(fileOverride, failedFile)

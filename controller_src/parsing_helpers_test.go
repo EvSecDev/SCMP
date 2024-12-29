@@ -30,7 +30,7 @@ func TestCheckForOverride(t *testing.T) {
 		t.Run(testTitle, func(t *testing.T) {
 			skip := checkForOverride(test.override, test.current)
 			if skip != test.expectedSkip {
-				t.Errorf("Skip current item? %v; Should skip current item? %v", skip, test.expectedSkip)
+				t.Errorf("Skip current item? %t; Should skip current item? %t", skip, test.expectedSkip)
 			}
 		})
 	}
@@ -151,14 +151,14 @@ func TestFindDeniedUniversalFiles(t *testing.T) {
 			// Check if the denied files match the expected output
 			for deniedFile := range test.expectedDeniedFiles {
 				if _, exists := deniedFiles[deniedFile]; !exists {
-					t.Errorf("Expected denied file %v not found", deniedFile)
+					t.Errorf("Expected denied file %s not found", deniedFile)
 				}
 			}
 
 			// Ensure there are no extra files in denied files
 			for deniedFile := range deniedFiles {
 				if _, exists := test.expectedDeniedFiles[deniedFile]; !exists {
-					t.Errorf("Unexpected denied file %v found", deniedFile)
+					t.Errorf("Unexpected denied file %s found", deniedFile)
 				}
 			}
 		})
@@ -222,10 +222,10 @@ func TestValidateRepoFile(t *testing.T) {
 		t.Run(test.path, func(t *testing.T) {
 			hostDirName, skipFile := validateRepoFile(test.path, deployerEndpoints)
 			if skipFile != test.expected.skipFile {
-				t.Errorf("expected skipFile to be %v, got %v", test.expected.skipFile, skipFile)
+				t.Errorf("expected skipFile to be %t, got %t", test.expected.skipFile, skipFile)
 			}
 			if !skipFile && hostDirName != test.expected.hostDirName {
-				t.Errorf("expected hostDirName to be %v, got %v", test.expected.hostDirName, hostDirName)
+				t.Errorf("expected hostDirName to be %s, got %s", test.expected.hostDirName, hostDirName)
 			}
 		})
 	}
@@ -251,7 +251,7 @@ func TestDetermineFileType(t *testing.T) {
 		t.Run(test.fileMode, func(t *testing.T) {
 			result := determineFileType(test.fileMode)
 			if result != test.expected {
-				t.Errorf("determineFileType(%v) = %v; want %v", test.fileMode, result, test.expected)
+				t.Errorf("determineFileType(%s) = %s; want %s", test.fileMode, result, test.expected)
 			}
 		})
 	}
@@ -275,10 +275,10 @@ func TestSeparateHostDirFromPath(t *testing.T) {
 		t.Run(test.localRepoPath, func(t *testing.T) {
 			hostDir, targetFilePath := separateHostDirFromPath(test.localRepoPath)
 			if hostDir != test.expectedHostDir {
-				t.Errorf("expected hostDir '%v', got '%v'", test.expectedHostDir, hostDir)
+				t.Errorf("expected hostDir '%s', got '%s'", test.expectedHostDir, hostDir)
 			}
 			if targetFilePath != test.expectedFilePath {
-				t.Errorf("expected targetFilePath '%v', got '%v'", test.expectedFilePath, targetFilePath)
+				t.Errorf("expected targetFilePath '%s', got '%s'", test.expectedFilePath, targetFilePath)
 			}
 		})
 	}
@@ -300,7 +300,7 @@ func TestSHA256Sum(t *testing.T) {
 		t.Run(test.input, func(t *testing.T) {
 			hash := SHA256Sum(test.input)
 			if hash != test.expected {
-				t.Errorf("SHA256Sum(%v) = %v, want %v", test.input, hash, test.expected)
+				t.Errorf("SHA256Sum(%s) = %s, want %s", test.input, hash, test.expected)
 			}
 		})
 	}

@@ -28,7 +28,7 @@ func createNewRepository(newRepoInfo string) {
 	absoluteRepoPath, err := filepath.Abs(repoPath)
 	logError("Failed to get absolute path to new repository", err, false)
 
-	printMessage(VerbosityProgress, "Creating new repository at %v\n", absoluteRepoPath)
+	printMessage(VerbosityProgress, "Creating new repository at %s\n", absoluteRepoPath)
 
 	// Get individual dir names
 	pathDirs := strings.Split(absoluteRepoPath, OSPathSeparator)
@@ -66,7 +66,7 @@ func createNewRepository(newRepoInfo string) {
 	err = os.Chdir(repoPath)
 	logError("Failed to change into new repository directory", err, false)
 
-	printMessage(VerbosityProgress, "Setting initial branch name to %v\n", initialBranchName)
+	printMessage(VerbosityProgress, "Setting initial branch name to %s\n", initialBranchName)
 
 	// Format branch name
 	if initialBranchName != "refs/heads/"+initialBranchName {
@@ -176,7 +176,7 @@ func createNewRepository(newRepoInfo string) {
 	// Post commit path and contents
 	postCommitFilePath := absoluteRepoPath + "/.git/hooks/post-commit.disabled"
 	postCommit := fmt.Sprintf(`#!/bin/bash
-	%v --git-hook-mode --deploy-changes -c %v`, os.Args[0], configFilePath)
+	%s --git-hook-mode --deploy-changes -c %s`, os.Args[0], configFilePath)
 
 	// Open post-commit file path
 	file, err := os.OpenFile(postCommitFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0750)

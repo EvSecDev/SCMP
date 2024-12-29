@@ -205,7 +205,7 @@ func main() {
 
 	// Get permissions and owner for existing executable to apply to updated executable
 	stat := exeInfo.Sys().(*syscall.Stat_t)
-	ownergroup := fmt.Sprintf("%v:%v", stat.Uid, stat.Gid)
+	ownergroup := fmt.Sprintf("%d:%d", stat.Uid, stat.Gid)
 	permissionBits := fmt.Sprintf("%o", exeInfo.Mode())
 
 	printMessage(VerbosityProgress, "Setting permissions/ownership on source file to match destination executable\n")
