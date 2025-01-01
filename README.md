@@ -132,36 +132,43 @@ Options:
         --versionid               Show only version number
 ```
 
-## Setup walk-through
+## Setup and Configuration
 
-### Remote Hosts Setup
+### Controller Installation (Local Setup)
+
+1. Create an SSH private key
+    - `ssh-keygen -t ed25519 -N '' -C scmp/controller -f controller_ssh`
+2. Start the installer script and follow the prompts
+    - `./controller_installer*sh`
+3. Configure the YAML configuration file for all the remote Linux hosts you wish to manage (see comments in YAML for what the fields mean)
+4. Done! Proceed to deployer installation
+
+### Deployer Installation (Remote Setup)
 
 **If using the Deployer SSH server:**
 1. Copy the install archive to the installation host
+    - `scp deployer_package_* user@remotehost:~/`
 2. Extract the archive with tar
+    - `tar -xzvf deployer_package_*.tar.gz`
 3. Run the installation shell script, answer the prompts
-4. Done! Proceed to controller installation
+    - `sudo ./install_deployer.sh`
 
 **If not using the Deployer SSH server:**
 1. Create a user that can log into SSH and use Sudo
-2. Modify `/etc/sudoers` to allow your new user to run Sudo commands with a password
-  - Optionally, restrict the commands your new user can run to the following:
-    - ls, rm, cp, ln, rmdir, mkdir, chown, chmod, sha256sum, and any reload commands you need (systemctl, sysctl, ect.)
-3. Done! Proceed to controller installation
+   - `useradd --create-home --user-group deployer`
+   - `passwd deployer`
+2. Add the SSH public key **from the controller installation script** to the users home directory `authorized_keys` file
+   - `mkdir -p /home/deployer/.ssh && echo "ssh-ed25519 AAAADEADBEEFDEABEEFDEADBEEF scmp/controller" > /home/deployer/.ssh/authorized_keys`
+3. Modify `/etc/sudoers` with the below line to allow your new user to run Sudo commands with a password
+   - `deployer ALL=(root:root) ALL`
+   - **Optionally**, restrict the commands your new user can run in the sudoers file to the following:
+     - ls, rm, cp, ln, rmdir, mkdir, chown, chmod, sha256sum, and any reload commands you need (systemctl, sysctl, ect.)
+     - `deployer ALL=(root:root) PASSWD: /usr/bin/ls, /usr/bin/rm, /usr/bin/cp, /usr/bin/ln, /usr/bin/rmdir, /usr/bin/mkdir, /usr/bin/chown, /usr/bin/chmod, /usr/bin/sha256sum, /usr/bin/systemctl`
 
-### Controller (local) setup
-
-1. Create an SSH private key
-2. Copy the public key of your new SSH key to the desired hosts
-3. Start the installer script and follow the prompts
-4. Configure the template yaml file for all the remote Linux hosts you wish to manage, with their IP, Port, and username (and indicate true if you don't want a specific host to use the templates directory)
-5. Copy all the remote configuration files you wish to manage into the repository under the desired template or host directory
-6. Then, git add and commit to test functionality.
-
-## Bootstrapping the Repository
+### Bootstrapping the Repository
 
 So, what if you already have servers with potentially hundreds of configuration files spread throughout the system?
-Well, fear not, for there is a SSH client built into the controller as an easier method of transferring and formatting new files by hand.
+Well, fear not, for there is a SSH client built into the controller as an easier method of transferring and formatting new files.
 The client will permit you to select files on a remote system and automatically format and add them in the correct location to the local repository.
 
 This feature requires that you have installed controller and configured the controller's yaml configuration file with the hosts you want to manage.
@@ -196,7 +203,7 @@ If you were in `/etc/` and wanted to move up one directory, you'd type this and 
 `  hostname:/# Type your selections: c0`
 
 The shortcuts will be listed below every directory so you won't need to remember them.
-You can type as many or as little options as you wish, they will all be added.
+You can type as many or as little options as you wish in any order, they will all be added.
 Selected files will be saved before changing directories, so you can navigate the whole remote host file system saving files you want as you go.
 
 Once you have selected all your files and typed `!`, you will be asked (file by file) if the config requires reload commands, and if so, you can provided them one per line.
@@ -216,6 +223,12 @@ The structure of the local repository is supposed to be a replica of the remote 
         -> .bashrc
         -> .ssh
           -> authorized_keys
+  -> UniversalConfs_NGINX
+     -> etc
+       -> nginx
+         -> nginx.conf
+         -> snippets
+           -> ssl_params.conf
   -> Host1
     -> etc
       -> rsyslog.conf

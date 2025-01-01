@@ -295,6 +295,10 @@ function deployer_binary {
 }
 
 function deployer_package {
+	# function args
+	fullOutputName=$3
+	noSignature=$4
+
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
 
@@ -334,18 +338,22 @@ function deployer_package {
 	go build -o $outputEXE -a -ldflags '-s -w -buildid= -extldflags "-static"' $inputGoSource
 
 	# Sign by default, skip if user requested nosig
-	if [[ $3 == false ]]
+	if [[ $noSignature == false ]]
 	then
 		# Sign deployer
 		sign_binary ""$repoRoot"/"$deployerSRCdir"/"$outputEXE""
 		cd $repoRoot/$deployerSRCdir
 	fi
 
-	# Get version
-	version=$(./$outputEXE --versionid)
-
-	# Rename package with version
-	DeployerPKG=""$outputEXE"_package_"$version"_$GOOS-$GOARCH.tar.gz"
+	# Package file name based on if user wants full naming or not
+	if [[ $fullOutputName == true ]]
+	then
+		# Full release package name
+		version=$(./$outputEXE --versionid)
+		DeployerPKG=""$outputEXE"_package_"$version"_$GOOS-$GOARCH.tar.gz"
+	else
+		DeployerPKG=""$outputEXE"_package.tar.gz"
+	fi
 
 	# Build updater with not nice names
 	updater_binary "$GOARCH" "$GOOS" "false"
@@ -368,12 +376,16 @@ function deployer_package {
 	cd $repoRoot/$deployerSRCdir
 	rm -rf $packagingDir
 
-	# Add checksum file
-	sha256sum $DeployerPKG > "$DeployerPKG".sha256
+	# Add hash for package if full build name requested
+	if [[ $fullOutputName == true ]]
+        then
+		# Add checksum file
+		sha256sum $DeployerPKG > "$DeployerPKG".sha256
+		mv "$DeployerPKG".sha256 $repoRoot/
+	fi
 
-	# Move files to repo root dir
+	# Move package to repo root dir
 	mv $DeployerPKG $repoRoot/
-	mv "$DeployerPKG".sha256 $repoRoot/
 }
 
 function updater_binary {
@@ -496,7 +508,7 @@ then
 	echo "Complete: deployer binary built"
 elif [[ $buildopt == deployerpkg ]]
 then
-	deployer_package "$architecture" "$os" "$nosig"
+	deployer_package "$architecture" "$os" "$buildfull" "$nosig"
 	echo "Complete: deployer package built"
 elif [[ $buildopt == updater ]]
 then

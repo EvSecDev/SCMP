@@ -310,6 +310,8 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		"/etc/sysctl":          {"sysctl -p --dry-run", "sysctl -p"},
 		"/etc/systemd/system/": {"systemd-analyze verify /etc/systemd/system/??baseDirName??", "systemctl daemon-reload", "systemctl restart ??baseDirName??", "systemctl is-active ??baseDirName??"},
 		"/etc/zabbix":          {"zabbix_agent2 -T -c /etc/zabbix/zabbix_agent2.conf", "systemctl restart zabbix-agent2.service", "systemctl is-active zabbix-agent2.service"},
+		"/etc/squid-deb-proxy": {"squid -f /etc/squid-deb-proxy/squid-deb-proxy.conf -k check", "systemctl restart squid-deb-proxy.service", "systemctl is-active squid-deb-proxy.service"},
+		"/etc/squid/":          {"squid -f /etc/squid/squid.conf -k check", "systemctl restart squid.service", "systemctl is-active squid.service"},
 	}
 
 	// Copy desired file to buffer location - MUST keep buffer file permissions for successful sftp
@@ -436,6 +438,12 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 				}
 				reloadCmds = append(reloadCmds, cmd)
 			}
+		}
+
+		// Quick check if user didn't add any reloads
+		if len(reloadCmds) == 0 {
+			// Empty reloads set reload required back to false
+			metadataHeader.ReloadRequired = false
 		}
 
 		// Write user supplied command array to metadata header
