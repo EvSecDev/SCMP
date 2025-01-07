@@ -119,6 +119,11 @@ func backupOldConfig(sshClient *ssh.Client, SudoPassword string, targetFilePath 
 // Assumes backup file is located in the directory at backupFilePath
 // Ensures restoration worked by hashing and comparing to pre-deployment file hash
 func restoreOldConfig(sshClient *ssh.Client, targetFilePath string, tmpBackupPath string, oldRemoteFileHash string, SudoPassword string) (err error) {
+	// Empty oldRemoteFileHash indicates there was nothing to backup, therefore restore should not occur
+	if oldRemoteFileHash == "" {
+		return
+	}
+
 	// Get the unique id for the backup for the given targetFilePath
 	backupFileName := base64.StdEncoding.EncodeToString([]byte(targetFilePath))
 	backupFilePath := tmpBackupPath + "/" + backupFileName

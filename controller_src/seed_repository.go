@@ -390,10 +390,11 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 
 			// Show user available commands and ask for confirmation
 			fmt.Printf("Selected file has default reload commands available.\n")
-			for _, command := range defaultReloadCommandArray {
+			for index, command := range defaultReloadCommandArray {
 				// Replace placeholders in default commands with collected information
 				if strings.Contains(command, "??") {
 					command = strings.Replace(command, "??baseDirName??", filepath.Base(targetFilePath), -1)
+					defaultReloadCommandArray[index] = command
 				}
 
 				// Print command on its own line
