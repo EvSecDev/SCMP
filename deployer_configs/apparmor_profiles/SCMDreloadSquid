@@ -13,6 +13,7 @@ profile SCMDreloadSquid flags=(enforce) {
   unix (create) type=stream,
   unix (create) type=dgram,
   signal send set=(exists) peer=unconfined,
+  signal send set=(exists) peer=/usr/sbin/squid,
   /proc/sys/kernel/ngroups_max r,
   /proc/sys/kernel/random/boot_id r,
   /run/systemd/userdb/{,*} r,
