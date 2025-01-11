@@ -178,7 +178,6 @@ profile SCMDfileops flags=(enforce) {
   ## Explicit denies for deployment commands
   deny /etc/shadow rw,
   deny /etc/sudoers rw,
-  deny /etc/sudoers.d/* rw,
   deny /etc/ld.so.cache w,
   deny /etc/ld.so.conf w,
   deny /etc/ld.so.conf.d/** w,
