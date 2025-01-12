@@ -9,7 +9,6 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"net"
@@ -30,13 +29,13 @@ import (
 
 // Given an identity file, determines if its a public or private key, and loads the private key (sometimes from the SSH agent)
 // Also retrieves key algorithm type for later ssh connect
-func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.Signer, KeyAlgo string, err error) {
+func SSHIdentityToKey(SSHIdentityFile string) (PrivateKey ssh.Signer, KeyAlgo string, err error) {
 	// Load SSH private key
 	// Parse out which is which here and if pub key use as id for agent keychain
 	var SSHKeyType string
 
 	// Load identity from file
-	SSHIdentity, err := os.ReadFile(SSHIdentityFile)
+	SSHIdentity, err := os.ReadFile(expandHomeDirectory(SSHIdentityFile))
 	if err != nil {
 		err = fmt.Errorf("ssh identity file: %v", err)
 		return
@@ -56,7 +55,7 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 	}
 
 	// Load key from keyring if requested
-	if UseSSHAgent {
+	if SSHKeyType == "public" {
 		// Ensure user supplied identity is a public key if requesting to use agent
 		if SSHKeyType != "public" {
 			err = fmt.Errorf("identity file is not a public key, cannot use agent without public key")
@@ -168,11 +167,12 @@ func SSHIdentityToKey(SSHIdentityFile string, UseSSHAgent bool) (PrivateKey ssh.
 }
 
 // Validates endpoint address and port, then combines both strings
-func ParseEndpointAddress(endpointIP string, endpointPort int) (endpointSocket string, err error) {
+func ParseEndpointAddress(endpointIP string, Port string) (endpointSocket string, err error) {
 	// Use regex for v4 match
 	IPv4RegEx := regexp.MustCompile(`^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$`)
 
 	// Verify endpoint Port
+	endpointPort, _ := strconv.Atoi(Port)
 	if endpointPort <= 0 || endpointPort > 65535 {
 		err = fmt.Errorf("endpoint port number '%d' out of range", endpointPort)
 		return
@@ -407,67 +407,6 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	return
 }
 
-// Wrapper function for session.SendRequest
-// Takes any request type and payload string and generates a conforming SSH request type
-// Most SSH servers (that understand the request type) should be able to accept the request
-// Has built in timeout to prevent hanging on wantReply
-func sendCustomSSHRequest(session *ssh.Session, requestType string, wantReply bool, payloadString string) (err error) {
-	printMessage(VerbosityProgress, "  Sending update request\n")
-
-	// Create payload with length header
-	var requestPayload []byte
-	payload := []byte(payloadString)
-	lengthBytes := make([]byte, 4)
-	binary.BigEndian.PutUint32(lengthBytes, uint32(len(payload)))
-
-	// Add length of payload as header beginning
-	requestPayload = append(requestPayload, lengthBytes...)
-
-	// Add the payload data
-	requestPayload = append(requestPayload, payload...)
-
-	// Set timeout for request to be accepted
-	timeoutDuration := 30 * time.Second
-	timeout := time.After(timeoutDuration)
-
-	// Create a channel to capture the result of the request
-	result := make(chan struct {
-		reqAccepted bool
-		err         error
-	}, 1)
-
-	// Run the request in a separate Goroutine
-	go func() {
-		// Send the request
-		var reqAccepted bool
-		reqAccepted, err = session.SendRequest(requestType, wantReply, requestPayload)
-		result <- struct {
-			reqAccepted bool
-			err         error
-		}{reqAccepted, err}
-	}()
-
-	// Wait for either the result or the timeout
-	select {
-	case res := <-result:
-		printMessage(VerbosityProgress, "  Sent update request\n")
-		// Check if request had an error or was denied by remote
-		if res.err != nil {
-			err = fmt.Errorf("failed to create update session: %v", res.err)
-			return
-		}
-		if !res.reqAccepted {
-			err = fmt.Errorf("server did not accept request type '%s'", requestType)
-			return
-		}
-
-		return
-	case <-timeout:
-		err = fmt.Errorf("request timeout: server did not respond in %d seconds", int(timeoutDuration.Seconds()))
-		return
-	}
-}
-
 // Transfers byte content to remote temp buffer (based on global temp buffer file path)
 func RunSFTP(client *ssh.Client, localFileContent []byte, tmpRemoteFilePath string) (err error) {
 	// Open new session with ssh client
@@ -558,6 +497,9 @@ func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (Com
 	// Add sudo to command if password was provided
 	if SudoPassword != "" {
 		command = "sudo -S " + command
+	} else {
+		// No given password indicates that passwords are not required for sudo access, but elevated privileges are always required
+		command = "sudo " + command
 	}
 
 	// Start the command

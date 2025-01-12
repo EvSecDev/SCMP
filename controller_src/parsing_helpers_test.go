@@ -168,9 +168,7 @@ func TestFindDeniedUniversalFiles(t *testing.T) {
 func TestValidateRepoFile(t *testing.T) {
 	// Mock globals for the tests
 	OSPathSeparator = "/"
-	deployerEndpoints := map[string]DeployerEndpoints{
-		"validHost": {},
-	}
+	DeployerEndpoints = []string{"validHost", "validHost2"}
 	IgnoreDirectories = []string{"ignoreDir", "ignoreDir2"}
 	UniversalDirectory = "UniversalConfs"
 	UniversalGroups = map[string][]string{
@@ -220,7 +218,7 @@ func TestValidateRepoFile(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
-			hostDirName, skipFile := validateRepoFile(test.path, deployerEndpoints)
+			hostDirName, skipFile := validateRepoFile(test.path)
 			if skipFile != test.expected.skipFile {
 				t.Errorf("expected skipFile to be %t, got %t", test.expected.skipFile, skipFile)
 			}

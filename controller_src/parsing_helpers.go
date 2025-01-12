@@ -37,23 +37,24 @@ func checkForOverride(override string, current string) (skip bool) {
 
 // Deduplicates and creates host endpoint information map
 // Compares a hosts deployer endpoints info against the SSH client defaults
-func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHClientDefaults) (info EndpointInfo, err error) {
+func retrieveEndpointInfo(endpointName string) (info EndpointInfo, err error) {
 	// First item must be present (IP required, cannot use default)
-	endpointAddr := endpointInfo.Endpoint
+	endpointAddr, _ := config.Get(endpointName, "Hostname")
 	if endpointAddr == "" {
-		err = fmt.Errorf("endpoint address cannot be empty")
+		err = fmt.Errorf("host address cannot be empty")
 		return
 	}
 
 	printMessage(VerbosityFullData, "      Address: %s\n", endpointAddr)
 
 	// Get port from endpoint or if missing use default
-	endpointPort := endpointInfo.EndpointPort
-	if endpointPort == 0 {
-		endpointPort = SSHClientDefault.EndpointPort
+	endpointPort, _ := config.Get(endpointName, "Port")
+	if endpointPort == "" {
+		err = fmt.Errorf("host port cannot be empty")
+		return
 	}
 
-	printMessage(VerbosityFullData, "      Port: %d\n", endpointPort)
+	printMessage(VerbosityFullData, "      Port: %s\n", endpointPort)
 
 	// Network Address Parsing
 	info.Endpoint, err = ParseEndpointAddress(endpointAddr, endpointPort)
@@ -65,58 +66,49 @@ func retrieveEndpointInfo(endpointInfo DeployerEndpoints, SSHClientDefault SSHCl
 	printMessage(VerbosityFullData, "      Socket: %s\n", info.Endpoint)
 
 	// Get user from endpoint or if missing use default
-	info.EndpointUser = endpointInfo.EndpointUser
+	info.EndpointUser, _ = config.Get(endpointName, "User")
 	if info.EndpointUser == "" {
-		info.EndpointUser = SSHClientDefault.EndpointUser
+		err = fmt.Errorf("host username cannot be empty")
+		return
 	}
 
 	printMessage(VerbosityFullData, "      User: %s\n", info.EndpointUser)
 
 	// Get identity file from endpoint or if missing use default
-	identityFile := endpointInfo.SSHIdentityFile
+	identityFile, _ := config.Get(endpointName, "IdentityFile")
 	if identityFile == "" {
-		identityFile = SSHClientDefault.SSHIdentityFile
+		err = fmt.Errorf("identity file cannot be empty")
+		return
 	}
 
 	printMessage(VerbosityFullData, "      SSH Identity File: %s\n", identityFile)
 
-	// Get sshagent bool from endpoint or if missing use default
-	var useSSHAgent bool
-	if endpointInfo.UseSSHAgent != nil {
-		useSSHAgent = *endpointInfo.UseSSHAgent
-	} else {
-		useSSHAgent = SSHClientDefault.UseSSHAgent
-	}
-
-	printMessage(VerbosityData, "      Using SSH Agent?: %t\n", useSSHAgent)
-
 	// Get SSH Private Key from the supplied identity file
-	info.PrivateKey, info.KeyAlgo, err = SSHIdentityToKey(identityFile, useSSHAgent)
+	info.PrivateKey, info.KeyAlgo, err = SSHIdentityToKey(identityFile)
 	if err != nil {
 		err = fmt.Errorf("failed to retrieve private key: %v", err)
 		return
 	}
 
-	// Get sudo password from endpoint or if missing use default
-	info.SudoPassword = endpointInfo.SudoPassword
-	if info.SudoPassword == "" {
-		info.SudoPassword = SSHClientDefault.SudoPassword
-	}
+	// Retrieve password
+	//info.Password = password
 
-	printMessage(VerbosityFullData, "      Sudo Password: %s\n", info.SudoPassword)
+	printMessage(VerbosityFullData, "      Password: %s\n", info.Password)
 
 	// Get remote transfer buffer file path from endpoint or if missing use default
-	info.RemoteTransferBuffer = endpointInfo.RemoteTransferBuffer
+	info.RemoteTransferBuffer, _ = config.Get(endpointName, "RemoteTransferBuffer")
 	if info.RemoteTransferBuffer == "" {
-		info.RemoteTransferBuffer = SSHClientDefault.RemoteTransferBuffer
+		err = fmt.Errorf("RemoteTransferBuffer cannot be empty")
+		return
 	}
 
 	printMessage(VerbosityFullData, "      Remote Transfer Buffer: %s\n", info.RemoteTransferBuffer)
 
 	// Get remote backup buffer file path from endpoint or if missing use default
-	info.RemoteBackupDir = endpointInfo.RemoteBackupDir
+	info.RemoteBackupDir, _ = config.Get(endpointName, "RemoteBackupDir")
 	if info.RemoteBackupDir == "" {
-		info.RemoteBackupDir = SSHClientDefault.RemoteBackupDir
+		err = fmt.Errorf("RemoteBackupDir cannot be empty")
+		return
 	}
 	// Ensure trailing slashes don't make their way into the path
 	info.RemoteBackupDir = strings.TrimSuffix(info.RemoteBackupDir, "/")
@@ -171,7 +163,7 @@ func mapAllRepoFiles(tree *object.Tree) (allHostsFiles map[string]map[string]str
 		}
 
 		// Add files by universal group dirs to map for later deduping
-		for universalGroup, _ := range UniversalGroups {
+		for universalGroup := range UniversalGroups {
 			if commitHost == universalGroup {
 				// Repo file is under one of the universal group directories
 				universalGroupFiles[universalGroup] = make(map[string]struct{})
@@ -194,7 +186,7 @@ func findDeniedUniversalFiles(endpointName string, hostFiles map[string]struct{}
 	deniedUniversalFiles = make(map[string]struct{})
 
 	// Record denied files for global universal files
-	for universalFile, _ := range universalFiles {
+	for universalFile := range universalFiles {
 		_, hostHasUniversalOverride := hostFiles[universalFile]
 		if hostHasUniversalOverride {
 			// host has a file path that is also present in the universal dir
@@ -223,7 +215,7 @@ func findDeniedUniversalFiles(endpointName string, hostFiles map[string]struct{}
 		}
 
 		// Find overlap files
-		for groupFile, _ := range groupFiles {
+		for groupFile := range groupFiles {
 			_, hostHasUniversalOverride := hostFiles[groupFile]
 			if hostHasUniversalOverride {
 				// host has a file path that is also present in the group universal dir
@@ -277,7 +269,7 @@ func extractMetadata(fileContents string) (metadataSection string, remainingCont
 //	any files in the root of the repository
 //	dirs present in global ignoredirectories array
 //	dirs that do not have a match in the controllers config
-func validateCommittedFiles(commitHosts map[string]struct{}, DeployerEndpoints map[string]DeployerEndpoints, rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
+func validateCommittedFiles(commitHosts map[string]struct{}, rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
 	// Nothing to validate
 	if rawFile == nil {
 		return
@@ -306,7 +298,7 @@ func validateCommittedFiles(commitHosts map[string]struct{}, DeployerEndpoints m
 	}
 
 	// Ensure file is valid against config
-	hostDirName, SkipFile := validateRepoFile(path, DeployerEndpoints)
+	hostDirName, SkipFile := validateRepoFile(path)
 	if SkipFile {
 		// Not valid, skip
 		return
@@ -321,12 +313,12 @@ func validateCommittedFiles(commitHosts map[string]struct{}, DeployerEndpoints m
 }
 
 // Checks to ensure a given repository relative file path is:
-//  1. A top-level directory name that is a valid host name as in deployerEndpoints
+//  1. A top-level directory name that is a valid host name as in DeployerEndpoints
 //  2. A top-level directory name that is the universal config directory
 //  3. A top-level directory name that is the a valid universal config group as in UniversalGroups
 //  4. A file inside any directory (i.e. not a file just in root of repo)
 //  5. A file not inside any of the IgnoreDirectories
-func validateRepoFile(path string, deployerEndpoints map[string]DeployerEndpoints) (topLevelDir string, SkipFile bool) {
+func validateRepoFile(path string) (topLevelDir string, SkipFile bool) {
 	// Always ignore files in root of repository
 	if !strings.ContainsRune(path, []rune(OSPathSeparator)[0]) {
 		SkipFile = true
@@ -351,24 +343,27 @@ func validateRepoFile(path string, deployerEndpoints map[string]DeployerEndpoint
 	}
 
 	// Ensure directory name is valid against config options
-	for configHost, _ := range deployerEndpoints {
+	for _, configHost := range DeployerEndpoints {
 		// file top-level dir is a valid host or the universal directory
 		if topLevelDir == configHost || topLevelDir == UniversalDirectory {
+			printMessage(VerbosityData, "    File is valid (Dir matches Hostname or is Universal Dir)\n")
 			SkipFile = false
 			return
 		}
 		SkipFile = true
 	}
-	for universalGroup, _ := range UniversalGroups {
+	for universalGroup := range UniversalGroups {
 		// file top-level dir is a universal group
 		if topLevelDir == universalGroup {
+			printMessage(VerbosityData, "    File is valid (Dir matches a Universal Group Dir)\n")
 			SkipFile = false
 			return
 		}
 		SkipFile = true
 	}
 
-	printMessage(VerbosityData, "    File is not in deployerEndpoints or a Universal, skipping\n")
+	printMessage(VerbosityData, "    File is not under a valid host directory or a universal directory, skipping\n")
+	SkipFile = true
 	return
 }
 

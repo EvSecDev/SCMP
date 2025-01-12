@@ -21,24 +21,6 @@ import (
 //	Loads known_hosts file into global variable
 func localSystemChecks() (err error) {
 	printMessage(VerbosityStandard, "Running local system checks...\n")
-	printMessage(VerbosityProgress, "Ensuring program is in root of repository\n")
-
-	// Ensure current working directory is root of git repository from config
-	pwd, err := os.Getwd()
-	if err != nil {
-		err = fmt.Errorf("failed to obtain current working directory: %v", err)
-		return
-	}
-
-	// If current directory is not repo, change to it
-	if filepath.Clean(pwd) != filepath.Clean(RepositoryPath) {
-		err = os.Chdir(RepositoryPath)
-		if err != nil {
-			err = fmt.Errorf("failed to change directory to repository path: %v", err)
-			return
-		}
-	}
-
 	printMessage(VerbosityProgress, "Ensuring system has an active network interface\n")
 
 	// Get list of local systems network interfaces
@@ -64,22 +46,6 @@ func localSystemChecks() (err error) {
 	}
 
 	printMessage(VerbosityProgress, "Retrieving known_hosts file contents\n")
-
-	// Check if known hosts file exists
-	_, err = os.Stat(knownHostsFilePath)
-	if os.IsNotExist(err) {
-		var knownFile *os.File
-		// Known hosts file does not exist, create it
-		knownFile, err = os.Create(knownHostsFilePath)
-		if err != nil {
-			err = fmt.Errorf("failed to create known_hosts file at '%s'", knownHostsFilePath)
-			return
-		}
-		defer knownFile.Close()
-	} else if err != nil {
-		err = fmt.Errorf("failed to create known_hosts file at %s", knownHostsFilePath)
-		return
-	}
 
 	// Read in file
 	knownHostFile, err := os.ReadFile(knownHostsFilePath)
@@ -224,27 +190,34 @@ func recordDeploymentError(commitID string) (err error) {
 
 func printDeploymentInformation(hostsAndEndpointInfo map[string]EndpointInfo, commitFileInfo map[string]CommitFileInfo) {
 	// Notify user that program is in dry run mode
-	printMessage(VerbosityStandard, "Requested dry-run, aborting deployment - outputting information collected for deployment:\n")
+	printMessage(VerbosityStandard, "Requested dry-run, aborting deployment\n")
+	if globalVerbosityLevel > 2 {
+		// If not running with higher verbosity, no need to collect deployment information
+		return
+	}
+	printMessage(VerbosityProgress, "Outputting information collected for deployment:\n")
 
 	// Print deployment info by host
 	for _, hostInfo := range hostsAndEndpointInfo {
-		// Try to avoid printing whole passwords to stdout
-		var truncatedSudoPass string
-		if len(hostInfo.SudoPassword) > 6 {
-			truncatedSudoPass = hostInfo.SudoPassword[:6]
+		// Truncate the password if running at a low verbosity level
+		// Password will only print at all if more than or equal to 2
+		if globalVerbosityLevel < 3 {
+			if len(hostInfo.Password) > 6 {
+				hostInfo.Password = hostInfo.Password[:6]
+			}
+			hostInfo.Password += "..."
 		}
-		truncatedSudoPass += "..."
 
 		// Print out information for this specific host
-		printMessage(VerbosityStandard, "Host: %s\n", hostInfo.EndpointName)
-		printMessage(VerbosityStandard, "  Options:\n")
-		printMessage(VerbosityStandard, "       Endpoint Address: %s\n", hostInfo.Endpoint)
-		printMessage(VerbosityStandard, "       SSH User:         %s\n", hostInfo.EndpointUser)
-		printMessage(VerbosityStandard, "       SSH Key:          %s\n", hostInfo.PrivateKey.PublicKey())
-		printMessage(VerbosityStandard, "       Sudo Password:    %s\n", truncatedSudoPass)
-		printMessage(VerbosityStandard, "       Transfer Buffer:  %s\n", hostInfo.RemoteTransferBuffer)
-		printMessage(VerbosityStandard, "       Backup Dir:       %s\n", hostInfo.RemoteBackupDir)
-		printMessage(VerbosityStandard, "  Files:\n")
+		printMessage(VerbosityProgress, "Host: %s\n", hostInfo.EndpointName)
+		printMessage(VerbosityProgress, "  Options:\n")
+		printMessage(VerbosityProgress, "       Endpoint Address: %s\n", hostInfo.Endpoint)
+		printMessage(VerbosityProgress, "       SSH User:         %s\n", hostInfo.EndpointUser)
+		printMessage(VerbosityProgress, "       SSH Key:          %s\n", hostInfo.PrivateKey.PublicKey())
+		printMessage(VerbosityProgress, "       Password:         %s\n", hostInfo.Password)
+		printMessage(VerbosityProgress, "       Transfer Buffer:  %s\n", hostInfo.RemoteTransferBuffer)
+		printMessage(VerbosityProgress, "       Backup Dir:       %s\n", hostInfo.RemoteBackupDir)
+		printMessage(VerbosityProgress, "  Files:\n")
 
 		// Identify maximum indent file name prints will need to be
 		var maxFileNameLength int
@@ -269,7 +242,7 @@ func printDeploymentInformation(hostsAndEndpointInfo map[string]EndpointInfo, co
 			indentSpaces := maxFileNameLength - len(targetFile)
 
 			// Print what we are going to do, the local file path, and remote file path
-			printMessage(VerbosityStandard, "       %s:           %s%s# %s\n", commitFileInfo[file].Action, targetFile, strings.Repeat(" ", indentSpaces), file)
+			printMessage(VerbosityProgress, "       %s:           %s%s# %s\n", commitFileInfo[file].Action, targetFile, strings.Repeat(" ", indentSpaces), file)
 		}
 	}
 }

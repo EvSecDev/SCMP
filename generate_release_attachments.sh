@@ -20,18 +20,6 @@ mv controller_v* ~/Downloads/
 ./build.sh -b controllerpkg -f
 mv controller_install* ~/Downloads/
 
-# Build deployer
-./build.sh -b deployer -f
-mv deployer_v* ~/Downloads/
-
-# Build deployer package
-./build.sh -b deployerpkg -f
-mv deployer_package* ~/Downloads/
-
-# Build updater
-#./build.sh -b updater -f
-#mv updater_v* ~/Downloads/
-
 # Generate release notes from git commit message
 
 headcommit=$(git log -1)

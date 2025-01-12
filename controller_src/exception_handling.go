@@ -24,12 +24,10 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 	if errorMessage == nil {
 		return
 	}
-	// If requested, put error in journald
-	if LogToJournald {
-		err := CreateJournaldLog(fmt.Sprintf("%s: %v", errorDescription, errorMessage))
-		if err != nil {
-			fmt.Printf("Failed to create journald entry: %v\n", err)
-		}
+	// Attempt to put error in journald
+	err := CreateJournaldLog(fmt.Sprintf("%s: %v", errorDescription, errorMessage), "err")
+	if err != nil {
+		fmt.Printf("Failed to create journald entry: %v\n", err)
 	}
 
 	// Print the error
@@ -95,13 +93,26 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 }
 
 // Create log entry in journald
-func CreateJournaldLog(errorMessage string) (err error) {
-	// Send entry to journald
-	err = journal.Send(errorMessage, journal.PriErr, nil)
-	if err != nil {
+func CreateJournaldLog(errorMessage string, requestedPriority string) (err error) {
+	// Priority by request input
+	msgPriority := journal.PriAlert
+	if requestedPriority == "err" {
+		msgPriority = journal.PriErr
+	} else if requestedPriority == "info" {
+		msgPriority = journal.PriInfo
+	} else {
+		// No priority, dont create a log entry
 		return
 	}
 
+	// Send entry to journald
+	err = journal.Send(errorMessage, msgPriority, nil)
+	if err != nil {
+		// Don't send error back if journald is unavailable
+		if strings.Contains(err.Error(), "could not initialize socket") {
+			err = nil
+		}
+	}
 	return
 }
 
@@ -114,14 +125,6 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 	Message := errorMessage.Error()
 	Message = strings.ReplaceAll(Message, "\n", " ")
 	Message = strings.ReplaceAll(Message, "\r", " ")
-
-	// Send error to journald
-	if LogToJournald {
-		err := CreateJournaldLog(Message)
-		if err != nil {
-			printMessage(VerbosityStandard, "Failed to create journald entry: %v\n", err)
-		}
-	}
 
 	// Array to hold files that failed
 	var fileArray []string
@@ -151,6 +154,12 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 		printMessage(VerbosityStandard, "Failed to create Fail Tracker Entry for host %s file(s) %v\n", endpointName, fileArray)
 		printMessage(VerbosityStandard, "    Error: %s\n", Message)
 		return
+	}
+
+	// Send error to journald
+	err = CreateJournaldLog(string(FailedInfo), "err")
+	if err != nil {
+		printMessage(VerbosityStandard, "Failed to create journald entry: %v\n", err)
 	}
 
 	// Write (append) fail info for this go routine to global failures - dont conflict with other host go routines

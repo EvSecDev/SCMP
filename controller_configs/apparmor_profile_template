@@ -3,7 +3,7 @@
 ## Variables - add to if required
 @{exelocation}=$executablePath
 @{repolocations}={$RepositoryPath}
-@{configlocations}={$configFilePath}
+@{configlocations}={~/.ssh/config}
 @{serverkeylocations}={$SSHIdentityPath}
 
 @{profilelocation}=$ApparmorProfilePath

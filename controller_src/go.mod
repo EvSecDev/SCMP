@@ -5,9 +5,9 @@ go 1.23.4
 require (
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/go-git/go-git/v5 v5.12.0
+	github.com/kevinburke/ssh_config v1.2.0
 	github.com/pkg/sftp v1.13.7
 	golang.org/x/crypto v0.31.0
-	gopkg.in/yaml.v2 v2.4.0
 )
 
 require (
@@ -21,7 +21,6 @@ require (
 	github.com/go-git/go-billy/v5 v5.6.0 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
-	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/pjbgf/sha1cd v0.3.0 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect

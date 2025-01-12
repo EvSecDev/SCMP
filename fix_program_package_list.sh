@@ -11,14 +11,6 @@ if [[ $program == controller ]]
 then
 	searchDir="$repoRoot/controller_src"
 	mainFile=$(grep -il "func main() {" $searchDir/*.go | egrep -v "testing")
-elif [[ $program == deployer ]]
-then
-	searchDir="$repoRoot/deployer_src"
-	mainFile=$(grep -il "func main() {" $searchDir/*.go | egrep -v "testing")
-elif [[ $program == updater ]]
-then
-	searchDir="$repoRoot/deployer_src/updater_src"
-	mainFile=$(grep -il "func main() {" $searchDir/*.go | egrep -v "testing")
 else
 	# Only allow certain args
 	echo "No program specified - must choose 'controller', 'deployer', or 'updater'"

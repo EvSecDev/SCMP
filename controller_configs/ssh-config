@@ -1,0 +1,70 @@
+##########################
+# Global Config Settings #
+##########################
+#  Ignore SCMP Host Configuration Options
+IgnoreUnknown		PasswordFile,DeploymentState,IgnoreTemplates,RemoteBackupDir,RemoteTransferBuffer,UniversalDirectory,GroupDirs,GroupTags,IgnoreDirectories
+#  Directory Name that contains files relevant to all hosts
+UniversalDirectory	"$UniversalDirectory"
+#  Group Directory Names for Universal Configs to be deployed to all hosts tagged with that group
+#GroupDirs		UniversalConfs_NGINX,UniversalConfs_MONAGENT
+#  Directory Names to ignore in deployment git repository
+IgnoreDirectories	Templates,Extras
+#
+#################
+#
+#Host Web01
+#        Hostname	192.168.10.2
+#	GroupTags	UniversalConfs_NGINX,UniversalConfs_MONAGENT
+#	DeploymentState	offline
+#Host Proxy01
+#	Hostname	192.168.10.3
+#	GroupTags	UniversalConfs_MONAGENT
+#Host DNS01
+#        Hostname	ns1.domain.com
+#Host PBX
+#        Hostname	192.168.10.4
+#	User            root
+#	DeploymentState	offline
+#Host WWW
+#        Hostname	192.168.20.15
+#	Port            2222
+#	GroupTags	UniversalConfs_MONAGENT
+#Host Mail
+#        Hostname	mx01.domain.com
+#	IdentityFile	~/.ssh/appservers.key
+#Host Squid
+#        Hostname	192.168.20.22
+#	RemoteBackupDir		/var/tmp/.scmpbackups
+#	RemoteTransferBuffer	/var/tmp/.scmpbuffer
+#Host DB01
+#        Hostname	psql01.domain.com
+#	Port		2202
+#	StrictHostKeyChecking no
+#	DeploymentState	offline
+#Host SSO
+#        Hostname	sso.domain.com
+#	IgnoreUniversal	yes
+##########################
+# Global Device Settings #
+##########################
+Host * 
+	# Host Settings
+	User				"$SSHUser"
+	Port				"$SSHPort"
+	PasswordFile                        "$Password"
+	PreferredAuthentications	password,keyboard-interactive,publickey
+        IdentityFile			"$SSHIdentityPath"
+        IdentitiesOnly			yes
+	#  General Settings
+	UserKnownHostsFile		~/.ssh/known_hosts
+	StrictHostKeyChecking		ask
+	ForwardX11			no
+	ForwardX11Trusted		no
+	Tunnel				no
+	ForwardAgent			no
+	GSSAPIAuthentication		no
+	HostbasedAuthentication		no
+	#  SCMP Global Settings
+	RemoteBackupDir			/tmp/.scmpbackups
+	RemoteTransferBuffer		/tmp/.scmpbuffer
+

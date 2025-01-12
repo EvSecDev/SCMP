@@ -10,29 +10,22 @@ set -e
 
 # Check for required commands
 command -v go >/dev/null
-command -v tar >/dev/null
 command -v base64 >/dev/null
 command -v sha256sum >/dev/null
 
 # Vars
 repoRoot=$(pwd)
 controllerSRCdir="controller_src"
-deployerSRCdir="deployer_src"
-updaterSRCdir="deployer_src/updater_src"
-signerSRCdir="deployer_src/signing_src"
-
 controllerCONFdir="controller_configs"
-deployerCONFdir="deployer_configs"
 
 function usage {
 	echo "Usage $0
 
 Options:
-  -b <prog>   Which program to build (controller, controllerpkg, deployer, deployerpkg, updater, signer)
+  -b <prog>   Which program to build (controller, controllerpkg)
   -a <arch>   Architecture of compiled binary (amd64, arm64) [default: amd64]
   -o <os>     Which operating system to build for (linux, windows) [default: linux]
   -f          Build nicely named binary (does not apply to package builds)
-  -n          Don't add signatures to binary
   -u          Update go packages for a given program (use -b to choose which program, *pkg options not applicable)
 "
 }
@@ -44,104 +37,13 @@ function check_for_dev_artifacts {
         then
                 echo "  Debug print found in source code. You might want to remove that before release."
         fi
-}
 
-function create_apparmor_profile {
-	startDelimiter="  # User defined commands for post deployment checks and reloads"
-	workingDeployerProfileFile="$1"
-	optionalProfileDirectory="deployer_configs/apparmor_profiles/"
-
-	# Get a list of profile files (exclude directories)
-	files=($(find "$optionalProfileDirectory" -maxdepth 1 -type f))
-
-	# Extract only the file names (remove directory path)
-	file_names=()
-	for file in "${files[@]}"; do
-		file_names+=("$(basename "$file")")
-	done
-
-	# Display the files and allow the user to select using numbers only
-	echo "Select apparmor profiles by number (enter numbers separated by space, use the 'Done' option number to finish:"
-	select file in "${file_names[@]}" "Done"; do
-	    case $file in
-	        "Done")
-	            break
-	            ;;
-	        *)
-	            # Get the full path of the selected file
-	            selected_file="${files[${REPLY}-1]}"
-
-	            # Check if a valid file was selected (not an empty selection)
-	            if [ -n "$selected_file" ]; then
-	                # Add the selected file to the list of selected files
-	                selected_files+=("$selected_file")
-	                echo "Selected: $file"
-	            else
-	                echo "Invalid choice. Please select a valid number."
-	            fi
-	            ;;
-	    esac
-	done
-
-	# Create working copy of apparmor profile
-	cp deployer_configs/apparmor_profile_template $workingDeployerProfileFile
-
-	for file in "${selected_files[@]}"
-	do
-	        echo "Adding apparmor profile from $file"
-
-	        # Get caller profile name
-	        callerProfileName=$(grep "#profile" $file | cut -d" " -f2)
-	        if [[ -z $callerProfileName ]]
-	        then
-	                echo "Could not find the caller profile name in $file"
-	                exit 1
-	        fi
-
-	        # Get profile caller lines
-	        reloadProfileCallerLines=$(grep -oPz '(?s)(?<='"$startDelimiter"')(.*?)(?=#})' $file | tr -d '\0' | egrep -v "^$")
-	        if [[ -z $reloadProfileCallerLines ]]
-	        then
-	                echo "Could not identify reload profile caller lines in $file"
-	                exit 1
-	        fi
-
-	        # Find start delimiter for reload profile
-	        reloadProfileStartDelimiter=$(grep "^profile" $file)
-	        if [[ -z $reloadProfileStartDelimiter ]]
-	        then
-	                echo "Could not find where the reload profile starts in $file"
-	                exit 1
-	        fi
-
-	        # Get reload profile contents
-	        reloadProfile=$(sed -n '/'"$reloadProfileStartDelimiter"'/,/}$/p' $file)
-        	if [[ -z $reloadProfile ]]
-	        then
-	                echo "No reload profile found in $file"
-	                exit 1
-	        fi
-
-	        # Ensure start delimiter exists in caller apparmor profile
-	        if ! sed -n '/profile '"$callerProfileName"'/,/}$/p' $workingDeployerProfileFile | grep "$startDelimiter" >/dev/null
-	        then
-	                echo "Profile $callerProfileName from $file does not have the startDelimiter - Not continuing"
-	                exit 1
-	        fi
-
-	        # Add reload profile call into template file
-	        echo "$reloadProfileCallerLines" > .t
-	        sed -i "/$startDelimiter/ r .t" $workingDeployerProfileFile
-	        rm .t
-	        if ! grep "$reloadProfileCallerLines" $workingDeployerProfileFile >/dev/null
-	        then
-	                echo "Failed to add reload profile caller lines from $file to $workingDeployerProfileFile"
-	                exit 1
-	        fi
-
-	        # Write the reload profile to the end of the template file
-	        echo "$reloadProfile" >> $workingDeployerProfileFile
-	done
+	# Quick staticcheck check - ignoring punctuation in error strings
+	cd $controllerSRCdir
+	set +e
+	staticcheck *.go | egrep -v "error strings should not"
+	set -e
+	cd $repoRoot/
 }
 
 function controller_binary {
@@ -231,207 +133,6 @@ function controller_package {
 	rm $outputEXE.tar.gz $outputEXE
 }
 
-function sign_binary {
-	command -v objcopy >/dev/null
-
-	# Set vars
-	signerinputfile="$1"
-	code_signing_keyfile="/home/admin/Documents/.code_signing_key.priv"
-	export GOARCH=amd64
-	export GOOS=linux
-
-	# Build sig program
-	cd $repoRoot/$signerSRCdir
-	go build -o sig sig.go
-
-	# Sign
-	./sig -in $signerinputfile -priv $code_signing_keyfile -sign
-	rm sig
-}
-
-function deployer_binary {
-	# Always ensure we start in the root of the repository
-	cd $repoRoot/
-
-	# Check for things not supposed to be in a release
-	check_for_dev_artifacts "$deployerSRCdir"
-
-	# Move into dir
-	cd $deployerSRCdir
-
-	# Run tests
-	go test
-
-	# Vars for build
-	inputGoSource="*.go"
-	outputEXE="deployer"
-	export CGO_ENABLED=0
-	export GOARCH=$1
-	export GOOS=$2
-
-	# Build binary
-	go build -o $repoRoot/$outputEXE -a -ldflags '-s -w -buildid= -extldflags "-static"' $inputGoSource
-	cd $repoRoot
-
-	# Sign by default, skip if user requested nosig
-	if [[ $4 == false ]]
-	then
-		# Sign deployer
-		sign_binary ""$repoRoot"/"$outputEXE""
-		cd $repoRoot
-	fi
-
-	# Make nicely named binary if requested
-	if [[ $3 == true ]]
-	then
-		# Get version
-		version=$(./$outputEXE --versionid)
-		DeployerEXE="deployer_"$version"_$GOOS-$GOARCH-static"
-
-		# Rename with version
-		mv $outputEXE $DeployerEXE
-		sha256sum $DeployerEXE > "$DeployerEXE".sha256
-	fi
-}
-
-function deployer_package {
-	# function args
-	fullOutputName=$3
-	noSignature=$4
-
-	# Always ensure we start in the root of the repository
-	cd $repoRoot/
-
-	# Check for things not supposed to be in a release
-	check_for_dev_artifacts "$deployerSRCdir"
-
-	# Read in config files for install script
-	defaultInstallOptions="$deployerCONFdir/default_install_options.txt"
-	defaultSystemdService="$deployerCONFdir/scmpd.service"
-	defaultConfigYaml="$deployerCONFdir/scmpd.yaml"
-	defaultApparmorProfile="$deployerCONFdir/apparmor_profile_template"
-	workingApparmorProfile="$defaultApparmorProfile.build"
-
-	# Ask what deployer apparmor profiles to add to install script
-	create_apparmor_profile "$workingApparmorProfile"
-
-	# Create installation script
-	cp "$deployerCONFdir/install_script_template.sh" "$repoRoot/install_deployer.sh"
-	awk '{if ($0 ~ /#{{DEFAULTS_PLACEHOLDER}}/) {while((getline line < "'$defaultInstallOptions'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
-	awk '{if ($0 ~ /#{{CONFIG_PLACEHOLDER}}/) {while((getline line < "'$defaultConfigYaml'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
-	awk '{if ($0 ~ /#{{AAPROF_PLACEHOLDER}}/) {while((getline line < "'$workingApparmorProfile'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
-	awk '{if ($0 ~ /#{{SYSTEMD_SERVICE_PLACEHOLDER}}/) {while((getline line < "'$defaultSystemdService'") > 0) print line} else print $0}' install_deployer.sh > .d && mv .d install_deployer.sh
-	chmod 750 "$repoRoot/install_deployer.sh"
-	rm $workingApparmorProfile
-
-	# Vars for build
-	inputGoSource="*.go"
-	outputEXE="deployer"
-	packagingDir="packaging"
-	export CGO_ENABLED=0
-	export GOARCH=$1
-	export GOOS=$2
-
-	# Build binary
-	cd $repoRoot/$deployerSRCdir
-	go test
-	go build -o $outputEXE -a -ldflags '-s -w -buildid= -extldflags "-static"' $inputGoSource
-
-	# Sign by default, skip if user requested nosig
-	if [[ $noSignature == false ]]
-	then
-		# Sign deployer
-		sign_binary ""$repoRoot"/"$deployerSRCdir"/"$outputEXE""
-		cd $repoRoot/$deployerSRCdir
-	fi
-
-	# Package file name based on if user wants full naming or not
-	if [[ $fullOutputName == true ]]
-	then
-		# Full release package name
-		version=$(./$outputEXE --versionid)
-		DeployerPKG=""$outputEXE"_package_"$version"_$GOOS-$GOARCH.tar.gz"
-	else
-		DeployerPKG=""$outputEXE"_package.tar.gz"
-	fi
-
-	# Build updater with not nice names
-	updater_binary "$GOARCH" "$GOOS" "false"
-	updaterEXE=$(find $repoRoot/ -name updater)
-	cd $repoRoot/$deployerSRCdir
-
-	# Re-set deployer exe name after overwrite by updater function
-	outputEXE="deployer"
-
-	# Create packaged install script
-	# Move relevant files into packaging dir
-	mkdir $packagingDir
-	mv $repoRoot/install_deployer.sh $packagingDir/
-	mv $outputEXE $packagingDir/$outputEXE
-	mv $updaterEXE $packagingDir/
-
-	# Create installation tar
-	cd $packagingDir
-	tar -cvzf ../$DeployerPKG .
-	cd $repoRoot/$deployerSRCdir
-	rm -rf $packagingDir
-
-	# Add hash for package if full build name requested
-	if [[ $fullOutputName == true ]]
-        then
-		# Add checksum file
-		sha256sum $DeployerPKG > "$DeployerPKG".sha256
-		mv "$DeployerPKG".sha256 $repoRoot/
-	fi
-
-	# Move package to repo root dir
-	mv $DeployerPKG $repoRoot/
-}
-
-function updater_binary {
-	# Always ensure we start in the root of the repository
-	cd $repoRoot/
-
-	# Check for things not supposed to be in a release
-	check_for_dev_artifacts "$updaterSRCdir"
-
-	# Move into dir
-	cd $repoRoot/$updaterSRCdir
-
-	# Vars for build
-	inputGoSource="updater.go"
-	outputEXE="updater"
-	export CGO_ENABLED=0
-	export GOARCH=$1
-	export GOOS=$2
-
-	# Build binary
-	go build -o $repoRoot/$outputEXE -a -ldflags '-s -w -buildid= -extldflags "-static"' $inputGoSource
-
-	# Move back to repo root dir
-	cd $repoRoot
-
-        # Sign by default, skip if user requested nosig
-        if [[ $4 == false ]]
-        then
-                # Sign updater
-                sign_binary ""$repoRoot"/"$outputEXE""
-                cd $repoRoot
-        fi
-
-	# Rename to more descriptive if full build was requested
-	if [[ $3 == true ]]
-	then
-		# Get version of built binary
-		version=$(./$outputEXE --versionid)
-		updaterEXE=""$outputEXE"_"$version"_$GOOS-$GOARCH-static"
-
-		# Rename with version
-		mv $outputEXE $updaterEXE
-		sha256sum $updaterEXE > $repoRoot/"$updaterEXE".sha256
-	fi
-}
-
 function update_go_packages {
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
@@ -453,7 +154,6 @@ function update_go_packages {
 ## START
 # DEFAULT CHOICES
 buildfull='false'
-nosig='false'
 architecture="amd64"
 os="linux"
 
@@ -473,12 +173,9 @@ do
 	  'o')
 	    os="$OPTARG"
 	    ;;
-	  'n')
-	    nosig='true'
-	    ;;
 	  'u')
-		updatepackages='true'
-		;;
+	    updatepackages='true'
+	    ;;
 	  'h')
 	    usage
 	    exit 0
@@ -502,18 +199,6 @@ elif [[ $buildopt == controllerpkg ]]
 then
 	controller_package "$architecture" "$os"
 	echo "Complete: controller package built"
-elif [[ $buildopt == deployer ]]
-then
-	deployer_binary "$architecture" "$os" "$buildfull" "$nosig"
-	echo "Complete: deployer binary built"
-elif [[ $buildopt == deployerpkg ]]
-then
-	deployer_package "$architecture" "$os" "$buildfull" "$nosig"
-	echo "Complete: deployer package built"
-elif [[ $buildopt == updater ]]
-then
-	updater_binary "$architecture" "$os" "$buildfull" "$nosig"
-	echo "Complete: updater binary built"
 fi
 
 exit 0

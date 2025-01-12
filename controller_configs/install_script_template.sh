@@ -91,23 +91,15 @@ then
 	fi
 fi
 
-# Max outbound connections at once
-echo "[*] Enter the maximum number of allowed outbound connections for the controller"
-read -e -p "    (Default '$MaximumOutboundConnections'): " UserChoice_MaximumOutboundConnections
-if [[ $UserChoice_MaximumOutboundConnections != "" ]]
-then
-	MaximumOutboundConnections=$UserChoice_MaximumOutboundConnections
-fi
-
 # SSH User password
 echo "[*] Enter the SSH password for the user of all remote hosts (this will be used for sudo only, leave blank for unrestricted sudo access)"
-read -e -s -p "    Password: " UserChoice_SudoPassword
-if [[ $UserChoice_SudoPassword != "" ]]
+read -e -s -p "    Password: " UserChoice_Password
+if [[ $UserChoice_Password != "" ]]
 then
-	read -e -s -p "    Password again: " UserChoice_SudoPasswordConfirm
-	if [[ $UserChoice_SudoPassword == $UserChoice_SudoPasswordConfirm ]]
+	read -e -s -p "    Password again: " UserChoice_PasswordConfirm
+	if [[ $UserChoice_Password == $UserChoice_PasswordConfirm ]]
 	then
-		SudoPassword=$UserChoice_SudoPassword
+		Password=$UserChoice_Password
 	else
 		logError "Passwords do not match, try again." "true"
 	fi
@@ -120,28 +112,9 @@ then
 	BranchName=$UserChoice_BranchName
 fi
 
-echo "[*] Enter the name of the universal directory inside the repository"
-read -e -p "    (Default '$UniversalDirectory'): " UserChoice_UniversalDirectory
-if [[ $UserChoice_UniversalDirectory != "" ]]
-then
-	UniversalDirectory=$UserChoice_UniversalDirectory
-fi
-
-echo "[*] Add all the SSH hosts in your SSH config file to the deployer endpoints?"
-read -e -p "    [y\N]: " AddSSHConfigHostsConfirmation
-AddSSHConfigHostsConfirmation=$(echo $AddSSHConfigHostsConfirmation | tr [:upper:] [:lower:])
-
-echo "[*] Will you be using the Deployer SSH server instead of the standard SSH server?"
-read -e -p "    [y/N]: " RemoteUsesDeployerServer
-RemoteUsesDeployerServer=$(echo $RemoteUsesDeployerServer | tr [:upper:] [:lower:])
-
 echo "[*] Install git post-commit hook? (REQUIRED if operating controller in auto-deploy mode)"
 read -e -p "    [y\N]: " InstallHookConfirmation
 InstallHookConfirmation=$(echo $InstallHookConfirmation | tr [:upper:] [:lower:])
-
-echo "[*] Log controller errors to journald?"
-read -e -p "    [y/N]: " LogJournalBoolConfirmation
-LogJournalBoolConfirmation=$(echo $LogJournalBoolConfirmation | tr [:upper:] [:lower:])
 
 echo "[*] Do you want to install the apparmor profile?"
 read -e -p " [y/N]: " installAAProfileConfirmation
@@ -150,10 +123,6 @@ if [[ $installAAProfileConfirmation == "y" ]]
 then
 	command -v apparmor_parser >/dev/null || logError "apparmor_parser command not found, please install and retry." "true"
 fi
-
-echo "[*] Use your SSH agent to retrieve private keys?"
-read -e -p "    [y/N]: " SSHAgentBoolConfirmation
-SSHAgentBoolConfirmation=$(echo $SSHAgentBoolConfirmation | tr [:upper:] [:lower:])
 
 # Ask for confirmation before continuing
 echo "[*] Are the answers above all correct? Enter 'n' or nothing to exit"
@@ -194,49 +163,15 @@ then
 	echo "[+] Validated supplied SSH key at $SSHIdentityPath"
 fi
 
-# Journald log choice
-if [[ $LogJournalBoolConfirmation == "y" ]]
-then
-	LogJournalBool="true"
-else
-	LogJournalBool="false"
-fi
-
-# SSH Agent choice
-if [[ $SSHAgentBoolConfirmation == "y" ]]
-then
-	SSHAgentBool="true"
-else
-	SSHAgentBool="false"
-fi
-
 # Put config in user choosen location
-cat > "$configFilePath" <<EOF
+if [[ -f $configFilePath ]]
+then
+	echo "[-] SSH Config file already exists, not overwritting it. Please configure manually."
+else
+	cat > "$configFilePath" <<EOF
 #{{CONFIG_PLACEHOLDER}}
 EOF
-echo "[+] Successfully created controller configuration  in '$configFilePath'"
-
-if [[ $AddSSHConfigHostsConfirmation == "y" ]]
-then
-	sshConfigHosts=$(egrep "^Host " ~/.ssh/config | sed 's/Host //g')
-	for line in $sshConfigHosts
-	do
-		endpointName=$line
-		endpoint=$(ssh -G $endpointName | egrep "^hostname " | sed 's/hostname //g')
-		endpointPort=$(ssh -G $endpointName | egrep "^port "  | sed 's/port //g')
-		endpointUser=$(ssh -G $endpointName | egrep "^user " | sed 's/user //g')
-		if [[ $RemoteUsesDeployerServer == y ]]
-		then
-			endpointPort="2022"
-			endpointUser="deployer"
-		fi
-		echo "  $endpointName:
-    - endpoint: \"$endpoint\"
-    - endpointPort: $endpointPort
-    - endpointUser: \"$endpointUser\"" >> $configFilePath
-		mkdir $RepositoryPath/$endpointName 2>/dev/null || logError "failed to create host $endpointName directory in git repository" "false"
-	done
-	echo "[+] Successfully added SSH client config hosts to '$configFilePath'"
+	echo "[+] Successfully created controller configuration  in '$configFilePath'"
 fi
 
 # Create first commit

@@ -2,17 +2,16 @@
 
 ## Description
 
-A secure and automated configuration management terminal-based tool backed by git to centrally control and push configuration files to Linux servers.
+A secure and automated configuration management terminal-based tool backed by git to centrally control and push configuration files to Linux servers through SSH.
 
 This program is designed to assist and automate a Linux administrators job functions by centrally allowing them to edit, version control, and deploy changes to configuration files of remote Linux systems.
 This program is NOT intended as a configuration management system (like Terraform), but rather a CLI tool to replace the manual process of SSH'ing into many remote servers to manage configuration files.
 
-There are three parts to this tool (two of which are optional), the controller, deployer, and updater.
- - The controller is the client that runs on your workstation and pushes configuration files to remote servers.
- - The deployer is the (optional) server that runs on the remote servers that will process the configuration files received from the controller.
- - The updater is the (optional) helper program that also runs on the remote servers that will validate new deployer executables that the controller sends to the deployer server.
-
 The controller utilizes a local git repository of a specific structure to track configuration files that should be applied to every host administered, and specific config overrides as well as host-specific configurations.
+The configuration for the controller utilizes a semi-standard `~/.ssh/config` that you would normally use with any other SSH client.
+The 'semi-standard' part of this is the inclusion of some advanced configuration options to better integrate with git and deployment activities.
+Fear not, you can use your `~/.ssh/config` with the controller and a regular SSH client at the same time.
+
 Using the Go x/crypto/ssh package, this program will SSH into the hosts defined in the configuration file and write the relevant configurations as well as handle the reloading of the associated service/program if required.
   The deployment method is currently only SSH by key authentication using password sudo for remote commands (password login authentication is currently not supported).
  - In deploy changes mode, you can choose a specific commit ID (or specify none and use the latest commit) from your repository and deploy the changed files in that specific commit to their designated remote hosts.
@@ -20,23 +19,19 @@ Using the Go x/crypto/ssh package, this program will SSH into the hosts defined 
  - In deploy all mode, with a comma separated list of hosts, you can deploy every relevant file in the repo to the chosen hosts for a given commit (usually, the head commit). 
 
 Although this program does need permissions on remote systems for writing system-wide configuration files and potentially restarting services, it does NOT need to SSH as root.
-It is recommended to use sudo with a password with either a standard SSH server or the custom Deployer SSH server with some or all of these below security precautions.
-  - Only allowing sudo for ls, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum, and your reload commands.
+In general, it is recommended to use some or all of these below security precautions.
+  - Sudo access that requires a password.
+  - Only allowing your user sudo access for ls, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum, and your reload commands.
   - Using network level host IP authentication (such as IPsec AH)
   - Using the supplied apparmor profile for the controller.
   - Regular encrypted backups of git repository
-  - If using the custom Deployer SSH server, also consider:
-    - Running as a non-login, non-root, system user.
-    - Using the supplied apparmor profile for the supplied custom Deployer SSH server (with modifications for your reload commands).
-    - Using the supplied updater program to update the Deployer executable from the controller (This verifies the new Deployer binary by digital signature prior to update)
 Below you can find the recommended setup for the remote servers, and how to configure the remote host to have the least privileges possible to fulfill the functions of this program.
 
-This is a work-in-progress and may have unintended consequences to managed systems as development is ongoing. Use at your own risk.
 If you like what this program can do or want to expand functionality yourself, feel free to submit a pull request or fork.
 
 ## Capabilities Overview
 
-### What it **can** do: Deployer (Remote Host Actions)
+### What it **can** do: Remote Host Actions
 
 - Create new files
 - Create new directories
@@ -47,7 +42,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - Removing empty 'managed' directories
 - Run a linear series of commands to enable/reload/start services associated with files
 
-### What it **can't** do: Deployer (Remote Host Actions)
+### What it **can't** do: Remote Host Actions
 
 - Removing files not previously in repository
 - Removing directories not previously in repository
@@ -56,7 +51,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - Manage executables or shared objects
 - Deploy without existing commandlets on remote system (ls, rm, mv, ect.)
 
-### What it **can** do: Controller
+### What it **can** do: Local Actions
 
 - Deploy automatically via git post-commit hook
 - Deploy manually via specifying commit hash
@@ -66,13 +61,12 @@ If you like what this program can do or want to expand functionality yourself, f
 - Deploy all (or a subset of) relevant files (even unchanged) to a newly created remote host
 - Group hosts together to allow single universal configuration files to deploy to all or a subset of remote hosts
 - Concurrent SSH Connections to handle a large number of remote hosts (and option to limit concurrency)
-- Support for regular SSH servers (if you don't want to use the Deployer program)
 - Key-based SSH authentication (by file or ssh-agent, per host or all hosts)
 - Password-based Sudo command escalation
 - Create new repositories
 - Collect configurations from existing systems to bootstrap the local repository
 
-### What it **can't** do: Controller
+### What it **can't** do: Local Actions
 
 - SSH Password logins
 - SSH 2FA (TOTP) logins
@@ -84,16 +78,14 @@ If you like what this program can do or want to expand functionality yourself, f
 Usage: controller [OPTIONS]...
 
 Examples:
-    controller --config </etc/scmpc.yaml> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-    controller --config </etc/scmpc.yaml> --deploy-failures
-    controller --config </etc/scmpc.yaml> --deploy-all [--remote-hosts <www,proxy,db01>] [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
-    controller --config </etc/scmpc.yaml> --deployer-versions [--remote-hosts <www,proxy,db01>]
-    controller --config </etc/scmpc.yaml> --deployer-update-file <~/Downloads/deployer> [--remote-hosts <www,proxy,db01>]
+    controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
+    controller --config <~/.ssh/config> --deploy-failures
+    controller --config <~/.ssh/config> --deploy-all [--remote-hosts <www,proxy,db01>] [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
     controller --new-repo /opt/repo1:main
-    controller --config </etc/scmpc.yaml> --seed-repo [--remote-hosts <www,proxy,db01>]
+    controller --config <~/.ssh/config> --seed-repo [--remote-hosts <www,proxy,db01>]
 
 Options:
-    -c, --config </path/to/yaml>               Path to the configuration file [default: scmpc.yaml]
+    -c, --config </path/to/ssh/config>         Path to the configuration file [default: ~/.ssh/config]
     -d, --deploy-changes                       Deploy changed files in the specified commit [commit default: head]
     -a, --deploy-all                           Deploy all files in specified commit [commit default: head]
     -f, --deploy-failures                      Deploy failed files/hosts using failtracker file from last failed deployment
@@ -101,10 +93,7 @@ Options:
     -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository)
     -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
     -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
-    -q, --deployer-versions                    Query remote host deployer executable versions
-    -Q, --updater-versions                     Query remote host updater executable versions
-    -u, --deployer-update-file </path/to/exe>  Upload and update deployer executable with supplied signed ELF file
-    -U, --updater-update-file </path/to/exe>   Upload and update updater executable with supplied signed ELF file
+    -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10]
     -n, --new-repo </path/to/repo>:<branch>    Create a new repository at the given path with the given initial branch name
     -s, --seed-repo                            Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
     -g, --disable-git-hook                     Disables the automatic deployment git post-commit hook for the current repository
@@ -114,22 +103,8 @@ Options:
     -h, --help                                 Show this help menu
     -V, --version                              Show version and packages
         --versionid                            Show only version number
-```
 
-### Deployer Help Menu
-
-```
-Usage: scmdeployer [OPTIONS]...
-
-Options:
-    -c, --config </path/to/yaml>  Path to the configuration file [default: scmpd.yaml]
-    -s, --start-server            Start the Deployer SSH Server
-    -t, --test-config             Test deployer configuration syntax validity
-    -T, --dry-run                 Runs through all actions and checks for error before starting server
-    -v, --verbosity <0...4>       Increase details and frequency of progress messages (Higher number = more verbose) [default: 1]
-    -h, --help                    Show this help menu
-    -V, --version                 Show version and packages
-        --versionid               Show only version number
+Documentation: <https://github.com/EvSecDev/SCMPusher>
 ```
 
 ## Setup and Configuration
@@ -141,19 +116,10 @@ Options:
 2. Start the installer script and follow the prompts
     - `./controller_installer*sh`
 3. Configure the YAML configuration file for all the remote Linux hosts you wish to manage (see comments in YAML for what the fields mean)
-4. Done! Proceed to deployer installation
+4. Done! Proceed to remote preparation
 
-### Deployer Installation (Remote Setup)
+### Remote Prepation
 
-**If using the Deployer SSH server:**
-1. Copy the install archive to the installation host
-    - `scp deployer_package_* user@remotehost:~/`
-2. Extract the archive with tar
-    - `tar -xzvf deployer_package_*.tar.gz`
-3. Run the installation shell script, answer the prompts
-    - `sudo ./install_deployer.sh`
-
-**If not using the Deployer SSH server:**
 1. Create a user that can log into SSH and use Sudo
    - `useradd --create-home --user-group deployer`
    - `passwd deployer`
@@ -261,7 +227,7 @@ To this end, there are two features that make this possible: UniversalConfs and 
 UniversalConfs is a directory in the root of your repository that will contain a filesystem-like directory structure underneath it.
 Configuration files in this directory will be applicable for deployment to all hosts.
 If a particular host should need a slightly different version of the UniversalConf config, then a file with an identical path and name should be put under the host directory to stop that host from using the universal config.
-If a particular host should not ever use the UniversalConf configs, then the config option `ignoreUniversalConfs` should be set to true under that particular host in the DeployerEndpoints YAML section of the main config.
+If a particular host should not ever use the UniversalConf configs, then the config option `ignoreUniversalConfs` should be set to true under that particular host in the main config.
 
 UniversalGroups is a set of directories that will only apply to a subset of hosts.
 The functionality is identical to the UniversalConfs directory, but will only apply to hosts that are apart of the group.
@@ -273,10 +239,6 @@ It is recommended to use some sort of pre-check/validation/test option for your 
 Something like `nginx -t` or `nft -f /etc/nftables.conf -c` ensures that the syntax of the file you are pushing is valid before enabling the new config.
 This also ensures that if the actual reload command (like `systemctl restart`) fails, that the system is left running the previously known-good config.
 
-If using the Deployer executable with the apparmor profile, it is recommended to either use one of the many sample reload command profiles or create your own.
-This adds an extra layer of security. Although, the default installation profile of confining sudo and which commands sudo can run (even if those commands themselves are unconfined) is safe enough for most purposes.
-If you do use the extra apparmor profiles, remember to append them to the existing Deployer apparmor profile to ensure they are protected from unauthorized writes.
-
 ### Warning about the known_hosts file
 
 Beware, using your existing known_hosts file from a standard SSH client is not recommended.
@@ -284,61 +246,6 @@ In some implementations, multiple SSH clients do not play well writing hosts to 
 In practice, this will look like the controller is continuously prompting you to trust keys for remote hosts you have already trusted.
 
 It is recommended to store the known_hosts file (path specified in the controller YAML configuration file) inside the root of repository.
-
-### Reason for a separate SSH server (the Deployer)
-
-You might be asking yourself, "Why is there a custom SSH server for this program? I already have an SSH server".
-That is a good question, and if you don't care to read why, the controller fully supports a regular SSH server and you can ignore the Deployer program altogether.
-
-But as for why, I wanted extra security measures around this program, since it supposed to read and write to almost everything on a given system.
-So I wrote an extremely stripped down, bare-bones SSH server as I could and applied security measures to that. 
-This reduces the attack surface immensely and allows for a very narrow set of privileges to be granted.
-
-The Deployer program only supports:
-  - one connection at a time
-  - one authentication method (username+key)
-  - one channel at a time
-  - one request at a time
-  - two request types, exec and sftp
-
-But don't worry (too much), I didn't make an SSH server from scratch.
-I am using the library x/crypto/ssh, and while I am creating my own implementation, it is so featureless that the risk of an high impact RCE is unlikely (in my own code, not the source library).
-The secondary affect of such a bare-bones server program also means I can tailor the installation to be extremely narrow.
-Not only can the entire server be run as a nologin non-root system user, it can also be wrapped in a very restrictive apparmor confinement, since the server only fulfills this one function (configuration deployment).
-comparatively, a standard SSH server (being more versatile and feature-rich) would need a more open apparmor profile (Not to mention that the SSH parent process is run as root).
-
-For example, the apparmor profile:
-  - confines the server process to its own profile.
-  - confines every sudo process to its own profile.
-  - confines every command run by sudo to a dedicated profile, and restricts the allowed scope of deployment.
-  - confines every reload command to a dedicated profile, and restricts the allowed scope of reloads.
-
-You might also question how you would update all these Deployer executables since it doesn't use your systemd package manager. 
-Well, good news! The controller can push updated Deployer executables for you. 
-When a new Deployer executable is released, simply download and use the controller and whichever remote hosts (or all of them) to update.
-The controller will transfer the new file over, and the old Deployer will launch the dedicated updater program. 
-This updater program will verify the embedded digital signature inside the new Deployer executable. 
-Then (based on it's parent process) will kill the Deployer process, move the new executable in place, and the new Deployer will start automatically (Because of the systemd auto-restart feature).
-
-### How the updater works
-
-Design requirements for the Deployer updater system:
-- Ensure that the Deployer process cannot write to its own executable file or configuration file
-- Ensure that the Deployer process cannot alter received updated executables
-- Ensure that the updater program itself is robust and rarely needs updating itself
-
-With those requirements, the Updater operates in the following manner:
-1. User initiates an updater from the controller by passing the file path on the controller machine and specifying which remote hosts to update.
-2. Controller SFTP transfers the new Deployer binary to all the remote hosts (using the `/tmp` buffer file).
-3. Controller issues SSH request type `update` to each remote host along with the Sudo password via standard in.
-  - Note: `update` is a custom request type not present in normal SSH servers and will fail at this stage if you accidentally try to update a host without Deployer installed
-4. The Deployer process on the remote host recognizes the custom request type and uses the updater executable file path in its own configuration file.
-5. The Deployer process launches the updater process as a child process running as its own user and passes the Sudo password via standard in.
-6. The Updater process will retrieve the embedded digital signature in the new updated Deployer executable and use the embedded public key to verify the new file.
-7. The Updater process will assume its parent PID is the Deployer process and kill that PID.
-8. The Updater process will copy the Deployer buffer file from `/tmp` to the executable location of the old Deployer process keeping the destination permissions.
-9. The Updater process will remote the buffer file from `/tmp` and then exit.
-10. Systemd will auto-restart the Deployer process (now updated) after 60 seconds.
 
 ### Commit Automatic Rollback
 

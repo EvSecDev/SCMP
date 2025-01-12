@@ -21,7 +21,7 @@ import (
 // ###################################
 
 // Entry point for user to select remote files to download and format into local repository
-func seedRepositoryFiles(config Config, hostOverride string) {
+func seedRepositoryFiles(hostOverride string) {
 	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
@@ -51,22 +51,23 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 	// Loop hosts chosen by user and prepare relevant host information for deployment
 	for _, endpointName := range userHostChoices {
 		// Ensure user choice has an entry in the config
-		if config.DeployerEndpoints[endpointName].Endpoint == "" {
+		configHostFromUserChoice, _ := config.Get(endpointName, "Hostname")
+		if configHostFromUserChoice == "" {
 			logError("Invalid host choice", fmt.Errorf("host %s does not exist in config", endpointName), false)
 		}
 
 		// Extract vars for endpoint information
-		info, err := retrieveEndpointInfo(config.DeployerEndpoints[endpointName], config.SSHClientDefault)
+		info, err := retrieveEndpointInfo(endpointName)
 		logError("Failed to retrieve endpoint information", err, false)
 
 		// If user requested dry run - print collected information so far and gracefully abort update
 		if dryRunRequested {
-			printMessage(VerbosityStandard, "Host: %s\n", endpointName)
-			printMessage(VerbosityStandard, "  Options:\n")
-			printMessage(VerbosityStandard, "       Endpoint Address: %s\n", info.Endpoint)
-			printMessage(VerbosityStandard, "       SSH User:         %s\n", info.EndpointUser)
-			printMessage(VerbosityStandard, "       SSH Key:          %s\n", info.PrivateKey.PublicKey())
-			printMessage(VerbosityStandard, "       Transfer Buffer:  %s\n", info.RemoteTransferBuffer)
+			printMessage(VerbosityProgress, "Host: %s\n", endpointName)
+			printMessage(VerbosityProgress, "  Options:\n")
+			printMessage(VerbosityProgress, "       Endpoint Address: %s\n", info.Endpoint)
+			printMessage(VerbosityProgress, "       SSH User:         %s\n", info.EndpointUser)
+			printMessage(VerbosityProgress, "       SSH Key:          %s\n", info.PrivateKey.PublicKey())
+			printMessage(VerbosityProgress, "       Transfer Buffer:  %s\n", info.RemoteTransferBuffer)
 			continue
 		}
 
@@ -76,7 +77,7 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 		defer client.Close()
 
 		// Run menu for user to select desired files
-		selectedFiles, err := runSelectionMenu(endpointName, client, info.SudoPassword)
+		selectedFiles, err := runSelectionMenu(endpointName, client, info.Password)
 		logError("Error retrieving remote file list", err, false)
 
 		// Initialize buffer file (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
@@ -85,7 +86,7 @@ func seedRepositoryFiles(config Config, hostOverride string) {
 
 		// Download user file choices to local repo and format
 		for targetFilePath, fileInfo := range selectedFiles {
-			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, info.SudoPassword, info.RemoteTransferBuffer)
+			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, info.Password, info.RemoteTransferBuffer)
 			logError("Error seeding repository", err, false)
 		}
 	}

@@ -8,7 +8,7 @@ import (
 )
 
 // Parses and prepares deployment information
-func preDeployment(deployMode string, deployerEndpoints map[string]DeployerEndpoints, SSHClientDefault SSHClientDefaults, commitID string, hostOverride string, fileOverride string) {
+func preDeployment(deployMode string, commitID string, hostOverride string, fileOverride string) {
 	// Show progress to user
 	printMessage(VerbosityStandard, "%s\n", progCLIHeader)
 
@@ -34,10 +34,10 @@ func preDeployment(deployMode string, deployerEndpoints map[string]DeployerEndpo
 	var commitHosts map[string]struct{}
 	if deployMode == "deployChanges" {
 		// Use changed files
-		commitFiles, commitHosts, err = getCommitFiles(commit, deployerEndpoints, fileOverride)
+		commitFiles, commitHosts, err = getCommitFiles(commit, fileOverride)
 	} else if deployMode == "deployAll" {
 		// Use changed and unchanged files
-		commitFiles, commitHosts, err = getRepoFiles(tree, deployerEndpoints, fileOverride)
+		commitFiles, commitHosts, err = getRepoFiles(tree, fileOverride)
 	} else if deployMode == "deployFailures" {
 		// Use failed files/hosts from last failtracker
 		commitFiles, commitHosts, err = getFailedFiles(failures, fileOverride)
@@ -59,7 +59,7 @@ func preDeployment(deployMode string, deployerEndpoints map[string]DeployerEndpo
 	}
 
 	// Create map of deployment files/info per host and list of all deployment files across hosts
-	hostsAndEndpointInfo, allDeploymentFiles, err := filterHostsAndFiles(tree, commitFiles, commitHosts, deployerEndpoints, hostOverride, SSHClientDefault)
+	hostsAndEndpointInfo, allDeploymentFiles, err := filterHostsAndFiles(tree, commitFiles, commitHosts, hostOverride)
 	logError("Failed to get host and files", err, true)
 
 	// Ensure files/hosts weren't all filtered out

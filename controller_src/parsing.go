@@ -16,7 +16,7 @@ import (
 // Retrieves file names and associated host names for given commit
 // Returns the changed files (file paths) between commit and previous commit
 // Marks files with create/delete action for deployment and also handles marking symbolic links
-func getCommitFiles(commit *object.Commit, DeployerEndpoints map[string]DeployerEndpoints, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, err error) {
+func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, err error) {
 	// Show progress to user
 	printMessage(VerbosityStandard, "Retrieving files from commit... \n")
 
@@ -56,13 +56,13 @@ func getCommitFiles(commit *object.Commit, DeployerEndpoints map[string]Deployer
 		var SkipFromFile, SkipToFile bool
 
 		// Validate the from File object
-		fromPath, _, SkipFromFile, err = validateCommittedFiles(commitHosts, DeployerEndpoints, from)
+		fromPath, _, SkipFromFile, err = validateCommittedFiles(commitHosts, from)
 		if err != nil {
 			return
 		}
 
 		// Validate the to File object
-		toPath, commitFileToType, SkipToFile, err = validateCommittedFiles(commitHosts, DeployerEndpoints, to)
+		toPath, commitFileToType, SkipToFile, err = validateCommittedFiles(commitHosts, to)
 		if err != nil {
 			return
 		}
@@ -133,7 +133,7 @@ func getCommitFiles(commit *object.Commit, DeployerEndpoints map[string]Deployer
 
 // Retrieves all files for current commit (regardless if changed)
 // This is used to also get all files in commit for deployment of unchanged files when requested
-func getRepoFiles(tree *object.Tree, deployerEndpoints map[string]DeployerEndpoints, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, err error) {
+func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, err error) {
 	// Initialize maps
 	commitFiles = make(map[string]string)
 	commitHosts = make(map[string]struct{})
@@ -166,7 +166,7 @@ func getRepoFiles(tree *object.Tree, deployerEndpoints map[string]DeployerEndpoi
 		printMessage(VerbosityData, "  Filtering file %s\n", repoFilePath)
 
 		// Ensure file is valid against config
-		commitHost, SkipFile := validateRepoFile(repoFilePath, deployerEndpoints)
+		commitHost, SkipFile := validateRepoFile(repoFilePath)
 		if SkipFile {
 			// Not valid, skip
 			continue
@@ -209,7 +209,7 @@ func getRepoFiles(tree *object.Tree, deployerEndpoints map[string]DeployerEndpoi
 
 // Filters files down to their associated host
 // Also deduplicates and creates array of all relevant file paths for the deployment
-func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commitHosts map[string]struct{}, DeployerEndpoints map[string]DeployerEndpoints, hostOverride string, SSHClientDefault SSHClientDefaults) (hostsAndEndpointInfo map[string]EndpointInfo, allDeploymentFiles map[string]string, err error) {
+func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commitHosts map[string]struct{}, hostOverride string) (hostsAndEndpointInfo map[string]EndpointInfo, allDeploymentFiles map[string]string, err error) {
 	// Show progress to user
 	printMessage(VerbosityStandard, "Filtering deployment hosts... \n")
 
@@ -226,7 +226,7 @@ func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commi
 	printMessage(VerbosityProgress, "Creating files per host and all deployment files maps\n")
 
 	// Loop hosts in config and prepare endpoint information and relevant configs for deployment
-	for endpointName, endpointInfo := range DeployerEndpoints {
+	for _, endpointName := range DeployerEndpoints {
 		printMessage(VerbosityData, "  Host %s: Filtering files...\n", endpointName)
 		// Skip this host if not in override (if override was requested)
 		skipHost := checkForOverride(hostOverride, endpointName)
@@ -236,7 +236,8 @@ func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commi
 		}
 
 		// Check if host state is marked as offline, if so, skip this host
-		if endpointInfo.HostState == "offline" {
+		deploymentHostState, _ := config.Get(endpointName, "DeploymentState")
+		if deploymentHostState == "offline" {
 			printMessage(VerbosityFullData, "    Host is marked as offline, skipping\n")
 			continue
 		}
@@ -285,7 +286,8 @@ func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commi
 			}
 
 			// Skip Universal files if this host ignores universal configs
-			if endpointInfo.IgnoreUniversalConfs && commitHost == UniversalDirectory {
+			hostIgnoresUniversal, _ := config.Get(endpointName, "IgnoreUniversal")
+			if hostIgnoresUniversal == "yes" && commitHost == UniversalDirectory {
 				printMessage(VerbosityFullData, "        File is universal and universal not requested for this host\n")
 				continue
 			}
@@ -313,7 +315,7 @@ func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commi
 
 		// Parse out endpoint info and/or default SSH options
 		var newInfo EndpointInfo
-		newInfo, err = retrieveEndpointInfo(endpointInfo, SSHClientDefault)
+		newInfo, err = retrieveEndpointInfo(endpointName)
 		if err != nil {
 			err = fmt.Errorf("failed to retrieve endpoint information: %v", err)
 			return

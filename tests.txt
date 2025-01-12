@@ -1,8 +1,6 @@
 # Setup
 # Incorrect JSON metadata header (testing commit rollback)
 
-# Large Files (500mb +)
-
 ## Commit Diff Parsing
 # Same file between template and a host
 
@@ -35,9 +33,7 @@
 
 # Sudo pass wrong 4 times then attempt regular one file deploy
 
-# Apparmor deny (controller or deployer)
-
-# Update deployer
+# Apparmor deny
 
 # Wrong file type for ssh key
 
