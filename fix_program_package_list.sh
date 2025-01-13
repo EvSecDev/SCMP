@@ -13,7 +13,7 @@ then
 	mainFile=$(grep -il "func main() {" $searchDir/*.go | egrep -v "testing")
 else
 	# Only allow certain args
-	echo "No program specified - must choose 'controller', 'deployer', or 'updater'"
+	echo "No program specified - must choose 'controller'"
 	exit 1
 fi
 

@@ -2,8 +2,6 @@
 executablePath="/usr/local/bin/scmcontroller"
 RepositoryPath="~/SCMGit"
 BranchName="main"
-SSHIdentityPath="~/.ssh/scmp_ssh.key"
 SSHUser="deployer"
 SSHPort="22"
-Password=""
 UniversalDirectory="UniversalConfs"

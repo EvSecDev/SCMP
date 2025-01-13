@@ -57,7 +57,7 @@ function controller_binary {
 	cd $controllerSRCdir
 
 	# Run tests
-	go test
+	go test >/dev/null
 
 	# Vars for build
 	inputGoSource="*.go"

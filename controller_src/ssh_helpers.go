@@ -2,7 +2,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/hmac"
@@ -136,18 +135,11 @@ func SSHIdentityToKey(SSHIdentityFile string) (PrivateKey ssh.Signer, KeyAlgo st
 		KeyAlgo = PrivateKey.PublicKey().Type()
 	} else if SSHKeyType == "encrypted" {
 		// Ask user for key password
-		fmt.Printf("Enter passphrase for the SSH key `%s`: ", SSHIdentityFile)
-
-		// Read password from input
 		var passphrase string
-		reader := bufio.NewReader(os.Stdin)
-		passphrase, err = reader.ReadString('\n')
+		passphrase, err = promptUserForSecret("Enter passphrase for the SSH key `%s`: ", SSHIdentityFile)
 		if err != nil {
 			return
 		}
-
-		// Remove newline char from password
-		passphrase = passphrase[:len(passphrase)-1]
 
 		// Decrypt and parse private key with password
 		PrivateKey, err = ssh.ParsePrivateKeyWithPassphrase(SSHIdentity, []byte(passphrase))
@@ -220,7 +212,7 @@ func connectToSSH(endpointSocket string, endpointUser string, PrivateKey ssh.Sig
 	for attempts := 0; attempts <= maxConnectionAttempts; attempts++ {
 		printMessage(VerbosityProgress, "Endpoint %s: Establishing connection to SSH server (%d/%d)\n", endpointSocket, attempts, maxConnectionAttempts)
 
-		// Connect to the SSH server
+		// Connect to the SSH server direct
 		client, err = ssh.Dial("tcp", endpointSocket, SSHconfig)
 
 		// Determine if error is recoverable
@@ -328,28 +320,23 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 
 	// Key was not found in known_hosts - Prompt user
 	fmt.Printf("Host %s not in known_hosts. Key: %s %s\n", cleanHost, pubKeyType, remotePubKey)
-	fmt.Print("Do you want to add this key to known_hosts? [y/N/all]: ")
-
-	// Read user choice
-	reader := bufio.NewReader(os.Stdin)
-	input, err := reader.ReadString('\n')
+	userResponse, err := promptUser("Do you want to add this key to known_hosts? [y/N/all]: ")
 	if err != nil {
-		err = fmt.Errorf("failed to read user choice for known_hosts entry: %v", err)
 		return
 	}
-	input = strings.TrimSpace(input)
+	userResponse = strings.TrimSpace(userResponse)
 
 	// User wants to trust all future pub key prompts
-	if strings.ToLower(input) == "all" {
+	if strings.ToLower(userResponse) == "all" {
 		// For the duration of this program run, all unknown remote host keys will be added to known_hosts
 		addAllUnknownHosts = true
 
 		// 'all' implies 'yes' to this first host key
-		input = "y"
+		userResponse = "y"
 	}
 
 	// User did not say yes, abort connection
-	if strings.ToLower(input) != "y" {
+	if strings.ToLower(userResponse) != "y" {
 		err = fmt.Errorf("not continuing with connection to %s", cleanHost)
 		return
 	}
@@ -498,9 +485,10 @@ func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (Com
 	if SudoPassword != "" {
 		command = "sudo -S " + command
 	} else {
-		// No given password indicates that passwords are not required for sudo access, but elevated privileges are always required
+		// No given password indicates that passwords are not required for sudo access, but elevated privileges are always required for deployments
 		command = "sudo " + command
 	}
+	printMessage(VerbosityDebug, "  Running command '%s'\n", command)
 
 	// Start the command
 	err = session.Start(command)
@@ -538,8 +526,8 @@ func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (Com
 	case err = <-errChannel:
 		if err != nil {
 			// Return both exit status and stderr (readall errors are ignored as exit status will still be present)
-			CommandError, _ := io.ReadAll(stderr)
-			err = fmt.Errorf("error with command '%s': %v : %s", command, err, CommandError)
+			Commandstderr, _ := io.ReadAll(stderr)
+			err = fmt.Errorf("error with command '%s': %v : %s", command, err, Commandstderr)
 			return
 		}
 	// Timer finishes before command
@@ -558,7 +546,7 @@ func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (Com
 	}
 
 	// Read commands error output from session
-	CommandError, err := io.ReadAll(stderr)
+	Commandstderr, err := io.ReadAll(stderr)
 	if err != nil {
 		err = fmt.Errorf("error reading from io.Reader: %v", err)
 		return
@@ -566,11 +554,18 @@ func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (Com
 
 	// Convert bytes to string
 	CommandOutput = string(Commandstdout)
+	CommandError := string(Commandstderr)
 
 	// If the command had an error on the remote side
-	if string(CommandError) != "" {
-		err = fmt.Errorf("%s", CommandError)
-		return
+	if CommandError != "" {
+		// Only return valid errors
+		if strings.Contains(CommandError, "[sudo] password for") {
+			// Sudo puts password prompts into stderr when running with '-S'
+			err = nil
+		} else {
+			err = fmt.Errorf("%s", CommandError)
+			return
+		}
 	}
 
 	return

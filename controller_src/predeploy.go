@@ -40,7 +40,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		commitFiles, commitHosts, err = getRepoFiles(tree, fileOverride)
 	} else if deployMode == "deployFailures" {
 		// Use failed files/hosts from last failtracker
-		commitFiles, commitHosts, err = getFailedFiles(failures, fileOverride)
+		commitFiles, commitHosts, hostOverride, err = getFailedFiles(failures, fileOverride)
 	} else {
 		logError("Unknown deployment mode", fmt.Errorf("mode must be deployChanges, deployAll, or deployFailures"), true)
 	}

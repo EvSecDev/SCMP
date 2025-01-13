@@ -12,6 +12,11 @@ The configuration for the controller utilizes a semi-standard `~/.ssh/config` th
 The 'semi-standard' part of this is the inclusion of some advanced configuration options to better integrate with git and deployment activities.
 Fear not, you can use your `~/.ssh/config` with the controller and a regular SSH client at the same time.
 
+For sudo passwords, this program utilizes a simple password vault file stored whereever you specify. 
+This vault stores the password per host and is manipulated through controller (add/change/remove).
+This is intended to facilitate deployments to a large number of hosts with potentially different passwords. With the vault, your provide the master password only once.
+The vault is protected by an AEAD cipher (chacha20poly1305) and derives the key via Argon2 from your master password.
+
 Using the Go x/crypto/ssh package, this program will SSH into the hosts defined in the configuration file and write the relevant configurations as well as handle the reloading of the associated service/program if required.
   The deployment method is currently only SSH by key authentication using password sudo for remote commands (password login authentication is currently not supported).
  - In deploy changes mode, you can choose a specific commit ID (or specify none and use the latest commit) from your repository and deploy the changed files in that specific commit to their designated remote hosts.
@@ -70,6 +75,8 @@ If you like what this program can do or want to expand functionality yourself, f
 
 - SSH Password logins
 - SSH 2FA (TOTP) logins
+- Use SSH Control Sockets
+- Use any form of client forwarding (tunnels, x11, agents)
 - Handle some special files (device, pipes, sockets, ect.)
 
 ### Controller Help Menu
@@ -94,12 +101,13 @@ Options:
     -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
     -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
     -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10]
+    -p, --modify-vault-password <host>         Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
     -n, --new-repo </path/to/repo>:<branch>    Create a new repository at the given path with the given initial branch name
     -s, --seed-repo                            Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
     -g, --disable-git-hook                     Disables the automatic deployment git post-commit hook for the current repository
     -G, --enable-git-hook                      Enables the automatic deployment git post-commit hook for the current repository
     -t, --test-config                          Test controller configuration syntax and configuration option validity
-    -v, --verbosity <0...4>                    Increase details and frequency of progress messages (Higher number is more verbose) [default: 1]
+    -v, --verbosity <0...5>                    Increase details and frequency of progress messages (Higher number is more verbose) [default: 1]
     -h, --help                                 Show this help menu
     -V, --version                              Show version and packages
         --versionid                            Show only version number

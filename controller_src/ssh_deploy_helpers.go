@@ -220,11 +220,14 @@ func deleteFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 	command := "rm " + targetFilePath
 	_, err = RunSSHCommand(sshClient, command, SudoPassword)
 	if err != nil {
-		// Ignore specific error if one one isnt there but the other is
-		if !strings.Contains(err.Error(), "No such file or directory") {
+		// Real errors only if file was present to begin with
+		if !strings.Contains(strings.ToLower(err.Error()), "no such file or directory") {
 			err = fmt.Errorf("failed to remove file '%s': %v", targetFilePath, err)
 			return
 		}
+
+		// Reset err var
+		err = nil
 	}
 
 	// Danger Zone: Remove empty parent dirs

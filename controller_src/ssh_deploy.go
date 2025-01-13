@@ -57,6 +57,9 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 	printMessage(VerbosityProgress, "Host %s: Connecting to SSH server\n", endpointName)
 
+	// Get sudo password from info map
+	Password := endpointInfo.Password
+
 	// Connect to the SSH server
 	sshClient, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
 	if err != nil {
@@ -66,9 +69,6 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 	defer sshClient.Close()
 
 	printMessage(VerbosityProgress, "Host %s: Connected to SSH server\n", endpointName)
-
-	// Get sudo password from info map
-	Password := endpointInfo.Password
 
 	// Get this hosts remote transfer buffer file path
 	tmpRemoteFilePath := endpointInfo.RemoteTransferBuffer
@@ -222,6 +222,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			}
 
 			// Done deleting (or recording error) - Next deployment file
+			postDeployedConfigsLocal++
 			continue
 		}
 
@@ -235,6 +236,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			}
 
 			// Done creating link (or recording error) - Next deployment file
+			postDeployedConfigsLocal++
 			continue
 		}
 

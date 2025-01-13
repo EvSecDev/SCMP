@@ -2,8 +2,6 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -45,16 +43,12 @@ func retrieveEndpointInfo(endpointName string) (info EndpointInfo, err error) {
 		return
 	}
 
-	printMessage(VerbosityFullData, "      Address: %s\n", endpointAddr)
-
 	// Get port from endpoint or if missing use default
 	endpointPort, _ := config.Get(endpointName, "Port")
 	if endpointPort == "" {
 		err = fmt.Errorf("host port cannot be empty")
 		return
 	}
-
-	printMessage(VerbosityFullData, "      Port: %s\n", endpointPort)
 
 	// Network Address Parsing
 	info.Endpoint, err = ParseEndpointAddress(endpointAddr, endpointPort)
@@ -63,16 +57,12 @@ func retrieveEndpointInfo(endpointName string) (info EndpointInfo, err error) {
 		return
 	}
 
-	printMessage(VerbosityFullData, "      Socket: %s\n", info.Endpoint)
-
 	// Get user from endpoint or if missing use default
 	info.EndpointUser, _ = config.Get(endpointName, "User")
 	if info.EndpointUser == "" {
 		err = fmt.Errorf("host username cannot be empty")
 		return
 	}
-
-	printMessage(VerbosityFullData, "      User: %s\n", info.EndpointUser)
 
 	// Get identity file from endpoint or if missing use default
 	identityFile, _ := config.Get(endpointName, "IdentityFile")
@@ -90,10 +80,19 @@ func retrieveEndpointInfo(endpointName string) (info EndpointInfo, err error) {
 		return
 	}
 
-	// Retrieve password
-	//info.Password = password
+	// Retrieve password if required
+	_, hostHasAPassword := hostsRequireVault[endpointName]
+	if hostHasAPassword {
+		info.Password, err = unlockVault(endpointName)
+		if err != nil {
+			err = fmt.Errorf("error retrieving host password from vault: %v", err)
+			return
+		}
 
-	printMessage(VerbosityFullData, "      Password: %s\n", info.Password)
+		printMessage(VerbosityFullData, "      Password: %s\n", info.Password)
+	} else {
+		printMessage(VerbosityFullData, "      Host does not require password\n")
+	}
 
 	// Get remote transfer buffer file path from endpoint or if missing use default
 	info.RemoteTransferBuffer, _ = config.Get(endpointName, "RemoteTransferBuffer")
@@ -101,8 +100,6 @@ func retrieveEndpointInfo(endpointName string) (info EndpointInfo, err error) {
 		err = fmt.Errorf("RemoteTransferBuffer cannot be empty")
 		return
 	}
-
-	printMessage(VerbosityFullData, "      Remote Transfer Buffer: %s\n", info.RemoteTransferBuffer)
 
 	// Get remote backup buffer file path from endpoint or if missing use default
 	info.RemoteBackupDir, _ = config.Get(endpointName, "RemoteBackupDir")
@@ -112,9 +109,6 @@ func retrieveEndpointInfo(endpointName string) (info EndpointInfo, err error) {
 	}
 	// Ensure trailing slashes don't make their way into the path
 	info.RemoteBackupDir = strings.TrimSuffix(info.RemoteBackupDir, "/")
-
-	printMessage(VerbosityFullData, "      Remote Backup Directory: %s\n", info.RemoteBackupDir)
-
 	return
 }
 
@@ -237,7 +231,7 @@ func extractMetadata(fileContents string) (metadataSection string, remainingCont
 	// Find the start and end of the metadata section
 	startIndex := strings.Index(fileContents, Delimiter)
 	if startIndex == -1 {
-		err = fmt.Errorf("json start delimter missing")
+		err = fmt.Errorf("json start delimiter missing")
 		return
 	}
 	startIndex += len(Delimiter)
@@ -452,25 +446,5 @@ func separateHostDirFromPath(localRepoPath string) (hostDir string, targetFilePa
 
 	// Add leading slash to path
 	targetFilePath = "/" + targetFilePath
-	return
-}
-
-// Takes a string input, and returns a SHA256 hexadecimal hash string
-func SHA256Sum(input string) (hash string) {
-	// Convert input string to byte array
-	inputBytes := []byte(input)
-
-	// Create new hashing function
-	hasher := sha256.New()
-
-	// Write input bytes into hasher
-	hasher.Write(inputBytes)
-
-	// Retrieve the raw hash
-	rawHash := hasher.Sum(nil)
-
-	// Format raw hash into hex
-	hash = hex.EncodeToString(rawHash)
-
 	return
 }

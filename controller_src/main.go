@@ -52,6 +52,13 @@ type CommitFileInfo struct {
 	Reload          []string
 }
 
+// Struct for vault passwords
+type Credential struct {
+	LoginUserPassword string `json:"loginUserPassword"`
+}
+
+var vault map[string]Credential // Hold unlocked cached vault
+
 // Fail tracker json line format
 type ErrorInfo struct {
 	EndpointName string   `json:"endpointName"`
@@ -61,21 +68,23 @@ type ErrorInfo struct {
 
 // #### Written to only from main
 
-var configFilePath string               // for showing user retry command
-var config *ssh_config.Config           // for storing host information from .ssh/config
-var DeployerEndpoints []string          // for storing list of all host names
-var CalledByGitHook bool                // for automatic rollback on parsing error
-var knownHostsFilePath string           // for loading known_hosts file
-var RepositoryPath string               // for parsing commits
-var UniversalDirectory string           // for parsing commits
-var UniversalGroups map[string][]string // for parsing local files
-var IgnoreDirectories []string          // for parsing commits
-var OSPathSeparator string              // for parsing local files and paths
-var MaxSSHConcurrency int               // for limiting threads when SSH'ing to remote hosts
-var SHA256RegEx *regexp.Regexp          // for validating hashes received from remote hosts
-var SHA1RegEx *regexp.Regexp            // for validating user supplied commit hashes
-var dryRunRequested bool                // for printing relevant information and bailing out before outbound remote connections are made
-var userHomeDirectory string            // for replacing ~/ prefixes with a path
+var configFilePath string                 // for showing user retry command
+var config *ssh_config.Config             // for storing host information from .ssh/config
+var DeployerEndpoints []string            // for storing list of all host names
+var CalledByGitHook bool                  // for automatic rollback on parsing error
+var knownHostsFilePath string             // for loading known_hosts file
+var RepositoryPath string                 // for parsing commits
+var UniversalDirectory string             // for parsing commits
+var UniversalGroups map[string][]string   // for parsing local files
+var IgnoreDirectories []string            // for parsing commits
+var OSPathSeparator string                // for parsing local files and paths
+var MaxSSHConcurrency int                 // for limiting threads when SSH'ing to remote hosts
+var SHA256RegEx *regexp.Regexp            // for validating hashes received from remote hosts
+var SHA1RegEx *regexp.Regexp              // for validating user supplied commit hashes
+var dryRunRequested bool                  // for printing relevant information and bailing out before outbound remote connections are made
+var userHomeDirectory string              // for replacing ~/ prefixes with a path
+var vaultFilePath string                  // for manipulating vault file
+var hostsRequireVault map[string]struct{} // for easy reference if a host needs a password
 
 // Integer for printing increasingly detailed information as program progresses
 //
@@ -93,6 +102,7 @@ const (
 	VerbosityProgress
 	VerbosityData
 	VerbosityFullData
+	VerbosityDebug
 )
 
 // #### Written to in other functions - use mutex
@@ -115,7 +125,7 @@ var KnownHostMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Pusher ===="
-const progVersion string = "v3.0.0"
+const progVersion string = "v3.1.0"
 const usage = `
 Examples:
     controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
@@ -134,12 +144,13 @@ Options:
     -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
     -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
     -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10]
+    -p, --modify-vault-password <host>         Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
     -n, --new-repo </path/to/repo>:<branch>    Create a new repository at the given path with the given initial branch name
     -s, --seed-repo                            Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
     -g, --disable-git-hook                     Disables the automatic deployment git post-commit hook for the current repository
     -G, --enable-git-hook                      Enables the automatic deployment git post-commit hook for the current repository
     -t, --test-config                          Test controller configuration syntax and configuration option validity
-    -v, --verbosity <0...4>                    Increase details and frequency of progress messages (Higher number is more verbose) [default: 1]
+    -v, --verbosity <0...5>                    Increase details and frequency of progress messages (Higher number is more verbose) [default: 1]
     -h, --help                                 Show this help menu
     -V, --version                              Show version and packages
         --versionid                            Show only version number
@@ -159,11 +170,8 @@ func main() {
 	var commitID string
 	var hostOverride string
 	var fileOverride string
-	var deployerUpdateFile string
-	var updaterUpdateFile string
+	var modifyVaultHost string
 	var testConfig bool
-	var checkDeployerVersions bool
-	var checkUpdaterVersions bool
 	var createNewRepo string
 	var seedRepoFiles bool
 	var disableGitHook bool
@@ -192,14 +200,8 @@ func main() {
 	flag.BoolVar(&dryRunRequested, "dry-run", false, "")
 	flag.IntVar(&MaxSSHConcurrency, "m", 10, "")
 	flag.IntVar(&MaxSSHConcurrency, "max-conns", 10, "")
-	flag.BoolVar(&checkDeployerVersions, "q", false, "")
-	flag.BoolVar(&checkDeployerVersions, "deployer-versions", false, "")
-	flag.BoolVar(&checkUpdaterVersions, "Q", false, "")
-	flag.BoolVar(&checkUpdaterVersions, "updater-versions", false, "")
-	flag.StringVar(&deployerUpdateFile, "u", "", "")
-	flag.StringVar(&deployerUpdateFile, "deployer-update-file", "", "")
-	flag.StringVar(&updaterUpdateFile, "U", "", "")
-	flag.StringVar(&updaterUpdateFile, "updater-update-file", "", "")
+	flag.StringVar(&modifyVaultHost, "p", "", "")
+	flag.StringVar(&modifyVaultHost, "modify-vault-password", "", "")
 	flag.StringVar(&createNewRepo, "n", "", "")
 	flag.StringVar(&createNewRepo, "new-repo", "", "")
 	flag.BoolVar(&seedRepoFiles, "s", false, "")
@@ -224,7 +226,7 @@ func main() {
 	// Meta info print out
 	if versionInfoRequested {
 		fmt.Printf("Controller %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Print("Packages: runtime encoding/hex strings strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 github.com/pkg/sftp encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal context fmt time golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 sync path/filepath encoding/binary github.com/go-git/go-git/v5/plumbing/format/diff gopkg.in/yaml.v2\n")
+		fmt.Print("Packages: runtime encoding/hex strings strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 github.com/pkg/sftp encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal context fmt time golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
 		return
 	} else if versionRequested {
 		fmt.Println(progVersion)
@@ -246,6 +248,9 @@ func main() {
 		// If user wants to test config, just exit once program gets to this point
 		// Any config errors will be discovered prior to this point and exit with whatever error happened
 		printMessage(VerbosityStandard, "controller: configuration file %s test is successful\n", configFilePath)
+	} else if modifyVaultHost != "" {
+		err = modifyVault(modifyVaultHost)
+		logError("Error modifying vault", err, false)
 	} else if disableGitHook {
 		toggleGitHook("disable")
 	} else if enableGitHook {

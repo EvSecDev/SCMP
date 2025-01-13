@@ -31,7 +31,7 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 	}
 
 	// Print the error
-	fmt.Printf("\n\n%s: %v\n", errorDescription, errorMessage)
+	fmt.Printf("\n%s: %v\n", errorDescription, errorMessage)
 
 	// Only roll back commit if the program was started by a hook and if the commit rollback is requested
 	// Reset commit because the current commit should reflect what is deployed in the network

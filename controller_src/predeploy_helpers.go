@@ -20,7 +20,7 @@ import (
 //	Checks for active network interfaces (can't deploy to remote endpoints if no network)
 //	Loads known_hosts file into global variable
 func localSystemChecks() (err error) {
-	printMessage(VerbosityStandard, "Running local system checks...\n")
+	printMessage(VerbosityProgress, "Running local system checks...\n")
 	printMessage(VerbosityProgress, "Ensuring system has an active network interface\n")
 
 	// Get list of local systems network interfaces
@@ -165,6 +165,18 @@ func recordDeploymentError(commitID string) (err error) {
 	printMessage(VerbosityStandard, "\nPlease fix the errors, then run the following command to redeploy OR create new commit if file corrections are needed:\n")
 	printMessage(VerbosityStandard, "%s -c %s --deploy-failures\n", PathToExe, configFilePath)
 
+	// Remove errors that are not root-cause failures before writing to tracker file
+	// If a redeploy can't re-attempt the failed action, then it shouldn't be in failtracker file
+	var rootCauseErrors []string
+	errorLines := strings.Split(FailTracker, "\n")
+	for _, errorLine := range errorLines {
+		// File restoration errors are not root cause
+		if !strings.Contains(errorLine, "failed old config restoration") {
+			rootCauseErrors = append(rootCauseErrors, errorLine)
+		}
+	}
+	FailTracker = strings.Join(rootCauseErrors, "\n")
+
 	// Add FailTracker string to repo working directory fail file
 	FailTrackerPath := filepath.Join(RepositoryPath, FailTrackerFile)
 	FailTrackerFile, err := os.Create(FailTrackerPath)
@@ -188,10 +200,11 @@ func recordDeploymentError(commitID string) (err error) {
 	return
 }
 
+// Print out deployment information in dry run mode
 func printDeploymentInformation(hostsAndEndpointInfo map[string]EndpointInfo, commitFileInfo map[string]CommitFileInfo) {
 	// Notify user that program is in dry run mode
 	printMessage(VerbosityStandard, "Requested dry-run, aborting deployment\n")
-	if globalVerbosityLevel > 2 {
+	if globalVerbosityLevel < 2 {
 		// If not running with higher verbosity, no need to collect deployment information
 		return
 	}
@@ -199,24 +212,7 @@ func printDeploymentInformation(hostsAndEndpointInfo map[string]EndpointInfo, co
 
 	// Print deployment info by host
 	for _, hostInfo := range hostsAndEndpointInfo {
-		// Truncate the password if running at a low verbosity level
-		// Password will only print at all if more than or equal to 2
-		if globalVerbosityLevel < 3 {
-			if len(hostInfo.Password) > 6 {
-				hostInfo.Password = hostInfo.Password[:6]
-			}
-			hostInfo.Password += "..."
-		}
-
-		// Print out information for this specific host
-		printMessage(VerbosityProgress, "Host: %s\n", hostInfo.EndpointName)
-		printMessage(VerbosityProgress, "  Options:\n")
-		printMessage(VerbosityProgress, "       Endpoint Address: %s\n", hostInfo.Endpoint)
-		printMessage(VerbosityProgress, "       SSH User:         %s\n", hostInfo.EndpointUser)
-		printMessage(VerbosityProgress, "       SSH Key:          %s\n", hostInfo.PrivateKey.PublicKey())
-		printMessage(VerbosityProgress, "       Password:         %s\n", hostInfo.Password)
-		printMessage(VerbosityProgress, "       Transfer Buffer:  %s\n", hostInfo.RemoteTransferBuffer)
-		printMessage(VerbosityProgress, "       Backup Dir:       %s\n", hostInfo.RemoteBackupDir)
+		printHostInformation(hostInfo)
 		printMessage(VerbosityProgress, "  Files:\n")
 
 		// Identify maximum indent file name prints will need to be
@@ -245,4 +241,29 @@ func printDeploymentInformation(hostsAndEndpointInfo map[string]EndpointInfo, co
 			printMessage(VerbosityProgress, "       %s:           %s%s# %s\n", commitFileInfo[file].Action, targetFile, strings.Repeat(" ", indentSpaces), file)
 		}
 	}
+}
+
+// Ties into dry-runs to have a unified print of host information
+// Information only prints when verbosity level is more than or equal to 2
+func printHostInformation(hostInfo EndpointInfo) {
+	if len(hostInfo.Password) == 0 {
+		// If password is empty, indicate to user
+		hostInfo.Password = "*Host Does Not Use Passwords*"
+	} else if globalVerbosityLevel == 2 {
+		// Truncate passwords at verbosity level 2
+		if len(hostInfo.Password) > 6 {
+			hostInfo.Password = hostInfo.Password[:6]
+		}
+		hostInfo.Password += "..."
+	}
+
+	// Print out information for this specific host
+	printMessage(VerbosityProgress, "Host: %s\n", hostInfo.EndpointName)
+	printMessage(VerbosityProgress, "  Options:\n")
+	printMessage(VerbosityProgress, "       Endpoint Address: %s\n", hostInfo.Endpoint)
+	printMessage(VerbosityProgress, "       SSH User:         %s\n", hostInfo.EndpointUser)
+	printMessage(VerbosityProgress, "       SSH Key:          %s\n", hostInfo.PrivateKey.PublicKey())
+	printMessage(VerbosityProgress, "       Password:         %s\n", hostInfo.Password)
+	printMessage(VerbosityProgress, "       Transfer Buffer:  %s\n", hostInfo.RemoteTransferBuffer)
+	printMessage(VerbosityProgress, "       Backup Dir:       %s\n", hostInfo.RemoteBackupDir)
 }

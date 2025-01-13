@@ -2,7 +2,9 @@
 # Global Config Settings #
 ##########################
 #  Ignore SCMP Host Configuration Options
-IgnoreUnknown		PasswordFile,DeploymentState,IgnoreTemplates,RemoteBackupDir,RemoteTransferBuffer,UniversalDirectory,GroupDirs,GroupTags,IgnoreDirectories
+IgnoreUnknown		PasswordVault,PasswordRequired,DeploymentState,IgnoreTemplates,RemoteBackupDir,RemoteTransferBuffer,UniversalDirectory,GroupDirs,GroupTags,IgnoreDirectories
+#  Store any login/sudo passwords in an encrypted file here
+PasswordVault           ~/.ssh/scmpc.vault
 #  Directory Name that contains files relevant to all hosts
 UniversalDirectory	"$UniversalDirectory"
 #  Group Directory Names for Universal Configs to be deployed to all hosts tagged with that group
@@ -10,7 +12,7 @@ UniversalDirectory	"$UniversalDirectory"
 #  Directory Names to ignore in deployment git repository
 IgnoreDirectories	Templates,Extras
 #
-#################
+################# EXAMPLE HOSTS CONFIGURATION
 #
 #Host Web01
 #        Hostname	192.168.10.2
@@ -43,6 +45,7 @@ IgnoreDirectories	Templates,Extras
 #	DeploymentState	offline
 #Host SSO
 #        Hostname	sso.domain.com
+#	PasswordRequired yes
 #	IgnoreUniversal	yes
 ##########################
 # Global Device Settings #
@@ -51,9 +54,8 @@ Host *
 	# Host Settings
 	User				"$SSHUser"
 	Port				"$SSHPort"
-	PasswordFile                        "$Password"
 	PreferredAuthentications	password,keyboard-interactive,publickey
-        IdentityFile			"$SSHIdentityPath"
+        IdentityFile			"~/.ssh/yourkeyhere"
         IdentitiesOnly			yes
 	#  General Settings
 	UserKnownHostsFile		~/.ssh/known_hosts

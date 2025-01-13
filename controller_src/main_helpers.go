@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kevinburke/ssh_config"
+	"golang.org/x/term"
 )
 
 // Print message to stdout
@@ -132,6 +133,7 @@ func parseConfig() (err error) {
 	}
 
 	// Array of Hosts Names
+	hostsRequireVault = make(map[string]struct{})
 	for _, host := range config.Hosts {
 		// Skip host patterns with more than one pattern
 		if len(host.Patterns) != 1 {
@@ -141,6 +143,12 @@ func parseConfig() (err error) {
 		// Convert host pattern to string
 		hostPattern := host.Patterns[0].String()
 
+		// Create list of hosts that would need vault access
+		PasswordRequired, _ := config.Get(hostPattern, "PasswordRequired")
+		if strings.ToLower(PasswordRequired) == "yes" {
+			hostsRequireVault[hostPattern] = struct{}{}
+		}
+
 		// If a wildcard pattern, skip
 		if strings.Contains(hostPattern, "*") {
 			continue
@@ -148,6 +156,10 @@ func parseConfig() (err error) {
 
 		DeployerEndpoints = append(DeployerEndpoints, hostPattern)
 	}
+
+	// Password vault file
+	vaultRelPath, _ := config.Get("", "PasswordVault")
+	vaultFilePath = expandHomeDirectory(vaultRelPath)
 
 	// Group dir names in repo
 	GroupDirectories, _ := config.Get("", "GroupDirs")
@@ -223,5 +235,40 @@ func expandHomeDirectory(path string) (absolutePath string) {
 
 	// Combine Users home directory path with the input path
 	absolutePath = filepath.Join(userHomeDirectory, path)
+	return
+}
+
+// Prompts user to enter something
+func promptUser(userPrompt string, printVars ...interface{}) (userResponse string, err error) {
+	// Throw error if not in terminal - stdin not available outside terminal for users
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		err = fmt.Errorf("not in a terminal, prompts do not work")
+		return
+	}
+
+	printMessage(VerbosityStandard, userPrompt, printVars...)
+	fmt.Scanln(&userResponse)
+	userResponse = strings.ToLower(userResponse)
+	return
+}
+
+// Prompts user for a secret value (does not echo back entered text)
+func promptUserForSecret(userPrompt string, printVars ...interface{}) (userResponse string, err error) {
+	// Create PTY if not in terminal
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		err = fmt.Errorf("not in a terminal, prompts do not work")
+		return
+	}
+
+	// Regular prompt
+	printMessage(VerbosityStandard, userPrompt, printVars...)
+	userResponseBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	if err != nil {
+		return
+	}
+
+	// Convert to string for return
+	userResponse = string(userResponseBytes)
+	fmt.Println()
 	return
 }

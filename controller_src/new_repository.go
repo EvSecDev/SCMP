@@ -176,6 +176,7 @@ func createNewRepository(newRepoInfo string) {
 	// Post commit path and contents
 	postCommitFilePath := absoluteRepoPath + "/.git/hooks/post-commit.disabled"
 	postCommit := fmt.Sprintf(`#!/bin/bash
+	exec < /dev/tty
 	%s --git-hook-mode --deploy-changes -c %s`, os.Args[0], configFilePath)
 
 	// Open post-commit file path

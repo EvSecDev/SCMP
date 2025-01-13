@@ -42,7 +42,12 @@ func seedRepositoryFiles(hostOverride string) {
 
 	if dryRunRequested {
 		// Notify user that program is in dry run mode
-		printMessage(VerbosityStandard, "\nRequested dry-run, aborting connections - outputting information collected for connections:\n\n")
+		printMessage(VerbosityStandard, "Requested dry-run, aborting deployment\n")
+		if globalVerbosityLevel < 2 {
+			// If not running with higher verbosity, no need to collect deployment information
+			return
+		}
+		printMessage(VerbosityProgress, "Outputting information collected for deployment:\n")
 	}
 
 	// Retrieve user host choices and put into array
@@ -62,12 +67,7 @@ func seedRepositoryFiles(hostOverride string) {
 
 		// If user requested dry run - print collected information so far and gracefully abort update
 		if dryRunRequested {
-			printMessage(VerbosityProgress, "Host: %s\n", endpointName)
-			printMessage(VerbosityProgress, "  Options:\n")
-			printMessage(VerbosityProgress, "       Endpoint Address: %s\n", info.Endpoint)
-			printMessage(VerbosityProgress, "       SSH User:         %s\n", info.EndpointUser)
-			printMessage(VerbosityProgress, "       SSH Key:          %s\n", info.PrivateKey.PublicKey())
-			printMessage(VerbosityProgress, "       Transfer Buffer:  %s\n", info.RemoteTransferBuffer)
+			printHostInformation(info)
 			continue
 		}
 
@@ -313,10 +313,19 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		"/etc/zabbix":          {"zabbix_agent2 -T -c /etc/zabbix/zabbix_agent2.conf", "systemctl restart zabbix-agent2.service", "systemctl is-active zabbix-agent2.service"},
 		"/etc/squid-deb-proxy": {"squid -f /etc/squid-deb-proxy/squid-deb-proxy.conf -k check", "systemctl restart squid-deb-proxy.service", "systemctl is-active squid-deb-proxy.service"},
 		"/etc/squid/":          {"squid -f /etc/squid/squid.conf -k check", "systemctl restart squid.service", "systemctl is-active squid.service"},
+		"/etc/syslog-ng":       {"syslog-ng -s", "systemctl restart syslog-ng", "systemctl is-active syslog-ng"},
 	}
 
-	// Copy desired file to buffer location - MUST keep buffer file permissions for successful sftp
-	command := "cp --no-preserve=mode,ownership " + targetFilePath + " " + tmpRemoteFilePath
+	// Copy desired file to buffer location
+	command := "cp " + targetFilePath + " " + tmpRemoteFilePath
+	_, err = RunSSHCommand(client, command, SudoPassword)
+	if err != nil {
+		err = fmt.Errorf("ssh command failure: %v", err)
+		return
+	}
+
+	// Ensure buffer file can be read and then deleted later
+	command = "chmod 666 " + tmpRemoteFilePath
 	_, err = RunSSHCommand(client, command, SudoPassword)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
@@ -366,11 +375,12 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	metadataHeader.TargetFilePermissions = numberPermissions
 
 	// Ask user for confirmation to use reloads
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("Does file '%s' need reload commands? [y/N]: ", configFilePath)
+	reloadWanted, err := promptUser("Does file '%s' need reload commands? [y/N]: ", configFilePath)
+	if err != nil {
+		return
+	}
 
-	// Read user choice and format
-	reloadWanted, _ := reader.ReadString('\n')
+	// Format user choice
 	reloadWanted = strings.TrimSpace(reloadWanted)
 	reloadWanted = strings.ToLower(reloadWanted)
 
@@ -382,7 +392,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		// Search known files for a match
 		var userDoesNotWantDefaults, fileHasNoDefaults bool
 		for filePathPrefix, defaultReloadCommandArray := range DefaultReloadCommands {
-			if !strings.HasPrefix(targetFilePath, filePathPrefix) {
+			if !strings.Contains(targetFilePath, filePathPrefix) {
 				// Target file path does not match any defauts, skipping file
 				fileHasNoDefaults = true
 				continue
@@ -401,8 +411,11 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 				// Print command on its own line
 				fmt.Printf("  - %s\n", command)
 			}
-			fmt.Printf("Do you want to use these? [y/N]: ")
-			userConfirmation, _ := reader.ReadString('\n')
+			var userConfirmation string
+			userConfirmation, err = promptUser("Do you want to use these? [y/N]: ")
+			if err != nil {
+				return
+			}
 			userConfirmation = strings.TrimSpace(userConfirmation)
 			userConfirmation = strings.ToLower(userConfirmation)
 
@@ -426,8 +439,11 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 				cmd := scanner.Text()
 				if cmd == "" { // Done once empty line
 					// Get confirmation of input
-					fmt.Printf("Are these commands correct? [Y/n]: ")
-					userConfirmation, _ := reader.ReadString('\n')
+					var userConfirmation string
+					userConfirmation, err = promptUser("Are these commands correct? [Y/n]: ")
+					if err != nil {
+						return
+					}
 					userConfirmation = strings.TrimSpace(userConfirmation)
 					userConfirmation = strings.ToLower(userConfirmation)
 					if userConfirmation == "y" {

@@ -24,7 +24,6 @@ logError() {
 command -v git >/dev/null || logError "git command not found." "true"
 command -v egrep >/dev/null || logError "egrep command not found." "true"
 command -v sed >/dev/null || logError "sed command not found." "true"
-command -v ssh >/dev/null || logError "ssh command not found." "true"
 command -v dirname >/dev/null || logError "dirname command not found." "true"
 command -v mkdir >/dev/null || logError "mkdir command not found." "true"
 command -v echo >/dev/null || logError "echo command not found." "true"
@@ -35,7 +34,6 @@ command -v chmod >/dev/null || logError "chmod command not found." "true"
 command -v tail >/dev/null || logError "tail command not found." "true"
 command -v ls >/dev/null || logError "ls command not found." "true"
 command -v tr >/dev/null || logError "tr command not found." "true"
-command -v ssh-keygen >/dev/null || logError "ssh-keygen command not found." "true"
 
 #### Installation
 echo "========================================"
@@ -75,46 +73,12 @@ then
 	configFilePath=$UserChoice_configFilePath
 fi
 
-## Config user choices
-# ssh key path
-echo "[*] Enter the full path and file name to the SSH private key for the controller (ed25519 key type required)"
-read -e -p "    (Default '$SSHIdentityPath'): " UserChoice_SSHIdentityPath
-if [[ $UserChoice_SSHIdentityPath != "" ]]
-then
-	SSHIdentityPath=$UserChoice_SSHIdentityPath
-	# user supplied only if the key exists
-	if [[ $(ls $SSHIdentityPath 2>&1 1>/dev/null) ]]
-	then
-		UserSuppliedKey="true"
-	else
-		UserSuppliedKey="false"
-	fi
-fi
-
-# SSH User password
-echo "[*] Enter the SSH password for the user of all remote hosts (this will be used for sudo only, leave blank for unrestricted sudo access)"
-read -e -s -p "    Password: " UserChoice_Password
-if [[ $UserChoice_Password != "" ]]
-then
-	read -e -s -p "    Password again: " UserChoice_PasswordConfirm
-	if [[ $UserChoice_Password == $UserChoice_PasswordConfirm ]]
-	then
-		Password=$UserChoice_Password
-	else
-		logError "Passwords do not match, try again." "true"
-	fi
-fi
-
 echo "[*] Enter the name of the initial branch for the repository"
 read -e -p "    (Default '$BranchName'): " UserChoice_BranchName
 if [[ $UserChoice_BranchName != "" ]]
 then
 	BranchName=$UserChoice_BranchName
 fi
-
-echo "[*] Install git post-commit hook? (REQUIRED if operating controller in auto-deploy mode)"
-read -e -p "    [y\N]: " InstallHookConfirmation
-InstallHookConfirmation=$(echo $InstallHookConfirmation | tr [:upper:] [:lower:])
 
 echo "[*] Do you want to install the apparmor profile?"
 read -e -p " [y/N]: " installAAProfileConfirmation
@@ -144,24 +108,12 @@ echo "[+] Successfully extracted deployer binary to $executablePath"
 
 # Run controller to create new repository
 $executablePath -n $RepositoryPath:$BranchName || logError "" "true"
+cd $RepositoryPath
 echo "[+] Successfully created git repository in '$RepositoryPath'"
 
 # create universal dir
 mkdir -p $RepositoryPath/$UniversalDirectory 2>/dev/null || logError "failed to create universal directory" "true"
 echo "[+] Successfully created Universal Directory at '$RepositoryPath/$UniversalDirectory'"
-
-# SSH key generation
-if [[ $UserSuppliedKey != "true" ]]
-then
-	ssh-keygen -t ed25519 -N '' -C scmp/controller -f $SSHIdentityPath || logError "failed to generate private key" "true"
-	SSHPublicKey=$(cat $SSHIdentityPath.pub)
-	rm $SSHIdentityPath.pub
-	echo "[+] Successfully created new SSH private key in $SSHIdentityPath"
-elif [[ $UserSuppliedKey == "true" ]]
-then
-	SSHPublicKey=$(ssh-keygen -y -f $SSHIdentityPath) || logError "invalid ssh key in $SSHIdentityPath" "true"
-	echo "[+] Validated supplied SSH key at $SSHIdentityPath"
-fi
 
 # Put config in user choosen location
 if [[ -f $configFilePath ]]
@@ -194,7 +146,7 @@ EOF
 fi
 
 echo "[+] New git repository created in $RepositoryPath with initial branch $BranchName and universal directory $UniversalDirectory"
-echo "  [*] Don't forget to add the public key to all of your deployer endpoints:\n    $SSHPublicKey"
+echo "[*] Don't forget to configure your SSH config file with your hosts and environment-specific configuration"
 
 exit 0
 

@@ -88,27 +88,59 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 
 		// Add file to map depending on how it changed in this commit
 		if from == nil {
+			printMessage(VerbosityFullData, "  File '%s' is brand new and to be created\n", toPath)
 			// Newly created files
 			//   like `touch etc/file.txt`
 			commitFiles[toPath] = "create"
 		} else if to == nil {
+			printMessage(VerbosityFullData, "  File '%s' is to be deleted\n", fromPath)
 			// Deleted Files
 			//   like `rm etc/file.txt`
-			commitFiles[fromPath] = "delete"
+			var userResponse string
+			userResponse, err = promptUser("Press 'y' to confirm deletion of file '%s': ", fromPath)
+			if err != nil {
+				return
+			}
+			if userResponse == "y" {
+				commitFiles[fromPath] = "delete"
+			} else {
+				printMessage(VerbosityProgress, "  Skipping deletion of file '%s'\n", fromPath)
+			}
 		} else if fromPath != toPath {
+			printMessage(VerbosityFullData, "  File '%s' has been changed to file '%s'\n", fromPath, toPath)
 			// Copied or renamed files
 			//   like `cp etc/file.txt etc/file2.txt` or `mv etc/file.txt etc/file2.txt`
-			_, err := os.Stat(fromPath)
-			if os.IsNotExist(err) && toPath == "" {
-				// Mark for deletion if no longer present in repo
-				commitFiles[fromPath] = "delete"
+			_, err = os.Stat(fromPath)
+			if err != nil {
+				// Any error other than file is not present, return
+				if !strings.Contains(err.Error(), "no such file or directory") {
+					return
+				}
+
+				// Confirm user wants from file deleted
+				var userResponse string
+				userResponse, err = promptUser("Press 'y' to confirm deletion of file '%s': ", fromPath)
+				if err != nil {
+					return
+				} else if userResponse == "y" {
+					// Mark for deletion if no longer present in repo
+					commitFiles[fromPath] = "delete"
+					printMessage(VerbosityFullData, "  File '%s' is to be deleted\n", fromPath)
+				} else {
+					printMessage(VerbosityProgress, "  Skipping deletion of file '%s'\n", fromPath)
+				}
 			}
+
+			// To path should always be present (otherwise it would be nil and caught earlier)
+			printMessage(VerbosityProgress, "  File '%s' is modified and to be created\n", toPath)
 			commitFiles[toPath] = "create"
 		} else if fromPath == toPath {
+			printMessage(VerbosityFullData, "  File '%s' is modified in place and to be created\n", fromPath)
 			// Editted in place
 			//   like `nano etc/file.txt`
-			commitFiles[toPath] = "create"
+			commitFiles[fromPath] = "create"
 		} else {
+			printMessage(VerbosityFullData, "  File '%s' unknown and unsupported\n", fromPath)
 			// Anything else - no idea why this would happen
 			commitFiles[fromPath] = "unsupported"
 		}
@@ -403,7 +435,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 		var metadata, configContent string
 		metadata, configContent, err = extractMetadata(string(content))
 		if err != nil {
-			err = fmt.Errorf("failed to extract metadata header: %v", err)
+			err = fmt.Errorf("failed to extract metadata header from '%s': %v", commitFilePath, err)
 			return
 		}
 
@@ -477,7 +509,7 @@ func getFailTrackerCommit() (commitID string, failTrackerPath string, failures [
 }
 
 // Reads in last failtracker file and retrieves individual failures and the commitHash of the failure
-func getFailedFiles(failures []string, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, err error) {
+func getFailedFiles(failures []string, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, hostOverride string, err error) {
 	// Initialize maps
 	commitFiles = make(map[string]string)
 	commitHosts = make(map[string]struct{})
@@ -485,6 +517,7 @@ func getFailedFiles(failures []string, fileOverride string) (commitFiles map[str
 	printMessage(VerbosityProgress, "Parsing failtracker lines\n")
 
 	// Retrieve failed hosts and files from failtracker json by line
+	var hostOverrideArray []string
 	for _, fail := range failures {
 		// Skip any empty lines
 		if fail == "" {
@@ -512,6 +545,9 @@ func getFailedFiles(failures []string, fileOverride string) (commitFiles map[str
 		// Add failed hosts to isolate host deployment loop to only those hosts
 		commitHosts[errorInfo.EndpointName] = struct{}{}
 
+		// Add host to override to isolate deployment to just the failed hosts
+		hostOverrideArray = append(hostOverrideArray, errorInfo.EndpointName)
+
 		// error if no files
 		if len(errorInfo.Files) == 0 {
 			err = fmt.Errorf("no files in failtracker line: %s", fail)
@@ -533,6 +569,8 @@ func getFailedFiles(failures []string, fileOverride string) (commitFiles map[str
 			commitFiles[failedFile] = "create"
 		}
 	}
+	// Convert to standard format for override
+	hostOverride = strings.Join(hostOverrideArray, ",")
 
 	return
 }
