@@ -33,12 +33,6 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 		return
 	}
 
-	// If file override array ispresent, split into fields
-	var fileOverrides []string
-	if len(fileOverride) > 0 {
-		fileOverrides = strings.Split(fileOverride, ",")
-	}
-
 	printMessage(VerbosityProgress, "Parsing commit files\n")
 
 	// Initialize maps
@@ -49,39 +43,25 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 		// Get the old file and new file info
 		from, to := file.Files()
 
-		// Declare vars (to use named return err)
+		// Declare vars
 		var fromPath, toPath, commitFileToType string
-		var SkipFromFile, SkipToFile bool
+		var SkipToFile bool
 
 		// Validate the from File object
-		fromPath, _, SkipFromFile, err = validateCommittedFiles(from)
+		fromPath, _, _, err = validateCommittedFiles(from, fileOverride)
 		if err != nil {
 			return
 		}
 
 		// Validate the to File object
-		toPath, commitFileToType, SkipToFile, err = validateCommittedFiles(to)
+		toPath, commitFileToType, SkipToFile, err = validateCommittedFiles(to, fileOverride)
 		if err != nil {
 			return
 		}
 
-		// Skip if either from or to file is not valid
-		if SkipFromFile || SkipToFile {
+		// Skip if not valid - only check tofile (valid deployment with tofile could include invalid fromfile)
+		if SkipToFile {
 			continue
-		}
-
-		// Skip file if not user requested file (if requested)
-		if len(fileOverrides) > 0 {
-			var fileNotRequested bool
-			for _, overrideFile := range fileOverrides {
-				if fromPath == overrideFile || toPath == overrideFile {
-					continue
-				}
-				fileNotRequested = true
-			}
-			if fileNotRequested {
-				continue
-			}
 		}
 
 		// Add file to map depending on how it changed in this commit
@@ -322,7 +302,7 @@ func retrieveHostSecrets(endpointName string) (err error) {
 	// Copy current global config for this host to local
 	hostInfo := config.HostInfo[endpointName]
 
-	printMessage(VerbosityData, "    Retrieving endpoint key")
+	printMessage(VerbosityData, "    Retrieving endpoint key\n")
 
 	// Get SSH Private Key from the supplied identity file
 	hostInfo.PrivateKey, hostInfo.KeyAlgo, err = SSHIdentityToKey(hostInfo.IdentityFile)

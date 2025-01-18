@@ -18,7 +18,7 @@ import (
 // ###################################
 
 // Entry point for user to select remote files to download and format into local repository
-func seedRepositoryFiles(hostOverride string) {
+func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
@@ -29,6 +29,9 @@ func seedRepositoryFiles(hostOverride string) {
 	// Refused seeding without specific hosts specified
 	if hostOverride == "" {
 		logError("Invalid arguments", fmt.Errorf("remote-hosts cannot be empty when seeding the repository"), false)
+	} else if strings.Contains(hostOverride, "*") {
+		// TODO: allow wildcards - I'm just being lazy for now
+		logError("Invalid arguments", fmt.Errorf("remote-hosts cannot contain wildcards for repository seeding"), false)
 	}
 
 	printMessage(VerbosityStandard, "==== Secure Configuration Management Repository Seeding ====\n")
@@ -53,7 +56,8 @@ func seedRepositoryFiles(hostOverride string) {
 	// Loop hosts chosen by user and prepare relevant host information for deployment
 	for _, endpointName := range userHostChoices {
 		// Ensure user choice has an entry in the config
-		hostInfo, configHostFromUserChoice := config.HostInfo[endpointName]
+		// Retrieve most current global host config
+		_, configHostFromUserChoice := config.HostInfo[endpointName]
 		if !configHostFromUserChoice {
 			logError("Invalid host choice", fmt.Errorf("host %s does not exist in config", endpointName), false)
 		}
@@ -61,6 +65,9 @@ func seedRepositoryFiles(hostOverride string) {
 		// Retrieve host secrests (keys,passwords)
 		err = retrieveHostSecrets(endpointName)
 		logError("Error retrieving host secrets", err, true)
+
+		// Retrieve most current global host config
+		hostInfo := config.HostInfo[endpointName]
 
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
@@ -73,9 +80,53 @@ func seedRepositoryFiles(hostOverride string) {
 		logError("Failed connect to SSH server", err, false)
 		defer client.Close()
 
-		// Run menu for user to select desired files
-		selectedFiles, err := runSelectionMenu(endpointName, client, hostInfo.Password)
-		logError("Error retrieving remote file list", err, false)
+		// Run menu for user to select desired files or direct download
+		selectedFiles := make(map[string][]string)
+		if remoteFileOverride == "" {
+			selectedFiles, err = runSelection(endpointName, client, hostInfo.Password)
+			logError("Error retrieving remote file list", err, false)
+		} else {
+			// Get remote file metadata
+			remoteFiles := strings.Split(remoteFileOverride, ",")
+			for _, remoteFile := range remoteFiles {
+				// Ls the remote file for metadata information
+				command := "ls -lA " + remoteFile
+				var fileLS string
+				fileLS, err = RunSSHCommand(client, command, hostInfo.Password)
+				logError("Failed to retrieve remote file information", err, false)
+
+				// Split ls output into fields for this file
+				fileInfo := strings.Fields(fileLS)
+
+				// Skip misc ls output
+				if len(fileInfo) < 9 {
+					continue
+				}
+
+				// Split out permissions and check for directory or regular file
+				fileType := string(fileInfo[0][0])
+
+				// Identify if file is directory
+				if fileType == "d" {
+					// Skip file if dir
+					continue
+				} else if fileType != "-" {
+					// Skip other non-files
+					continue
+				}
+
+				// Filtering file metadata
+				fileName := string(fileInfo[8])
+				permissions := string(fileInfo[0][1:])
+				fileOwner := string(fileInfo[2])
+				fileGroup := string(fileInfo[3])
+
+				// Add file info to map
+				selectedFiles[fileName] = append(selectedFiles[fileName], permissions)
+				selectedFiles[fileName] = append(selectedFiles[fileName], fileOwner)
+				selectedFiles[fileName] = append(selectedFiles[fileName], fileGroup)
+			}
+		}
 
 		// Initialize buffer file (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
 		err = SCPUpload(client, []byte{12}, hostInfo.RemoteTransferBuffer)
@@ -92,7 +143,7 @@ func seedRepositoryFiles(hostOverride string) {
 }
 
 // Runs the CLI-based menu that user will use to select which files to download
-func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword string) (selectedFiles map[string][]string, err error) {
+func runSelection(endpointName string, client *ssh.Client, SudoPassword string) (selectedFiles map[string][]string, err error) {
 	// Start selection at root of filesystem - '/'
 	directory := "/"
 	directoryStack := []string{"/"}

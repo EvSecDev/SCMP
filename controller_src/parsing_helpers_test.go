@@ -23,6 +23,10 @@ func TestCheckForOverride(t *testing.T) {
 		{"file1.txt,file2.txt", "file3.txt", true},
 		{"file!@%$^&*(4.txt,file6.txt", "file6.txt", false},
 		{"file!@%$^&*(4.txt,file6.txt", "file!@%$^&*(4.txt", false},
+		{"universalconfs/*", "universalconfs/etc/hosts", false},
+		{"universalconfs/etc/*", "universalconfs/var/log/file.txt", true},
+		{"universalconfs/*", "universalconfs_ssh/etc/ssh/sshd_config", true},
+		{"host0*", "host0436", false},
 	}
 
 	for _, test := range tests {

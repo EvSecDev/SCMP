@@ -96,7 +96,8 @@ Options:
     -a, --deploy-all                           Deploy all files in specified commit [commit default: head]
     -f, --deploy-failures                      Deploy failed files/hosts using failtracker file from last failed deployment
     -r, --remote-hosts <host1,host2,...>       Override hosts for deployment
-    -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository)
+    -R, --remote-files <file1,file2,...>       Override files for seed repository (Suffix wildcards supported in qoutes only)
+    -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository) (Suffix wildcards supported in qoutes only)
     -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
     -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
     -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10] (Use 1 to disable deployment concurrency)

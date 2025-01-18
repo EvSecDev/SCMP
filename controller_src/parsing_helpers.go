@@ -18,18 +18,35 @@ import (
 // Checks for user-chosen host/file override with given host/file
 // Returns immediately if override is empty
 func checkForOverride(override string, current string) (skip bool) {
-	// Allow user override hosts or files
-	if override != "" {
-		userHostChoices := strings.Split(override, ",")
-		for _, userChoice := range userHostChoices {
-			// Don't skip if current is user choice
-			if userChoice == current {
-				skip = false
-				return
-			}
-			skip = true
-		}
+	// Return early if no override
+	if override == "" {
+		return
 	}
+
+	// Split choices on comma
+	userHostChoices := strings.Split(override, ",")
+
+	// Check each override specified against current
+	for _, userChoice := range userHostChoices {
+		// Users choice ends with wildcard, search based on prefix only
+		if strings.HasSuffix(userChoice, "*") {
+			userChoicePrefix := strings.Replace(userChoice, "*", "", -1)
+
+			// Don't skip current if user choice prefix matches
+			if strings.HasPrefix(current, userChoicePrefix) {
+				skip = false
+				continue
+			}
+		}
+
+		// Don't skip if current is user choice
+		if userChoice == current {
+			skip = false
+			return
+		}
+		skip = true
+	}
+
 	return
 }
 
@@ -164,7 +181,7 @@ func extractMetadata(fileContents string) (metadataSection string, remainingCont
 //	any files in the root of the repository
 //	dirs present in global ignoredirectories array
 //	dirs that do not have a match in the controllers config
-func validateCommittedFiles(rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
+func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string, FileType string, SkipFile bool, err error) {
 	// Nothing to validate
 	if rawFile == nil {
 		return
@@ -186,6 +203,13 @@ func validateCommittedFiles(rawFile diff.File) (path string, FileType string, Sk
 	path = rawFile.Path()
 
 	printMessage(VerbosityData, "  Validating committed file %s\n", path)
+
+	// Skip file if not user requested file (if requested)
+	skipFile := checkForOverride(fileOverride, path)
+	if skipFile {
+		printMessage(VerbosityFullData, "  File not desired\n")
+		return
+	}
 
 	// File exists, but no path - technically valid
 	if path == "" {

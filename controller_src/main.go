@@ -132,7 +132,7 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Pusher ===="
-const progVersion string = "v3.1.0"
+const progVersion string = "v3.2.0"
 const usage = `
 Examples:
     controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
@@ -147,7 +147,8 @@ Options:
     -a, --deploy-all                           Deploy all files in specified commit [commit default: head]
     -f, --deploy-failures                      Deploy failed files/hosts using failtracker file from last failed deployment
     -r, --remote-hosts <host1,host2,...>       Override hosts for deployment
-    -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository)
+    -R, --remote-files <file1,file2,...>       Override files for seed repository (Suffix wildcards supported in qoutes only)
+    -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository) (Suffix wildcards supported in qoutes only)
     -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
     -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
     -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10] (Use 1 to disable deployment concurrency)
@@ -176,6 +177,7 @@ func main() {
 	var deployFailuresRequested bool
 	var commitID string
 	var hostOverride string
+	var remoteFileOverride string
 	var fileOverride string
 	var modifyVaultHost string
 	var testConfig bool
@@ -199,6 +201,8 @@ func main() {
 	flag.StringVar(&commitID, "commitid", "", "")
 	flag.StringVar(&hostOverride, "r", "", "")
 	flag.StringVar(&hostOverride, "remote-hosts", "", "")
+	flag.StringVar(&remoteFileOverride, "R", "", "")
+	flag.StringVar(&remoteFileOverride, "remote-files", "", "")
 	flag.StringVar(&fileOverride, "l", "", "")
 	flag.StringVar(&fileOverride, "local-files", "", "")
 	flag.BoolVar(&testConfig, "t", false, "")
@@ -269,7 +273,7 @@ func main() {
 	} else if deployFailuresRequested {
 		preDeployment("deployFailures", commitID, hostOverride, fileOverride)
 	} else if seedRepoFiles {
-		seedRepositoryFiles(hostOverride)
+		seedRepositoryFiles(hostOverride, remoteFileOverride)
 	} else {
 		// No valid arguments or valid combination of arguments
 		printMessage(VerbosityStandard, "No arguments specified or incorrect argument combination. Use '-h' or '--help' to guide your way.\n")
