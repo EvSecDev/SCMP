@@ -22,7 +22,7 @@ func createNewRepository(newRepoInfo string) {
 	initialBranchName := userRepoChoices[1]
 
 	// Local os separator char
-	OSPathSeparator = string(os.PathSeparator)
+	config.OSPathSeparator = string(os.PathSeparator)
 
 	// Only take absolute paths from user choice
 	absoluteRepoPath, err := filepath.Abs(repoPath)
@@ -31,7 +31,7 @@ func createNewRepository(newRepoInfo string) {
 	printMessage(VerbosityProgress, "Creating new repository at %s\n", absoluteRepoPath)
 
 	// Get individual dir names
-	pathDirs := strings.Split(absoluteRepoPath, OSPathSeparator)
+	pathDirs := strings.Split(absoluteRepoPath, config.OSPathSeparator)
 
 	// Error if it already exists
 	_, err = os.Stat(absoluteRepoPath)
@@ -48,7 +48,7 @@ func createNewRepository(newRepoInfo string) {
 		}
 
 		// Save current dir to main path
-		repoPath = repoPath + OSPathSeparator + pathDir
+		repoPath = repoPath + config.OSPathSeparator + pathDir
 
 		// Check existence
 		_, err := os.Stat(repoPath)
@@ -137,10 +137,7 @@ func createNewRepository(newRepoInfo string) {
 		metadataHeader.TargetFilePermissions = 640
 
 		// Add reloads or dont depending on example file name
-		if strings.Contains(exampleFile, "noreload") {
-			metadataHeader.ReloadRequired = false
-		} else {
-			metadataHeader.ReloadRequired = true
+		if !strings.Contains(exampleFile, "noreload") {
 			metadataHeader.ReloadCommands = []string{"systemctl restart rsyslog.service", "systemctl is-active rsyslog"}
 		}
 
@@ -177,7 +174,7 @@ func createNewRepository(newRepoInfo string) {
 	postCommitFilePath := absoluteRepoPath + "/.git/hooks/post-commit.disabled"
 	postCommit := fmt.Sprintf(`#!/bin/bash
 	exec < /dev/tty
-	%s --git-hook-mode --deploy-changes -c %s`, os.Args[0], configFilePath)
+	%s --git-hook-mode --deploy-changes -c %s`, os.Args[0], config.FilePath)
 
 	// Open post-commit file path
 	file, err := os.OpenFile(postCommitFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0750)

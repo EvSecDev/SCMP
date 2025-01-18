@@ -33,94 +33,14 @@ func checkForOverride(override string, current string) (skip bool) {
 	return
 }
 
-// Deduplicates and creates host endpoint information map
-// Compares a hosts deployer endpoints info against the SSH client defaults
-func retrieveEndpointInfo(endpointName string) (info EndpointInfo, err error) {
-	// First item must be present (IP required, cannot use default)
-	endpointAddr, _ := config.Get(endpointName, "Hostname")
-	if endpointAddr == "" {
-		err = fmt.Errorf("host address cannot be empty")
-		return
-	}
-
-	// Get port from endpoint or if missing use default
-	endpointPort, _ := config.Get(endpointName, "Port")
-	if endpointPort == "" {
-		err = fmt.Errorf("host port cannot be empty")
-		return
-	}
-
-	// Network Address Parsing
-	info.Endpoint, err = ParseEndpointAddress(endpointAddr, endpointPort)
-	if err != nil {
-		err = fmt.Errorf("failed parsing network address: %v", err)
-		return
-	}
-
-	// Get user from endpoint or if missing use default
-	info.EndpointUser, _ = config.Get(endpointName, "User")
-	if info.EndpointUser == "" {
-		err = fmt.Errorf("host username cannot be empty")
-		return
-	}
-
-	// Get identity file from endpoint or if missing use default
-	identityFile, _ := config.Get(endpointName, "IdentityFile")
-	if identityFile == "" {
-		err = fmt.Errorf("identity file cannot be empty")
-		return
-	}
-
-	printMessage(VerbosityFullData, "      SSH Identity File: %s\n", identityFile)
-
-	// Get SSH Private Key from the supplied identity file
-	info.PrivateKey, info.KeyAlgo, err = SSHIdentityToKey(identityFile)
-	if err != nil {
-		err = fmt.Errorf("failed to retrieve private key: %v", err)
-		return
-	}
-
-	// Retrieve password if required
-	_, hostHasAPassword := hostsRequireVault[endpointName]
-	if hostHasAPassword {
-		info.Password, err = unlockVault(endpointName)
-		if err != nil {
-			err = fmt.Errorf("error retrieving host password from vault: %v", err)
-			return
-		}
-
-		printMessage(VerbosityFullData, "      Password: %s\n", info.Password)
-	} else {
-		printMessage(VerbosityFullData, "      Host does not require password\n")
-	}
-
-	// Get remote transfer buffer file path from endpoint or if missing use default
-	info.RemoteTransferBuffer, _ = config.Get(endpointName, "RemoteTransferBuffer")
-	if info.RemoteTransferBuffer == "" {
-		err = fmt.Errorf("RemoteTransferBuffer cannot be empty")
-		return
-	}
-
-	// Get remote backup buffer file path from endpoint or if missing use default
-	info.RemoteBackupDir, _ = config.Get(endpointName, "RemoteBackupDir")
-	if info.RemoteBackupDir == "" {
-		err = fmt.Errorf("RemoteBackupDir cannot be empty")
-		return
-	}
-	// Ensure trailing slashes don't make their way into the path
-	info.RemoteBackupDir = strings.TrimSuffix(info.RemoteBackupDir, "/")
-	return
-}
-
 // Retrieves file paths in maps per host and universal conf dir
-func mapAllRepoFiles(tree *object.Tree) (allHostsFiles map[string]map[string]struct{}, universalFiles map[string]struct{}, universalGroupFiles map[string]map[string]struct{}, err error) {
+func mapFilesByHostOrUniversal(tree *object.Tree) (allHostsFiles map[string]map[string]struct{}, universalFiles map[string]map[string]struct{}, err error) {
 	// Retrieve files from commit tree
 	repoFiles := tree.Files()
 
 	// Initialize maps
 	allHostsFiles = make(map[string]map[string]struct{})
-	universalFiles = make(map[string]struct{})
-	universalGroupFiles = make(map[string]map[string]struct{})
+	universalFiles = make(map[string]map[string]struct{})
 
 	// Retrieve all non-changed repository files for this host (and universal dir) for later deduping
 	for {
@@ -140,7 +60,7 @@ func mapAllRepoFiles(tree *object.Tree) (allHostsFiles map[string]map[string]str
 		}
 
 		// Split host dir and target path
-		commitSplit := strings.SplitN(repoFile.Name, OSPathSeparator, 2)
+		commitSplit := strings.SplitN(repoFile.Name, config.OSPathSeparator, 2)
 
 		// Skip repo files in root of repository
 		if len(commitSplit) <= 1 {
@@ -148,74 +68,55 @@ func mapAllRepoFiles(tree *object.Tree) (allHostsFiles map[string]map[string]str
 		}
 
 		// Get host dir part and target file path part
-		commitHost := commitSplit[0]
-		commitPath := commitSplit[1]
-
-		// Add tgt file path in main Universal directory to map for later deduping
-		if commitHost == UniversalDirectory {
-			universalFiles[commitPath] = struct{}{}
-		}
+		topLevelDirName := commitSplit[0]
+		tgtFilePath := commitSplit[1]
 
 		// Add files by universal group dirs to map for later deduping
-		for universalGroup := range UniversalGroups {
-			if commitHost == universalGroup {
-				// Repo file is under one of the universal group directories
-				universalGroupFiles[universalGroup] = make(map[string]struct{})
-				universalGroupFiles[universalGroup][commitPath] = struct{}{}
-			}
+		_, fileIsInUniversalGroup := config.AllUniversalGroups[topLevelDirName]
+		if fileIsInUniversalGroup || topLevelDirName == config.UniversalDirectory {
+			// Repo file is under one of the universal group directories
+			universalFiles[topLevelDirName] = make(map[string]struct{})
+			universalFiles[topLevelDirName][tgtFilePath] = struct{}{}
 		}
 
-		// Add files by their host to the map
-		if _, hostExists := allHostsFiles[commitHost]; !hostExists {
-			allHostsFiles[commitHost] = make(map[string]struct{})
+		// Add files by their host to the map - make map if host map isn't initialized yet
+		_, hostAlreadyExistsInMap := allHostsFiles[topLevelDirName]
+		if !hostAlreadyExistsInMap {
+			allHostsFiles[topLevelDirName] = make(map[string]struct{})
 		}
-		allHostsFiles[commitHost][commitPath] = struct{}{}
+		allHostsFiles[topLevelDirName][tgtFilePath] = struct{}{}
 	}
 
 	return
 }
 
-// Searches through all repository files and ensures that hosts that have an identical file to a universal file only deploy the host file
-func findDeniedUniversalFiles(endpointName string, hostFiles map[string]struct{}, universalFiles map[string]struct{}, universalGroupFiles map[string]map[string]struct{}) (deniedUniversalFiles map[string]struct{}) {
-	deniedUniversalFiles = make(map[string]struct{})
+// Record universal files that are NOT to be used for each host (host has an override file)
+func mapDeniedUniversalFiles(allHostsFiles map[string]map[string]struct{}, universalFiles map[string]map[string]struct{}) (deniedUniversalFiles map[string]map[string]struct{}) {
+	// Initialize map
+	deniedUniversalFiles = make(map[string]map[string]struct{})
 
-	// Record denied files for global universal files
-	for universalFile := range universalFiles {
-		_, hostHasUniversalOverride := hostFiles[universalFile]
-		if hostHasUniversalOverride {
-			// host has a file path that is also present in the universal dir
-			// should not deploy universal files if host has an identical file path
-			deniedFilePath := filepath.Join(UniversalDirectory, universalFile)
-			deniedUniversalFiles[deniedFilePath] = struct{}{}
-		}
-	}
+	// Created denied map for each host in config
+	for endpointName := range config.HostInfo {
+		// Initialize innner map
+		deniedUniversalFiles[endpointName] = make(map[string]struct{})
 
-	// Get universal groups this host is a part of
-	hostUniversalGroups := make(map[string]struct{}) // Store group names for this host
-	for universalGroup, hosts := range UniversalGroups {
-		for _, host := range hosts {
-			if endpointName == host {
-				hostUniversalGroups[universalGroup] = struct{}{}
+		// Find overlaps between group files and host files - record overlapping group files in denied map
+		for groupName, groupFiles := range universalFiles {
+			// Skip groups not applicable to this host
+			_, hostIsInFilesUniversalGroup := config.HostInfo[endpointName].UniversalGroups[groupName]
+			if !hostIsInFilesUniversalGroup && groupName != config.UniversalDirectory {
+				continue
 			}
-		}
-	}
 
-	// Find overlaps between group files and host files - record overlapping group files in denied map
-	for groupName, groupFiles := range universalGroupFiles {
-		// Skip groups not applicable to this host
-		_, hostIsInGroup := hostUniversalGroups[groupName]
-		if !hostIsInGroup {
-			continue
-		}
-
-		// Find overlap files
-		for groupFile := range groupFiles {
-			_, hostHasUniversalOverride := hostFiles[groupFile]
-			if hostHasUniversalOverride {
-				// host has a file path that is also present in the group universal dir
-				// should not deploy group universal files if host has an identical file path
-				deniedFilePath := filepath.Join(groupName, groupFile)
-				deniedUniversalFiles[deniedFilePath] = struct{}{}
+			// Find overlap files
+			for groupFile := range groupFiles {
+				_, hostHasUniversalOverride := allHostsFiles[endpointName][groupFile]
+				if hostHasUniversalOverride {
+					// Host has a file path that is also present in the group universal dir
+					// Should never deploy group universal files if host has an identical file path
+					deniedFilePath := filepath.Join(groupName, groupFile)
+					deniedUniversalFiles[endpointName][deniedFilePath] = struct{}{}
+				}
 			}
 		}
 	}
@@ -240,10 +141,10 @@ func extractMetadata(fileContents string) (metadataSection string, remainingCont
 	if endIndex == -1 {
 		TestEndIndex := strings.Index(fileContents[startIndex:], Delimiter)
 		if TestEndIndex == -1 {
-			err = fmt.Errorf("no newline after json end delimiter")
+			err = fmt.Errorf("json end delimiter missing")
 			return
 		}
-		err = fmt.Errorf("json end delimiter missing ")
+		err = fmt.Errorf("json end delimiter missing")
 		return
 	}
 	endIndex += startIndex
@@ -263,7 +164,7 @@ func extractMetadata(fileContents string) (metadataSection string, remainingCont
 //	any files in the root of the repository
 //	dirs present in global ignoredirectories array
 //	dirs that do not have a match in the controllers config
-func validateCommittedFiles(commitHosts map[string]struct{}, rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
+func validateCommittedFiles(rawFile diff.File) (path string, FileType string, SkipFile bool, err error) {
 	// Nothing to validate
 	if rawFile == nil {
 		return
@@ -292,14 +193,10 @@ func validateCommittedFiles(commitHosts map[string]struct{}, rawFile diff.File) 
 	}
 
 	// Ensure file is valid against config
-	hostDirName, SkipFile := validateRepoFile(path)
-	if SkipFile {
+	if repoFileIsValid(path) {
 		// Not valid, skip
 		return
 	}
-
-	// Add host to map
-	commitHosts[hostDirName] = struct{}{}
 
 	printMessage(VerbosityData, "  Validated committed file %s\n", path)
 
@@ -312,24 +209,24 @@ func validateCommittedFiles(commitHosts map[string]struct{}, rawFile diff.File) 
 //  3. A top-level directory name that is the a valid universal config group as in UniversalGroups
 //  4. A file inside any directory (i.e. not a file just in root of repo)
 //  5. A file not inside any of the IgnoreDirectories
-func validateRepoFile(path string) (topLevelDir string, SkipFile bool) {
+func repoFileIsValid(path string) (fileIsValid bool) {
 	// Always ignore files in root of repository
-	if !strings.ContainsRune(path, []rune(OSPathSeparator)[0]) {
-		SkipFile = true
+	if !strings.ContainsRune(path, []rune(config.OSPathSeparator)[0]) {
+		fileIsValid = true
 		printMessage(VerbosityData, "    File is in root of repo, skipping\n")
 		return
 	}
 
 	// Get top-level directory name
-	fileDirNames := strings.SplitN(path, OSPathSeparator, 2)
-	topLevelDir = fileDirNames[0]
+	fileDirNames := strings.SplitN(path, config.OSPathSeparator, 2)
+	topLevelDir := fileDirNames[0]
 
-	// SkipFile if inside ignore directories array
-	if len(IgnoreDirectories) > 0 {
+	// fileIsValid if inside ignore directories array
+	if len(config.IgnoreDirectories) > 0 {
 		// When committed file directory is prefixed by an ignore directory, skip file
-		for _, ignoreDir := range IgnoreDirectories {
+		for _, ignoreDir := range config.IgnoreDirectories {
 			if topLevelDir == ignoreDir {
-				SkipFile = true
+				fileIsValid = true
 				printMessage(VerbosityData, "    File is in an ignore directory, skipping\n")
 				return
 			}
@@ -337,27 +234,24 @@ func validateRepoFile(path string) (topLevelDir string, SkipFile bool) {
 	}
 
 	// Ensure directory name is valid against config options
-	for _, configHost := range DeployerEndpoints {
+	for configHost := range config.HostInfo {
 		// file top-level dir is a valid host or the universal directory
-		if topLevelDir == configHost || topLevelDir == UniversalDirectory {
+		if topLevelDir == configHost || topLevelDir == config.UniversalDirectory {
 			printMessage(VerbosityData, "    File is valid (Dir matches Hostname or is Universal Dir)\n")
-			SkipFile = false
+			fileIsValid = false
 			return
 		}
-		SkipFile = true
+		fileIsValid = true
 	}
-	for universalGroup := range UniversalGroups {
-		// file top-level dir is a universal group
-		if topLevelDir == universalGroup {
-			printMessage(VerbosityData, "    File is valid (Dir matches a Universal Group Dir)\n")
-			SkipFile = false
-			return
-		}
-		SkipFile = true
+	_, fileIsInUniversalGroup := config.AllUniversalGroups[topLevelDir]
+	if fileIsInUniversalGroup {
+		printMessage(VerbosityData, "    File is valid (Dir matches a Universal Group Dir)\n")
+		fileIsValid = false
+		return
 	}
 
 	printMessage(VerbosityData, "    File is not under a valid host directory or a universal directory, skipping\n")
-	SkipFile = true
+	fileIsValid = true
 	return
 }
 
@@ -404,8 +298,8 @@ func ResolveLinkToTarget(filePath string) (targetPath string, err error) {
 	}
 
 	// Get top level directory name for sym link and target
-	targetPathArray := strings.SplitN(linkTarget, OSPathSeparator, 2)
-	linkPathArray := strings.SplitN(filePath, OSPathSeparator, 2)
+	targetPathArray := strings.SplitN(linkTarget, config.OSPathSeparator, 2)
+	linkPathArray := strings.SplitN(filePath, config.OSPathSeparator, 2)
 
 	// Error if link top level directories are not the same (link is between host directories)
 	if targetPathArray[0] != linkPathArray[0] {
@@ -414,7 +308,7 @@ func ResolveLinkToTarget(filePath string) (targetPath string, err error) {
 	}
 
 	// Return target path without top level directory name (host dir name) (this is remote host format now)
-	convertedPath := strings.ReplaceAll(targetPathArray[1], OSPathSeparator, "/")
+	convertedPath := strings.ReplaceAll(targetPathArray[1], config.OSPathSeparator, "/")
 	targetPath = "/" + convertedPath
 	return
 }

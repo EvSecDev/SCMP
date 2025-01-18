@@ -42,7 +42,7 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 		fmt.Printf("         Working directory is **NOT** affected.\n")
 
 		// Open the repo
-		repo, err := git.PlainOpen(RepositoryPath)
+		repo, err := git.PlainOpen(config.RepositoryPath)
 		if err != nil {
 			fmt.Printf("Error rolling back commit. Failed to open repository: %v\n", err)
 			os.Exit(1)

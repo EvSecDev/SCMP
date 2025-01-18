@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/go-git/go-git/v5"
@@ -45,18 +44,6 @@ func localSystemChecks() (err error) {
 		return
 	}
 
-	printMessage(VerbosityProgress, "Retrieving known_hosts file contents\n")
-
-	// Read in file
-	knownHostFile, err := os.ReadFile(knownHostsFilePath)
-	if err != nil {
-		err = fmt.Errorf("unable to read known_hosts file: %v", err)
-		return
-	}
-
-	// Store all known_hosts as array
-	knownhosts = strings.Split(string(knownHostFile), "\n")
-
 	return
 }
 
@@ -66,7 +53,7 @@ func getCommit(commitID *string) (tree *object.Tree, commit *object.Commit, err 
 	printMessage(VerbosityProgress, "Retrieving commit and tree from git repository\n")
 
 	// Open the repository
-	repo, err := git.PlainOpen(RepositoryPath)
+	repo, err := git.PlainOpen(config.RepositoryPath)
 	if err != nil {
 		err = fmt.Errorf("unable to open repository: %v", err)
 		return
@@ -163,7 +150,7 @@ func recordDeploymentError(commitID string) (err error) {
 	}
 
 	printMessage(VerbosityStandard, "\nPlease fix the errors, then run the following command to redeploy OR create new commit if file corrections are needed:\n")
-	printMessage(VerbosityStandard, "%s -c %s --deploy-failures\n", PathToExe, configFilePath)
+	printMessage(VerbosityStandard, "%s -c %s --deploy-failures\n", PathToExe, config.FilePath)
 
 	// Remove errors that are not root-cause failures before writing to tracker file
 	// If a redeploy can't re-attempt the failed action, then it shouldn't be in failtracker file
@@ -178,8 +165,7 @@ func recordDeploymentError(commitID string) (err error) {
 	FailTracker = strings.Join(rootCauseErrors, "\n")
 
 	// Add FailTracker string to repo working directory fail file
-	FailTrackerPath := filepath.Join(RepositoryPath, FailTrackerFile)
-	FailTrackerFile, err := os.Create(FailTrackerPath)
+	FailTrackerFile, err := os.Create(config.FailTrackerFilePath)
 	if err != nil {
 		err = fmt.Errorf("Failed to create FailTracker File - manual redeploy using '--use-failtracker-only' will not work. Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A): %v\n", err)
 		return
@@ -201,7 +187,7 @@ func recordDeploymentError(commitID string) (err error) {
 }
 
 // Print out deployment information in dry run mode
-func printDeploymentInformation(hostsAndEndpointInfo map[string]EndpointInfo, commitFileInfo map[string]CommitFileInfo) {
+func printDeploymentInformation(commitFileInfo map[string]CommitFileInfo, allDeploymentHosts []string) {
 	// Notify user that program is in dry run mode
 	printMessage(VerbosityStandard, "Requested dry-run, aborting deployment\n")
 	if globalVerbosityLevel < 2 {
@@ -211,7 +197,8 @@ func printDeploymentInformation(hostsAndEndpointInfo map[string]EndpointInfo, co
 	printMessage(VerbosityProgress, "Outputting information collected for deployment:\n")
 
 	// Print deployment info by host
-	for _, hostInfo := range hostsAndEndpointInfo {
+	for _, endpointName := range allDeploymentHosts {
+		hostInfo := config.HostInfo[endpointName]
 		printHostInformation(hostInfo)
 		printMessage(VerbosityProgress, "  Files:\n")
 
@@ -260,10 +247,10 @@ func printHostInformation(hostInfo EndpointInfo) {
 	// Print out information for this specific host
 	printMessage(VerbosityProgress, "Host: %s\n", hostInfo.EndpointName)
 	printMessage(VerbosityProgress, "  Options:\n")
-	printMessage(VerbosityProgress, "       Endpoint Address: %s\n", hostInfo.Endpoint)
-	printMessage(VerbosityProgress, "       SSH User:         %s\n", hostInfo.EndpointUser)
-	printMessage(VerbosityProgress, "       SSH Key:          %s\n", hostInfo.PrivateKey.PublicKey())
-	printMessage(VerbosityProgress, "       Password:         %s\n", hostInfo.Password)
-	printMessage(VerbosityProgress, "       Transfer Buffer:  %s\n", hostInfo.RemoteTransferBuffer)
-	printMessage(VerbosityProgress, "       Backup Dir:       %s\n", hostInfo.RemoteBackupDir)
+	printMessage(VerbosityProgress, "       Endpoint Address:  %s\n", hostInfo.Endpoint)
+	printMessage(VerbosityProgress, "       SSH User:          %s\n", hostInfo.EndpointUser)
+	printMessage(VerbosityProgress, "       SSH Key:           %s\n", hostInfo.PrivateKey.PublicKey())
+	printMessage(VerbosityProgress, "       Password:          %s\n", hostInfo.Password)
+	printMessage(VerbosityProgress, "       Transfer Buffer:   %s\n", hostInfo.RemoteTransferBuffer)
+	printMessage(VerbosityProgress, "       Backup Dir:        %s\n", hostInfo.RemoteBackupDir)
 }

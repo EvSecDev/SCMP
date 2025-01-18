@@ -3,16 +3,13 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -56,37 +53,37 @@ func seedRepositoryFiles(hostOverride string) {
 	// Loop hosts chosen by user and prepare relevant host information for deployment
 	for _, endpointName := range userHostChoices {
 		// Ensure user choice has an entry in the config
-		configHostFromUserChoice, _ := config.Get(endpointName, "Hostname")
-		if configHostFromUserChoice == "" {
+		hostInfo, configHostFromUserChoice := config.HostInfo[endpointName]
+		if !configHostFromUserChoice {
 			logError("Invalid host choice", fmt.Errorf("host %s does not exist in config", endpointName), false)
 		}
 
-		// Extract vars for endpoint information
-		info, err := retrieveEndpointInfo(endpointName)
-		logError("Failed to retrieve endpoint information", err, false)
+		// Retrieve host secrests (keys,passwords)
+		err = retrieveHostSecrets(endpointName)
+		logError("Error retrieving host secrets", err, true)
 
-		// If user requested dry run - print collected information so far and gracefully abort update
+		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
-			printHostInformation(info)
+			printHostInformation(hostInfo)
 			continue
 		}
 
 		// Connect to the SSH server
-		client, err := connectToSSH(info.Endpoint, info.EndpointUser, info.PrivateKey, info.KeyAlgo)
+		client, err := connectToSSH(hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.PrivateKey, hostInfo.KeyAlgo)
 		logError("Failed connect to SSH server", err, false)
 		defer client.Close()
 
 		// Run menu for user to select desired files
-		selectedFiles, err := runSelectionMenu(endpointName, client, info.Password)
+		selectedFiles, err := runSelectionMenu(endpointName, client, hostInfo.Password)
 		logError("Error retrieving remote file list", err, false)
 
 		// Initialize buffer file (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
-		err = RunSFTP(client, []byte{12}, info.RemoteTransferBuffer)
+		err = SCPUpload(client, []byte{12}, hostInfo.RemoteTransferBuffer)
 		logError(fmt.Sprintf("Failed to initialize buffer file on remote host %s", endpointName), err, false)
 
 		// Download user file choices to local repo and format
 		for targetFilePath, fileInfo := range selectedFiles {
-			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, info.Password, info.RemoteTransferBuffer)
+			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, hostInfo.Password, hostInfo.RemoteTransferBuffer)
 			logError("Error seeding repository", err, false)
 		}
 	}
@@ -122,7 +119,7 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 			}
 
 			// Show progress to user
-			printMessage(VerbosityStandard, "Error: unable to read '%s'\n", directory)
+			fmt.Printf("Error: unable to read '%s'\n", directory)
 
 			// Set next loop directory to parent directory
 			directory = directoryStack[len(directoryStack)-2]
@@ -186,7 +183,7 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 		numberOfDirEntries := len(dirList)
 
 		// Show Menu - Print the directory contents in columns
-		printMessage(VerbosityStandard, "============================================================\n")
+		fmt.Printf("============================================================\n")
 		numberOfColumns := 4
 		maxRows := (numberOfDirEntries + numberOfColumns - 1) / numberOfColumns
 		columnWidth := maxLength + 4
@@ -207,16 +204,16 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 				}
 
 				// Print the file name
-				printMessage(VerbosityStandard, "%-4d %-*s", index+1, columnWidth, name)
+				fmt.Printf("%-4d %-*s", index+1, columnWidth, name)
 			}
 			// Newline before next row
-			printMessage(VerbosityStandard, "\n")
+			fmt.Printf("\n")
 		}
 		// User prompt
-		printMessage(VerbosityStandard, "\n============================================================\n")
-		printMessage(VerbosityStandard, "         Select File     Change Dir ^v   Exit\n")
-		printMessage(VerbosityStandard, "         [ # # ## ### ]  [ c0 ] [ c# ]   [ ! ]\n")
-		printMessage(VerbosityStandard, "%s:%s# Type your selections: ", endpointName, directory)
+		fmt.Printf("\n============================================================\n")
+		fmt.Printf("         Select File     Change Dir ^v   Exit\n")
+		fmt.Printf("         [ # # ## ### ]  [ c0 ] [ c# ]   [ ! ]\n")
+		fmt.Printf("%s:%s# Type your selections: ", endpointName, directory)
 
 		// Read user input
 		reader := bufio.NewReader(os.Stdin)
@@ -228,7 +225,7 @@ func runSelectionMenu(endpointName string, client *ssh.Client, SudoPassword stri
 		// Clear menu rows - add to row count to account for the prompts
 		maxRows += 6
 		for maxRows > 0 {
-			printMessage(VerbosityStandard, "\033[A\033[K")
+			fmt.Printf("\033[A\033[K")
 			maxRows--
 		}
 
@@ -332,36 +329,14 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		return
 	}
 
-	// Open new session with ssh client
-	var sftpClient *sftp.Client
-	sftpClient, err = sftp.NewClient(client)
-	if err != nil {
-		err = fmt.Errorf("failed to create sftp session: %v", err)
-		return
-	}
-	defer sftpClient.Close()
-
-	// Open remote file
-	var remoteFile *sftp.File
-	remoteFile, err = sftpClient.Open(tmpRemoteFilePath)
-	if err != nil {
-		err = fmt.Errorf("failed to read tmp buffer file '%s': %v", tmpRemoteFilePath, err)
-		return
-	}
-
 	// Download remote file contents
-	var buffer bytes.Buffer
-	_, err = io.Copy(&buffer, remoteFile)
+	fileContents, err := SCPDownload(client, tmpRemoteFilePath)
 	if err != nil {
-		err = fmt.Errorf("failed to download remote file from buffer file '%s': %v", tmpRemoteFilePath, err)
 		return
 	}
-
-	// Convert recevied bytes to string
-	fileContents := buffer.String()
 
 	// Replace target path separators with local os ones
-	hostFilePath := strings.ReplaceAll(targetFilePath, "/", OSPathSeparator)
+	hostFilePath := strings.ReplaceAll(targetFilePath, "/", config.OSPathSeparator)
 
 	// Use target file path and hosts name for repo file location
 	configFilePath := endpointName + hostFilePath
@@ -386,7 +361,6 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 
 	// Setup metadata depending on user choice
 	if reloadWanted == "y" {
-		metadataHeader.ReloadRequired = true
 		var reloadCmds []string
 
 		// Search known files for a match
@@ -458,16 +432,8 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 			}
 		}
 
-		// Quick check if user didn't add any reloads
-		if len(reloadCmds) == 0 {
-			// Empty reloads set reload required back to false
-			metadataHeader.ReloadRequired = false
-		}
-
 		// Write user supplied command array to metadata header
 		metadataHeader.ReloadCommands = reloadCmds
-	} else {
-		metadataHeader.ReloadRequired = false
 	}
 
 	printMessage(VerbosityProgress, "Adding JSON metadata header to file %s\n", configFilePath)

@@ -36,129 +36,185 @@ func TestCheckForOverride(t *testing.T) {
 	}
 }
 
-// Test function for findDeniedUniversalFiles
-func TestFindDeniedUniversalFiles(t *testing.T) {
+func TestMapDeniedUniversalFiles(t *testing.T) {
+	// Mock Global
+	config = Config{
+		HostInfo: map[string]EndpointInfo{
+			"host1": {
+				UniversalGroups: map[string]struct{}{
+					"UniversalConfs_Service1": {},
+				},
+			},
+			"host2": {
+				UniversalGroups: map[string]struct{}{
+					"UniversalConfs_OtherServers": {},
+				},
+			},
+			"host3": {
+				UniversalGroups: map[string]struct{}{
+					"": {},
+				},
+			},
+		},
+		UniversalDirectory: "UniversalConfs",
+	}
+
+	// Test Data
+	allHostsFiles := map[string]map[string]struct{}{
+		"host1": {
+			"etc/file1.txt": {},
+			"etc/file2.txt": {},
+			"etc/file3.txt": {},
+		},
+		"host2": {
+			"etc/file4.txt": {},
+			"etc/file5.txt": {},
+			"etc/file6.txt": {},
+		},
+		"host3": {
+			"etc/file7.txt": {},
+			"etc/file8.txt": {},
+			"etc/file9.txt": {},
+		},
+	}
+	universalFiles := map[string]map[string]struct{}{
+		"UniversalConfs_Service1": {
+			"etc/file1.txt": {},
+			"etc/file3.txt": {},
+		},
+		"UniversalConfs_OtherServers": {
+			"etc/file2.txt": {},
+			"etc/file4.txt": {},
+		},
+		"UniversalConfs": {
+			"etc/file5.txt": {},
+		},
+	}
+
+	// Call the function under test
+	deniedUniversalFiles := mapDeniedUniversalFiles(allHostsFiles, universalFiles)
+
+	// Expected result
+	expectedDeniedFiles := map[string]map[string]struct{}{
+		"host1": {
+			"UniversalConfs_Service1/etc/file1.txt": {},
+			"UniversalConfs_Service1/etc/file3.txt": {},
+		},
+		"host2": {
+			"UniversalConfs/etc/file5.txt":              {},
+			"UniversalConfs_OtherServers/etc/file4.txt": {},
+		},
+	}
+
+	// Check if the result matches the expected output
+	for host, deniedFiles := range expectedDeniedFiles {
+		for filePath := range deniedFiles {
+			_, fileIsInDenied := deniedUniversalFiles[host][filePath]
+			if !fileIsInDenied {
+				t.Errorf("For test %s, expected denied file %s, but it was not found", host, filePath)
+			}
+		}
+
+		// Check for extra denied files in the actual result
+		for filePath := range deniedUniversalFiles[host] {
+			_, fileIsExpectedDenied := expectedDeniedFiles[host][filePath]
+			if !fileIsExpectedDenied {
+				t.Errorf("For test %s, found extra denied file %s, which was not expected", host, filePath)
+			}
+		}
+	}
+}
+
+func TestExtractMetadata(t *testing.T) {
 	tests := []struct {
-		endpointName        string
-		hostFiles           map[string]struct{}
-		universalFiles      map[string]struct{}
-		universalGroupFiles map[string]map[string]struct{}
-		expectedDeniedFiles map[string]struct{}
-		universalDirectory  string
-		universalGroups     map[string][]string
+		name                     string
+		fileContents             string
+		expectedMetadata         string
+		expectedRemainingContent string
+		expectedError            error
 	}{
-		{ // Host has identical file to global universal
-			endpointName:   "host1",
-			hostFiles:      map[string]struct{}{"etc/fileA": {}, "etc/fileB": {}},
-			universalFiles: map[string]struct{}{"etc/fileA": {}, "etc/fileC": {}},
-			universalGroupFiles: map[string]map[string]struct{}{
-				"UniversalConfs_Group1": {"etc/fileD": {}, "etc/fileE": {}},
-			},
-			expectedDeniedFiles: map[string]struct{}{
-				"UniversalConfs/etc/fileA": {},
-			},
-			universalDirectory: "UniversalConfs",
-			universalGroups: map[string][]string{
-				"UniversalConfs_Group1": {"host4", "host7"},
-				"UniversalConfs_Group2": {"host10"},
-			},
+		{
+			name: "Valid Metadata",
+			fileContents: `#|^^^|#
+{
+  "FileOwnerGroup": "root:root",
+  "FilePermissions": 755,
+  "Reload": [
+    "command1",
+    "command2"
+  ]
+}
+#|^^^|#
+file content file content file content`,
+			expectedMetadata: `
+{
+  "FileOwnerGroup": "root:root",
+  "FilePermissions": 755,
+  "Reload": [
+    "command1",
+    "command2"
+  ]
+}
+`,
+			expectedRemainingContent: "file content file content file content",
+			expectedError:            nil,
 		},
-		{ // Host does not have universal file, and is not part of a universal group
-			endpointName:   "host2",
-			hostFiles:      map[string]struct{}{"etc/fileF": {}, "etc/fileG": {}},
-			universalFiles: map[string]struct{}{"etc/fileA": {}, "etc/fileC": {}},
-			universalGroupFiles: map[string]map[string]struct{}{
-				"UniversalConfs_Group1": {"etc/fileD": {}, "etc/fileG": {}},
-			},
-			expectedDeniedFiles: map[string]struct{}{},
-			universalDirectory:  "UniversalConfs",
-			universalGroups: map[string][]string{
-				"UniversalConfs_Group1": {"host4", "host7"},
-				"UniversalConfs_Group2": {"host10"},
-			},
+		{
+			name:                     "Missing Start Delimiter",
+			fileContents:             `file content file content file content`,
+			expectedMetadata:         "",
+			expectedRemainingContent: "",
+			expectedError:            fmt.Errorf("json start delimiter missing"),
 		},
-		{ // Host has identical file to global universal
-			endpointName:   "host3",
-			hostFiles:      map[string]struct{}{"etc/fileB": {}},
-			universalFiles: map[string]struct{}{"etc/fileA": {}, "etc/fileB": {}},
-			universalGroupFiles: map[string]map[string]struct{}{
-				"UniversalConfs_Group1": {"etc/fileD": {}},
-			},
-			expectedDeniedFiles: map[string]struct{}{
-				"UniversalConfs/etc/fileB": {},
-			},
-			universalDirectory: "UniversalConfs",
-			universalGroups: map[string][]string{
-				"UniversalConfs_Group1": {"host4", "host7"},
-				"UniversalConfs_Group2": {"host3"},
-			},
+		{
+			name: "No End Delimiter",
+			fileContents: `#|^^^|#
+{
+  "FileOwnerGroup": "root:root",
+  "FilePermissions": 755
+}
+file content file content file content`,
+			expectedMetadata:         "",
+			expectedRemainingContent: "",
+			expectedError:            fmt.Errorf("json end delimiter missing"),
 		},
-		{ // Host is part of universal group and has identical file
-			endpointName:   "host4",
-			hostFiles:      map[string]struct{}{"etc/fileB": {}},
-			universalFiles: map[string]struct{}{"etc/fileA": {}, "etc/fileC": {}},
-			universalGroupFiles: map[string]map[string]struct{}{
-				"UniversalConfs_Group1": {"etc/fileB": {}},
-			},
-			expectedDeniedFiles: map[string]struct{}{
-				"UniversalConfs_Group1/etc/fileB": {},
-			},
-			universalDirectory: "UniversalConfs",
-			universalGroups: map[string][]string{
-				"UniversalConfs_Group1": {"host4", "host7"},
-				"UniversalConfs_Group2": {"host10"},
-			},
-		},
-		{ // Host is in group and has identical file to group and global universal
-			endpointName:   "host7",
-			hostFiles:      map[string]struct{}{"etc/fileD": {}},
-			universalFiles: map[string]struct{}{"etc/fileA": {}, "etc/fileD": {}},
-			universalGroupFiles: map[string]map[string]struct{}{
-				"UniversalConfs_Group1": {"etc/fileD": {}},
-			},
-			expectedDeniedFiles: map[string]struct{}{
-				"UniversalConfs/etc/fileD":        {},
-				"UniversalConfs_Group1/etc/fileD": {},
-			},
-			universalDirectory: "UniversalConfs",
-			universalGroups: map[string][]string{
-				"UniversalConfs_Group1": {"host4", "host7"},
-				"UniversalConfs_Group2": {"host3"},
-			},
-		},
-		{ // Empty
-			endpointName:        "host5",
-			hostFiles:           map[string]struct{}{},
-			universalFiles:      map[string]struct{}{"etc/fileA": {}, "etc/fileB": {}},
-			universalGroupFiles: map[string]map[string]struct{}{},
-			expectedDeniedFiles: map[string]struct{}{},
-			universalDirectory:  "UniversalConfs",
-			universalGroups: map[string][]string{
-				"UniversalConfs_Group1": {"host4", "host7"},
-				"UniversalConfs_Group2": {"host10"},
-			},
+		{
+			name: "Missing Newline After End Delimiter",
+			fileContents: `#|^^^|#
+{
+  "FileOwnerGroup": "root:root",
+  "FilePermissions": 755
+}
+#|^^^|#`,
+			expectedMetadata:         "",
+			expectedRemainingContent: "",
+			expectedError:            fmt.Errorf("json end delimiter missing"),
 		},
 	}
 
 	for _, test := range tests {
-		t.Run(test.endpointName, func(t *testing.T) {
-			// Set global required for function
-			UniversalDirectory = test.universalDirectory
-			UniversalGroups = test.universalGroups
+		t.Run(test.name, func(t *testing.T) {
+			metadata, remaining, err := extractMetadata(test.fileContents)
 
-			deniedFiles := findDeniedUniversalFiles(test.endpointName, test.hostFiles, test.universalFiles, test.universalGroupFiles)
-
-			// Check if the denied files match the expected output
-			for deniedFile := range test.expectedDeniedFiles {
-				if _, exists := deniedFiles[deniedFile]; !exists {
-					t.Errorf("Expected denied file %s not found", deniedFile)
+			// If we expect an error, check that it's not nil and matches the expected error
+			if test.expectedError != nil {
+				if err == nil {
+					t.Errorf("expected error '%v', but got nil", test.expectedError)
+				} else if err.Error() != test.expectedError.Error() {
+					t.Errorf("expected error '%v', got '%v'", test.expectedError, err)
 				}
+			} else if err != nil {
+				// If no error is expected but we got one, this is a failure
+				t.Errorf("expected no error, but got '%v'", err)
 			}
 
-			// Ensure there are no extra files in denied files
-			for deniedFile := range deniedFiles {
-				if _, exists := test.expectedDeniedFiles[deniedFile]; !exists {
-					t.Errorf("Unexpected denied file %s found", deniedFile)
+			// If no error, check that the metadata and remaining content are correct
+			if err == nil {
+				if metadata != test.expectedMetadata {
+					t.Errorf("expected metadata '%v', got '%v'", test.expectedMetadata, metadata)
+				}
+				if remaining != test.expectedRemainingContent {
+					t.Errorf("expected remaining content '%v', got '%v'", test.expectedRemainingContent, remaining)
 				}
 			}
 		})
@@ -167,63 +223,53 @@ func TestFindDeniedUniversalFiles(t *testing.T) {
 
 func TestValidateRepoFile(t *testing.T) {
 	// Mock globals for the tests
-	OSPathSeparator = "/"
-	DeployerEndpoints = []string{"validHost", "validHost2"}
-	IgnoreDirectories = []string{"ignoreDir", "ignoreDir2"}
-	UniversalDirectory = "UniversalConfs"
-	UniversalGroups = map[string][]string{
+	config.OSPathSeparator = "/"
+	config.HostInfo = make(map[string]EndpointInfo)
+	config.HostInfo["validHost"] = EndpointInfo{EndpointName: "validHost"}
+	config.HostInfo["validHost2"] = EndpointInfo{EndpointName: "validHost2"}
+	config.IgnoreDirectories = []string{"ignoreDir", "ignoreDir2"}
+	config.UniversalDirectory = "UniversalConfs"
+	config.AllUniversalGroups = map[string]struct{}{
 		"UniversalConfs_Group1": {},
 	}
 
 	tests := []struct {
 		path     string
 		expected struct {
-			hostDirName string
-			skipFile    bool
+			skipFile bool
 		}
 	}{
 		{"file.txt", struct {
-			hostDirName string
-			skipFile    bool
-		}{"", true}},
+			skipFile bool
+		}{true}},
 		{"ignoreDir/file.txt", struct {
-			hostDirName string
-			skipFile    bool
-		}{"", true}},
+			skipFile bool
+		}{true}},
 		{"validHost/etc/file.txt", struct {
-			hostDirName string
-			skipFile    bool
-		}{"validHost", false}},
+			skipFile bool
+		}{false}},
 		{"UniversalConfs/file.txt", struct {
-			hostDirName string
-			skipFile    bool
-		}{"UniversalConfs", false}},
+			skipFile bool
+		}{false}},
 		{"UniversalConfs_Group1/file.txt", struct {
-			hostDirName string
-			skipFile    bool
-		}{"UniversalConfs_Group1", false}},
+			skipFile bool
+		}{false}},
 		{"invalidDir/file.txt", struct {
-			hostDirName string
-			skipFile    bool
-		}{"", true}},
+			skipFile bool
+		}{true}},
 		{"/etc/file.txt", struct {
-			hostDirName string
-			skipFile    bool
-		}{"", true}},
+			skipFile bool
+		}{true}},
 		{"", struct {
-			hostDirName string
-			skipFile    bool
-		}{"", true}},
+			skipFile bool
+		}{true}},
 	}
 
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
-			hostDirName, skipFile := validateRepoFile(test.path)
+			skipFile := repoFileIsValid(test.path)
 			if skipFile != test.expected.skipFile {
 				t.Errorf("expected skipFile to be %t, got %t", test.expected.skipFile, skipFile)
-			}
-			if !skipFile && hostDirName != test.expected.hostDirName {
-				t.Errorf("expected hostDirName to be %s, got %s", test.expected.hostDirName, hostDirName)
 			}
 		})
 	}

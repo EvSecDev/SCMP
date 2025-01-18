@@ -27,15 +27,69 @@ Options:
   -o <os>     Which operating system to build for (linux, windows) [default: linux]
   -f          Build nicely named binary (does not apply to package builds)
   -u          Update go packages for a given program (use -b to choose which program, *pkg options not applicable)
+  -g          Generate releases for github
 "
 }
 
+# Always update README with help menu from code
+function update_readme {
+	fileName="README.md"
+	helpMenuFromMain=$(cat $controllerSRCdir/main.go | sed -n '/const usage = `/,/`/{/^const usage = `$/d; /^`$/d; p;}')
+
+	# Line number for start of md section
+	menuSectionStartLineNumber=$(grep -n "### Controller Help Menu" $fileName | cut -d":" -f1)
+	helpMenuDelimiter='```'
+
+	# Line number for start of code block
+	helpMenuStartLine=$(awk -v startLine="$menuSectionStartLineNumber" -v delimiter="$helpMenuDelimiter" '
+	  NR > startLine && $0 ~ delimiter { print NR; exit }
+	' "$fileName")
+
+	# Line number for end of code block
+	helpMenuEndLine=$(awk -v startLine="$helpMenuStartLine" -v delimiter="$helpMenuDelimiter" '
+          NR > startLine && $0 ~ delimiter { print NR; exit }
+        ' "$fileName")
+
+	# Replace existing code block with new one
+	awk -v start="$helpMenuStartLine" -v end="$helpMenuEndLine" -v replacement="$helpMenuFromMain" '
+	    NR < start { print }                # Print lines before the start range
+	    NR == start {                       # Print the start line and replacement text
+	        print
+	        print replacement
+	    }
+	    NR > start && NR < end { next }     # Skip lines between start and end
+	    NR == end { print }                 # Print the end line
+	    NR > end { print }                  # Print lines after the end range
+	' $fileName > .t && mv .t $fileName
+}
+
 function check_for_dev_artifacts {
+	# function args
 	srcDir=$1
+
+	# Get head commit hash
+	headCommitHash=$(git rev-parse HEAD)
+
+        # Get commit where last release was generated from
+        lastReleaseCommitHash=$(cat $repoRoot/.last_release_commit)
+
+	# Retrieve the program version from the last release commit
+	lastReleaseVersionNumber=$(git show $lastReleaseCommitHash:$srcDir/main.go | grep "progVersion string" | cut -d" " -f5 | sed 's/"//g')
+
+	# Get the current version number
+	currentVersionNumber=$(grep "progVersion string" $srcDir/main.go | cut -d" " -f5 | sed 's/"//g')
+
+	# Exit if version number hasn't been upped since last commit
+	if [[ $lastReleaseVersionNumber == $currentVersionNumber ]] && ! [[ $headCommitHash == $lastReleaseCommitHash ]]
+	then
+		echo "  [-] Version number in $srcDir/main.go has not been bumped since last commit, exiting build"
+		exit 1
+	fi
+
         # Quick check for any left over debug prints
         if egrep -R "DEBUG" $srcDir/*.go
         then
-                echo "  Debug print found in source code. You might want to remove that before release."
+                echo "  [-] Debug print found in source code. You might want to remove that before release."
         fi
 
 	# Quick staticcheck check - ignoring punctuation in error strings
@@ -46,18 +100,66 @@ function check_for_dev_artifacts {
 	cd $repoRoot/
 }
 
+function fix_program_package_list_print {
+        searchDir="$repoRoot/$controllerSRCdir"
+        mainFile=$(grep -il "func main() {" $searchDir/*.go | egrep -v "testing")
+
+	# Hold cumulative (duplicated) imports from all go source files
+	allImports=""
+
+	# Loop all go source files
+	for gosrcfile in $(find "$searchDir/" -maxdepth 1 -iname *.go)
+	do
+	        # Get space delimited single line list of imported package names (no quotes) for this go file
+	        allImports+=$(cat $gosrcfile | awk '/import \(/,/\)/' | egrep -v "import \(|\)|^\n$" | sed -e 's/"//g' -e 's/\s//g' | tr '\n' ' ' | sed 's/  / /g')
+	done
+
+	# Put space delimited list of all the imports into an array
+	IFS=' ' read -r -a pkgarr <<< "$allImports"
+
+	# Create associative array for deduping
+	declare -A packages
+
+	# Add each import package to the associative array to delete dups
+	for pkg in "${pkgarr[@]}"
+	do
+	        packages["$pkg"]=1
+	done
+
+	# Convert back to regular array
+	allPackages=("${!packages[@]}")
+
+	# search line in each program that contains package import list for version print
+	packagePrintLine='fmt.Print("Packages: '
+
+	# Format package list into go print line
+	newPackagePrintLine=$'\t\tfmt.Print("Packages: '"${allPackages[@]}"'\\n")'
+
+	# Write new package line into go source file that has main function
+	sed -i "/$packagePrintLine/c\\$newPackagePrintLine" $mainFile
+}
+
 function controller_binary {
+	# function args
+	buildFull=$3
+
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
 
 	# Check for things not supposed to be in a release
 	check_for_dev_artifacts "$controllerSRCdir"
 
+	# Check for new packages that were imported but not included in version output
+	fix_program_package_list_print
+
+	# Ensure readme has updated code blocks
+	update_readme
+
 	# Move into dir
 	cd $controllerSRCdir
 
 	# Run tests
-	go test >/dev/null
+	go test
 
 	# Vars for build
 	inputGoSource="*.go"
@@ -71,7 +173,7 @@ function controller_binary {
 	cd $repoRoot
 
 	# Rename to more descriptive if full build was requested
-	if [[ $3 == true ]]
+	if [[ $buildFull == true ]]
 	then
 		# Get version
 		version=$(./$outputEXE --versionid)
@@ -101,6 +203,12 @@ function controller_package {
 	awk '{if ($0 ~ /#{{CONFIG_PLACEHOLDER}}/) {while((getline line < "'$defaultConfigYaml'") > 0) print line} else print $0}' install_controller.sh > .d && mv .d install_controller.sh
 	awk '{if ($0 ~ /#{{AAPROF_PLACEHOLDER}}/) {while((getline line < "'$defaultApparmorProfile'") > 0) print line} else print $0}' install_controller.sh > .d && mv .d install_controller.sh
 	chmod 750 "$repoRoot/install_controller.sh"
+
+	# Check for new packages that were imported but not included in version output
+	fix_program_package_list_print
+
+	# Ensure readme has updated code blocks
+	update_readme
 
 	# Move into src dir
 	cd $repoRoot/$controllerSRCdir
@@ -151,6 +259,103 @@ function update_go_packages {
 	echo "==== Updates Finished ===="
 }
 
+function generate_github_release {
+	# Function args
+	architecture=$1
+	os=$2
+
+	# Build binary and package - call this script (i dont want to figure out why calling the compile functions doesn't work)
+	./build.sh -b controller -f
+	mv controller_v* ~/Downloads/
+	./build.sh -b controllerpkg -f
+	mv controller_install* ~/Downloads/
+
+	# Get commit where last release was generated from
+	lastReleaseCommitHash=$(cat $repoRoot/.last_release_commit)
+
+	# Collect commit messages up until the last release commit (not including the release commit messages
+	commitMsgsSinceLastRelease=$(git log --format=%B $lastReleaseCommitHash~0..HEAD)
+
+        echo "=================================================="
+	# Return early if HEAD is where last release was generated (no messages to format)
+	if [[ -z $commitMsgsSinceLastRelease ]]
+	then
+		echo "No commits since last release"
+		return
+	fi
+
+	# Format each commit message line by section
+	IFS=$'\n'
+	for line in $commitMsgsSinceLastRelease
+	do
+		# Skip empty lines
+		if [[ -z $line ]]
+		then
+			continue
+		fi
+
+		# Parse out release message sections
+		if [[ $(echo "$line" | egrep "^Added") ]]
+		then
+			comment_Added="$comment_Added$(echo $line | sed 's/^[ \t]*Added/\n -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
+		elif [[ $(echo "$line" | egrep "^Changed") ]]
+		then
+			comment_Changed="$comment_Changed$(echo $line | sed 's/^[ \t]*Changed/\n -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
+		elif [[ $(echo "$line" | egrep "^Removed") ]]
+		then
+			comment_Removed="$comment_Removed$(echo $line | sed 's/^[ \t]*Removed/\n -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
+		elif [[ $(echo "$line" | egrep "^Fixed") ]]
+		then
+			comment_Fixed="$comment_Fixed$(echo $line | sed 's/^[ \t]*Fixed/\n -/g' | sed 's/bug where //g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
+		else
+			echo "    WARNING: UNSUPPORTED LINE PREFIX: '$line'"
+		fi
+	done
+
+	# Section headers
+	addedHeader="### :white_check_mark: Added"
+	changedHeader="### :arrows_counterclockwise: Changed"
+	removedHeader="### :x: Removed"
+	fixedHeader="### :hammer: Fixed"
+	trailerHeader="### :information_source: Instructions"
+	trailerComment=" - Please refer to the README.md file for instructions"
+
+	# Combine release message sections
+	combinedMsg=""
+	if [[ -n $comment_Added ]]
+	then
+		combinedMsg="$addedHeader$comment_Added\n"
+	fi
+	if [[ -n $comment_Changed ]]
+	then
+		combinedMsg="$combinedMsg\n$changedHeader$comment_Changed\n"
+	fi
+	if [[ -n $comment_Removed ]]
+	then
+		combinedMsg="$combinedMsg\n$removedHeader$comment_Removed\n"
+	fi
+	if [[ -n $comment_Fixed ]]
+	then
+		combinedMsg="$combinedMsg\n$fixedHeader$comment_Fixed\n"
+	fi
+
+	# Add standard trailer
+	combinedMsg="$combinedMsg\n$trailerHeader\n$trailerComment"
+
+	echo "=================================================="
+	echo "RELEASE MESSAGE - CHECK GRAMMA BEFORE PUBLISHING:"
+	echo "=================================================="
+	echo -e "$combinedMsg"
+	echo "=================================================="
+	echo "RELEASE ATTACHMENTS"
+	ls -l ~/Downloads/
+        echo "=================================================="
+
+	# Save commit that this release was made for to track file
+	currentReleaseCommitHash=$(git show HEAD --pretty=format:"%H" --no-patch)
+	echo $currentReleaseCommitHash > $repoRoot/.last_release_commit
+}
+
 ## START
 # DEFAULT CHOICES
 buildfull='false'
@@ -158,7 +363,7 @@ architecture="amd64"
 os="linux"
 
 # Argument parsing
-while getopts 'a:b:o:fnuh' opt
+while getopts 'a:b:o:fnugh' opt
 do
 	case "$opt" in
 	  'a')
@@ -176,6 +381,10 @@ do
 	  'u')
 	    updatepackages='true'
 	    ;;
+	  'g')
+            generate_github_release "$architecture" "$os"
+            exit 0
+            ;;
 	  'h')
 	    usage
 	    exit 0
@@ -183,15 +392,13 @@ do
 	esac
 done
 
-# Using the builtopt cd into the src dir and update packages then exit
+# Act on program args
 if [[ $updatepackages == true ]]
 then
+	# Using the builtopt cd into the src dir and update packages then exit
 	update_go_packages "$buildopt"
 	exit 0
-fi
-
-# Binary builds
-if [[ $buildopt == controller ]]
+elif [[ $buildopt == controller ]]
 then
 	controller_binary "$architecture" "$os" "$buildfull"
 	echo "Complete: controller binary built"
@@ -199,6 +406,9 @@ elif [[ $buildopt == controllerpkg ]]
 then
 	controller_package "$architecture" "$os"
 	echo "Complete: controller package built"
+else
+	echo "unknown, bye"
+	exit 1
 fi
 
 exit 0

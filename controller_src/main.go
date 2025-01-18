@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"sync"
 
-	"github.com/kevinburke/ssh_config"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -17,25 +16,54 @@ import (
 //      GLOBAL VARIABLES
 // ###################################
 
-// Struct for endpoint Information used in maps for deployment
-// Also contains an array to house the file paths (local paths) that will be deployed
+// Global for program configurations
+var config Config
+
+// Struct for global config
+type Config struct {
+	FilePath            string                  // Path to main config - ~/.ssh/config
+	FailTrackerFilePath string                  // Path to failtracker file (within same directory as main config)
+	OSPathSeparator     string                  // Path separator for compiled OS filesystem
+	HostInfo            map[string]EndpointInfo // Hold some basic information about all the hosts
+	KnownHostsFilePath  string                  // Path to known server public keys - ~/.ssh/known_hosts
+	KnownHosts          []string                // Content of known server public keys - ~/.ssh/known_hosts
+	RepositoryPath      string                  // Absolute path to git repository (based on current working dir)
+	UniversalDirectory  string                  // Universal config directory inside git repo
+	AllUniversalGroups  map[string]struct{}     // Universal group config directory names
+	IgnoreDirectories   []string                // Directories to ignore inside the git repository
+	MaxSSHConcurrency   int                     // Maximum threads for ssh sessions
+	UserHomeDirectory   string                  // Absolute path to users home directory (to expand '~/' in paths)
+	VaultFilePath       string                  // Path to password vault file
+	Vault               map[string]Credential   // Password vault
+}
+
+// Struct for host-specific Information
 type EndpointInfo struct {
-	DeploymentFiles      []string
-	EndpointName         string
-	Endpoint             string
-	EndpointUser         string
-	PrivateKey           ssh.Signer
-	KeyAlgo              string
-	Password             string
-	RemoteTransferBuffer string
-	RemoteBackupDir      string
+	DeploymentState      string              // Avoids deploying anything to host - so user can prevent deployments to otherwise up and health hosts
+	IgnoreUniversal      bool                // Prevents deployments for this host to use anything from the primary Universal configs directory
+	RequiresVault        bool                // Direct match to the config option "PasswordRequired"
+	UniversalGroups      map[string]struct{} // Map to store the CSV for config option "GroupTags"
+	DeploymentFiles      []string            // Created during pre-deployment to track which config files will be deployed to this host
+	EndpointName         string              // Name of host as it appears in config and in git repo top-level directory names
+	Endpoint             string              // Address:port of the host
+	EndpointUser         string              // Login user name of the host
+	IdentityFile         string              // Key identity file path (private or public)
+	PrivateKey           ssh.Signer          // Actual private key contents
+	KeyAlgo              string              // Algorithm of the private key
+	Password             string              // Password for the EndpointUser
+	RemoteTransferBuffer string              // Temporary Buffer file that will be used to transfer local config to remote host prior to moving into place
+	RemoteBackupDir      string              // Temporary directory to store backups of existing remote configs while reloads are performed
+}
+
+// Struct for vault passwords
+type Credential struct {
+	LoginUserPassword string `json:"loginUserPassword"`
 }
 
 // Struct for metadata json in config files
 type MetaHeader struct {
 	TargetFileOwnerGroup  string   `json:"FileOwnerGroup"`
 	TargetFilePermissions int      `json:"FilePermissions"`
-	ReloadRequired        bool     `json:"ReloadRequired"`
 	ReloadCommands        []string `json:"Reload,omitempty"`
 }
 
@@ -52,13 +80,6 @@ type CommitFileInfo struct {
 	Reload          []string
 }
 
-// Struct for vault passwords
-type Credential struct {
-	LoginUserPassword string `json:"loginUserPassword"`
-}
-
-var vault map[string]Credential // Hold unlocked cached vault
-
 // Fail tracker json line format
 type ErrorInfo struct {
 	EndpointName string   `json:"endpointName"`
@@ -68,23 +89,10 @@ type ErrorInfo struct {
 
 // #### Written to only from main
 
-var configFilePath string                 // for showing user retry command
-var config *ssh_config.Config             // for storing host information from .ssh/config
-var DeployerEndpoints []string            // for storing list of all host names
-var CalledByGitHook bool                  // for automatic rollback on parsing error
-var knownHostsFilePath string             // for loading known_hosts file
-var RepositoryPath string                 // for parsing commits
-var UniversalDirectory string             // for parsing commits
-var UniversalGroups map[string][]string   // for parsing local files
-var IgnoreDirectories []string            // for parsing commits
-var OSPathSeparator string                // for parsing local files and paths
-var MaxSSHConcurrency int                 // for limiting threads when SSH'ing to remote hosts
-var SHA256RegEx *regexp.Regexp            // for validating hashes received from remote hosts
-var SHA1RegEx *regexp.Regexp              // for validating user supplied commit hashes
-var dryRunRequested bool                  // for printing relevant information and bailing out before outbound remote connections are made
-var userHomeDirectory string              // for replacing ~/ prefixes with a path
-var vaultFilePath string                  // for manipulating vault file
-var hostsRequireVault map[string]struct{} // for easy reference if a host needs a password
+var CalledByGitHook bool       // for automatic rollback on parsing error
+var SHA256RegEx *regexp.Regexp // for validating hashes received from remote hosts
+var SHA1RegEx *regexp.Regexp   // for validating user supplied commit hashes
+var dryRunRequested bool       // for printing relevant information and bailing out before outbound remote connections are made
 
 // Integer for printing increasingly detailed information as program progresses
 //
@@ -107,21 +115,20 @@ const (
 
 // #### Written to in other functions - use mutex
 
+// Global for checking remote hosts keys
+var addAllUnknownHosts bool
+var KnownHostMutex sync.Mutex
+
 // Used for metrics - counting post deployment
 var postDeployedConfigs int
 var postDeploymentHosts int
 var MetricCountMutex sync.Mutex
 
 // Global to track failed go routines' hosts, files, and errors to be able to retry deployment on user request
-const FailTrackerFile string = ".failtracker.meta"
+const FailTrackerFile string = ".scmp-failtracker.json"
 
 var FailTracker string
 var FailTrackerMutex sync.Mutex
-
-// Global for checking remote hosts keys
-var addAllUnknownHosts bool
-var knownhosts []string
-var KnownHostMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Pusher ===="
@@ -143,7 +150,7 @@ Options:
     -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository)
     -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
     -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
-    -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10]
+    -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10] (Use 1 to disable deployment concurrency)
     -p, --modify-vault-password <host>         Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
     -n, --new-repo </path/to/repo>:<branch>    Create a new repository at the given path with the given initial branch name
     -s, --seed-repo                            Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
@@ -180,8 +187,8 @@ func main() {
 	var versionRequested bool
 
 	// Read Program Arguments - allowing both short and long args
-	flag.StringVar(&configFilePath, "c", "~/.ssh/config", "")
-	flag.StringVar(&configFilePath, "config", "~/.ssh/config", "")
+	flag.StringVar(&config.FilePath, "c", "~/.ssh/config", "")
+	flag.StringVar(&config.FilePath, "config", "~/.ssh/config", "")
 	flag.BoolVar(&deployChangesRequested, "d", false, "")
 	flag.BoolVar(&deployChangesRequested, "deploy-changes", false, "")
 	flag.BoolVar(&deployAllRequested, "a", false, "")
@@ -198,8 +205,8 @@ func main() {
 	flag.BoolVar(&testConfig, "test-config", false, "")
 	flag.BoolVar(&dryRunRequested, "T", false, "")
 	flag.BoolVar(&dryRunRequested, "dry-run", false, "")
-	flag.IntVar(&MaxSSHConcurrency, "m", 10, "")
-	flag.IntVar(&MaxSSHConcurrency, "max-conns", 10, "")
+	flag.IntVar(&config.MaxSSHConcurrency, "m", 10, "")
+	flag.IntVar(&config.MaxSSHConcurrency, "max-conns", 10, "")
 	flag.StringVar(&modifyVaultHost, "p", "", "")
 	flag.StringVar(&modifyVaultHost, "modify-vault-password", "", "")
 	flag.StringVar(&createNewRepo, "n", "", "")
@@ -226,7 +233,7 @@ func main() {
 	// Meta info print out
 	if versionInfoRequested {
 		fmt.Printf("Controller %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Print("Packages: runtime encoding/hex strings strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 github.com/pkg/sftp encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal context fmt time golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
+		fmt.Print("Packages: runtime encoding/hex strings golang.org/x/term strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 golang.org/x/crypto/ssh/knownhosts encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal github.com/bramvdbogaerde/go-scp context sort fmt time golang.org/x/crypto/argon2 golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 golang.org/x/crypto/chacha20poly1305 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
 		return
 	} else if versionRequested {
 		fmt.Println(progVersion)
@@ -247,7 +254,7 @@ func main() {
 	if testConfig {
 		// If user wants to test config, just exit once program gets to this point
 		// Any config errors will be discovered prior to this point and exit with whatever error happened
-		printMessage(VerbosityStandard, "controller: configuration file %s test is successful\n", configFilePath)
+		printMessage(VerbosityStandard, "controller: configuration file %s test is successful\n", config.FilePath)
 	} else if modifyVaultHost != "" {
 		err = modifyVault(modifyVaultHost)
 		logError("Error modifying vault", err, false)

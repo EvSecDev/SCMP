@@ -60,6 +60,11 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 	// Get sudo password from info map
 	Password := endpointInfo.Password
 
+	// Bail before initiating outbound connections if in dry-run mode
+	if dryRunRequested {
+		return
+	}
+
 	// Connect to the SSH server
 	sshClient, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
 	if err != nil {
@@ -121,7 +126,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 			// Compare hashes and skip to next file deployment if remote is same as local
 			if oldRemoteFileHash == commitFileInfo[commitFilePath].Hash {
-				printMessage(VerbosityProgress, "\rHost '%s':   file '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
+				printMessage(VerbosityProgress, "Host %s: File '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
 				continue
 			}
 
@@ -251,7 +256,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 		// Compare hashes and skip to next file deployment if remote is same as local
 		if oldRemoteFileHash == commitFileInfo[commitFilePath].Hash {
-			printMessage(VerbosityProgress, "\rHost '%s':   file '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
+			printMessage(VerbosityProgress, "Host %s: File '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
 			continue
 		}
 

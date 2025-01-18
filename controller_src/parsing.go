@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -16,7 +15,7 @@ import (
 // Retrieves file names and associated host names for given commit
 // Returns the changed files (file paths) between commit and previous commit
 // Marks files with create/delete action for deployment and also handles marking symbolic links
-func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, err error) {
+func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map[string]string, err error) {
 	// Show progress to user
 	printMessage(VerbosityStandard, "Retrieving files from commit... \n")
 
@@ -44,7 +43,6 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 
 	// Initialize maps
 	commitFiles = make(map[string]string)
-	commitHosts = make(map[string]struct{})
 
 	// Determine what to do with each file in the commit
 	for _, file := range patch.FilePatches() {
@@ -56,13 +54,13 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 		var SkipFromFile, SkipToFile bool
 
 		// Validate the from File object
-		fromPath, _, SkipFromFile, err = validateCommittedFiles(commitHosts, from)
+		fromPath, _, SkipFromFile, err = validateCommittedFiles(from)
 		if err != nil {
 			return
 		}
 
 		// Validate the to File object
-		toPath, commitFileToType, SkipToFile, err = validateCommittedFiles(commitHosts, to)
+		toPath, commitFileToType, SkipToFile, err = validateCommittedFiles(to)
 		if err != nil {
 			return
 		}
@@ -165,10 +163,9 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 
 // Retrieves all files for current commit (regardless if changed)
 // This is used to also get all files in commit for deployment of unchanged files when requested
-func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, err error) {
+func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[string]string, err error) {
 	// Initialize maps
 	commitFiles = make(map[string]string)
-	commitHosts = make(map[string]struct{})
 
 	// Get list of all files in repo tree
 	allFiles := tree.Files()
@@ -198,8 +195,7 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 		printMessage(VerbosityData, "  Filtering file %s\n", repoFilePath)
 
 		// Ensure file is valid against config
-		commitHost, SkipFile := validateRepoFile(repoFilePath)
-		if SkipFile {
+		if repoFileIsValid(repoFilePath) {
 			// Not valid, skip
 			continue
 		}
@@ -231,34 +227,24 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 			// Add new action to this file that includes the expected target path for the link
 			commitFiles[repoFilePath] = "symlinkcreate to target " + targetPath
 		}
-
-		// Add host to the map
-		commitHosts[commitHost] = struct{}{}
 	}
 
 	return
 }
 
-// Filters files down to their associated host
-// Also deduplicates and creates array of all relevant file paths for the deployment
-func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commitHosts map[string]struct{}, hostOverride string) (hostsAndEndpointInfo map[string]EndpointInfo, allDeploymentFiles map[string]string, err error) {
+// Uses global config and deployment files to create list of files and hosts specific to deployment
+// Also deduplicates host and universal to ensure host override files don't get clobbered
+func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, commitFiles map[string]string, hostOverride string) (allDeploymentHosts []string, allDeploymentFiles map[string]string) {
 	// Show progress to user
 	printMessage(VerbosityStandard, "Filtering deployment hosts... \n")
 
-	// Get maps of all repo files for universal deduplication
-	allHostsFiles, universalFiles, universalGroupFiles, err := mapAllRepoFiles(tree)
-	if err != nil {
-		return
-	}
-
-	// Initialize map
-	hostsAndEndpointInfo = make(map[string]EndpointInfo) // Map of hosts and their associated endpoint information
-	allDeploymentFiles = make(map[string]string)         // Map of all (filtered) deployment files and their associated actions
+	// Initialize maps for deployment info
+	allDeploymentFiles = make(map[string]string) // Map of all (filtered) deployment files and their associated actions
 
 	printMessage(VerbosityProgress, "Creating files per host and all deployment files maps\n")
 
 	// Loop hosts in config and prepare endpoint information and relevant configs for deployment
-	for _, endpointName := range DeployerEndpoints {
+	for endpointName, hostInfo := range config.HostInfo {
 		printMessage(VerbosityData, "  Host %s: Filtering files...\n", endpointName)
 		// Skip this host if not in override (if override was requested)
 		skipHost := checkForOverride(hostOverride, endpointName)
@@ -268,14 +254,13 @@ func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commi
 		}
 
 		// Check if host state is marked as offline, if so, skip this host
-		deploymentHostState, _ := config.Get(endpointName, "DeploymentState")
-		if deploymentHostState == "offline" {
+		if hostInfo.DeploymentState == "offline" {
 			printMessage(VerbosityFullData, "    Host is marked as offline, skipping\n")
 			continue
 		}
 
-		// Record universal files that are NOT to be used for this host (host has an override file)
-		deniedUniversalFiles := findDeniedUniversalFiles(endpointName, allHostsFiles[endpointName], universalFiles, universalGroupFiles)
+		// Get Denied universal files for this host
+		hostsDeniedUniversalFiles := deniedUniversalFiles[endpointName]
 
 		// Filter committed files to their specific host and deduplicate against universal directory
 		var filteredCommitFiles []string
@@ -283,49 +268,27 @@ func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commi
 			printMessage(VerbosityData, "    Filtering file %s\n", commitFile)
 
 			// Split out the host part of the committed file path
-			HostAndPath := strings.SplitN(commitFile, OSPathSeparator, 2)
+			HostAndPath := strings.SplitN(commitFile, config.OSPathSeparator, 2)
 			commitHost := HostAndPath[0]
 
 			// Format a commitFilePath with the expected remote host path separators
-			filePath := strings.ReplaceAll(commitFile, OSPathSeparator, "/")
-
-			// Skip files not relevant to this host (either file is local to host, in global universal dir, or in host group universal)
-			_, fileIsPartOfGroup := UniversalGroups[commitHost]
-			if commitHost != endpointName && commitHost != UniversalDirectory && !fileIsPartOfGroup {
-				printMessage(VerbosityFullData, "        File not for this host or not universal\n")
-				continue
-			}
-
-			// Skip Universal Group files if host is not part of that group
-			if fileIsPartOfGroup {
-				var hostIsNotInUniversalGroup bool
-
-				// Search through array of hosts in this files universal group
-				for _, host := range UniversalGroups[commitHost] {
-					if endpointName == host {
-						// Host is part of the universal group
-						hostIsNotInUniversalGroup = false
-						break
-					}
-					hostIsNotInUniversalGroup = true
-				}
-
-				if hostIsNotInUniversalGroup {
-					// Host is not part of universal group - skip file
-					printMessage(VerbosityFullData, "        File is in Universal group and host is not in group\n")
-					continue
-				}
-			}
+			filePath := strings.ReplaceAll(commitFile, config.OSPathSeparator, "/")
 
 			// Skip Universal files if this host ignores universal configs
-			hostIgnoresUniversal, _ := config.Get(endpointName, "IgnoreUniversal")
-			if hostIgnoresUniversal == "yes" && commitHost == UniversalDirectory {
+			if hostInfo.IgnoreUniversal && commitHost == config.UniversalDirectory {
 				printMessage(VerbosityFullData, "        File is universal and universal not requested for this host\n")
 				continue
 			}
 
+			// Skip files not relevant to this host (either file is local to host, in global universal dir, or in host group universal)
+			_, hostIsInFilesUniversalGroup := hostInfo.UniversalGroups[commitHost]
+			if commitHost != endpointName && commitHost != config.UniversalDirectory && !hostIsInFilesUniversalGroup {
+				printMessage(VerbosityFullData, "        File not for this host/host's universal group, and not universal \n")
+				continue
+			}
+
 			// Skip if commitFile is a universal file that is not allowed for this host
-			_, fileIsDenied := deniedUniversalFiles[commitFile]
+			_, fileIsDenied := hostsDeniedUniversalFiles[commitFile]
 			if fileIsDenied {
 				printMessage(VerbosityFullData, "        File is universal and host has non-universal identical file\n")
 				continue
@@ -343,22 +306,47 @@ func filterHostsAndFiles(tree *object.Tree, commitFiles map[string]string, commi
 			continue
 		}
 
-		printMessage(VerbosityData, "    Retrieving endpoint options\n")
+		// Write all deployment info for this host into the global map
+		hostInfo.DeploymentFiles = filteredCommitFiles
+		config.HostInfo[endpointName] = hostInfo
 
-		// Parse out endpoint info and/or default SSH options
-		var newInfo EndpointInfo
-		newInfo, err = retrieveEndpointInfo(endpointName)
+		// Track hosts for deployment
+		allDeploymentHosts = append(allDeploymentHosts, endpointName)
+	}
+
+	return
+}
+
+// Writes hosts secrest (key, password) into received map
+func retrieveHostSecrets(endpointName string) (err error) {
+	// Copy current global config for this host to local
+	hostInfo := config.HostInfo[endpointName]
+
+	printMessage(VerbosityData, "    Retrieving endpoint key")
+
+	// Get SSH Private Key from the supplied identity file
+	hostInfo.PrivateKey, hostInfo.KeyAlgo, err = SSHIdentityToKey(hostInfo.IdentityFile)
+	if err != nil {
+		err = fmt.Errorf("failed to retrieve private key: %v", err)
+		return
+	}
+	printMessage(VerbosityFullData, "      Key: %d\n", hostInfo.PrivateKey)
+
+	// Retrieve password if required
+	if hostInfo.RequiresVault {
+		hostInfo.Password, err = unlockVault(config.HostInfo[endpointName].EndpointName)
 		if err != nil {
-			err = fmt.Errorf("failed to retrieve endpoint information: %v", err)
+			err = fmt.Errorf("error retrieving host password from vault: %v", err)
 			return
 		}
 
-		// Write all deployment info for this host into the map
-		newInfo.DeploymentFiles = filteredCommitFiles
-		newInfo.EndpointName = endpointName
-		hostsAndEndpointInfo[endpointName] = newInfo
+		printMessage(VerbosityFullData, "      Password: %s\n", hostInfo.Password)
+	} else {
+		printMessage(VerbosityFullData, "      Host does not require password\n")
 	}
 
+	// Write host info back into global config
+	config.HostInfo[endpointName] = hostInfo
 	return
 }
 
@@ -376,12 +364,12 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 		printMessage(VerbosityData, "  Loading repository file %s\n", commitFilePath)
 
 		// Ensure paths for deployment have correct separate for linux
-		filePath := strings.ReplaceAll(commitFilePath, OSPathSeparator, "/")
+		filePath := strings.ReplaceAll(commitFilePath, config.OSPathSeparator, "/")
 		// As a reminder
 		// filePath		should be identical to the full path of files in the repo except hard coded to forward slash path separators
 		// commitFilePath	should be identical to the full path of files in the repo (meaning following the build OS file path separators)
 
-		printMessage(VerbosityData, "    Repository file %s marked as 'to be %s'\n", commitFilePath, commitFileAction)
+		printMessage(VerbosityData, "    Marked as 'to be %s'\n", commitFileAction)
 
 		// Skip loading if file will be deleted
 		if commitFileAction == "delete" {
@@ -458,30 +446,48 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 		var info CommitFileInfo
 		info.FileOwnerGroup = jsonMetadata.TargetFileOwnerGroup
 		info.FilePermissions = jsonMetadata.TargetFilePermissions
-		info.ReloadRequired = jsonMetadata.ReloadRequired
 		info.Reload = jsonMetadata.ReloadCommands
+		if len(info.Reload) > 0 {
+			// Reload commands are present, set bool to true
+			info.ReloadRequired = true
+		} else {
+			// Reload commands are not present, set to false
+			info.ReloadRequired = false
+		}
 		info.Hash = contentHash
 		info.Data = configContent
 		info.Action = commitFileAction
 
 		// Save info struct into map for this file
 		commitFileInfo[filePath] = info
+
+		// Print verbose file metadata information
+		printMessage(VerbosityFullData, "      Owner and Group: %s\n", info.FileOwnerGroup)
+		printMessage(VerbosityFullData, "      Permissions:     %d\n", info.FilePermissions)
+		printMessage(VerbosityFullData, "      Content Hash:    %s\n", info.Hash)
+		printMessage(VerbosityFullData, "      Reload Required? %t\n", info.ReloadRequired)
+		if info.ReloadRequired {
+			printMessage(VerbosityFullData, "      Reload Comamnds  %s\n", info.Reload)
+		}
+	}
+
+	// Guard against empty return value
+	if len(commitFileInfo) == 0 {
+		err = fmt.Errorf("something went wrong, no files available to load")
+		return
 	}
 
 	return
 }
 
-func getFailTrackerCommit() (commitID string, failTrackerPath string, failures []string, err error) {
+func getFailTrackerCommit() (commitID string, failures []string, err error) {
 	printMessage(VerbosityProgress, "Retrieving commit ID from failtracker file\n")
 
 	// Regex to match commitid line from fail tracker
 	failCommitRegEx := regexp.MustCompile(`commitid:([0-9a-fA-F]+)\n`)
 
-	// Failure tracker file path
-	failTrackerPath = filepath.Join(RepositoryPath, FailTrackerFile)
-
 	// Read in contents of fail tracker file
-	lastFailTrackerBytes, err := os.ReadFile(failTrackerPath)
+	lastFailTrackerBytes, err := os.ReadFile(config.FailTrackerFilePath)
 	if err != nil {
 		return
 	}
@@ -509,10 +515,9 @@ func getFailTrackerCommit() (commitID string, failTrackerPath string, failures [
 }
 
 // Reads in last failtracker file and retrieves individual failures and the commitHash of the failure
-func getFailedFiles(failures []string, fileOverride string) (commitFiles map[string]string, commitHosts map[string]struct{}, hostOverride string, err error) {
+func getFailedFiles(failures []string, fileOverride string) (commitFiles map[string]string, hostOverride string, err error) {
 	// Initialize maps
 	commitFiles = make(map[string]string)
-	commitHosts = make(map[string]struct{})
 
 	printMessage(VerbosityProgress, "Parsing failtracker lines\n")
 
@@ -541,9 +546,6 @@ func getFailedFiles(failures []string, fileOverride string) (commitFiles map[str
 		}
 
 		printMessage(VerbosityData, "Parsing failure for host %v\n", errorInfo.EndpointName)
-
-		// Add failed hosts to isolate host deployment loop to only those hosts
-		commitHosts[errorInfo.EndpointName] = struct{}{}
 
 		// Add host to override to isolate deployment to just the failed hosts
 		hostOverrideArray = append(hostOverrideArray, errorInfo.EndpointName)

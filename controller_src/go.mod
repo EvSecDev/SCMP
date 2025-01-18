@@ -3,6 +3,7 @@ module controller/m/v2
 go 1.23.4
 
 require (
+	github.com/bramvdbogaerde/go-scp v1.5.0
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/go-git/go-git/v5 v5.12.0
 	github.com/kevinburke/ssh_config v1.2.0

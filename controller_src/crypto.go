@@ -17,10 +17,10 @@ import (
 
 func modifyVault(endpointName string) (err error) {
 	// Ensure vault file exists, if not create it
-	vaultFileMeta, err := os.Stat(vaultFilePath)
+	vaultFileMeta, err := os.Stat(config.VaultFilePath)
 	if os.IsNotExist(err) {
 		var vaultFile *os.File
-		vaultFile, err = os.Create(vaultFilePath)
+		vaultFile, err = os.Create(config.VaultFilePath)
 		if err != nil {
 			return
 		}
@@ -37,12 +37,11 @@ func modifyVault(endpointName string) (err error) {
 	}
 
 	// Check if vault file already has data (size is larger than the header)
-	vault = make(map[string]Credential)
 	vaultFileSize := vaultFileMeta.Size()
 	if vaultFileSize > 28 {
 		// Read in encrypted vault file
 		var lockedVaultFile []byte
-		lockedVaultFile, err = os.ReadFile(vaultFilePath)
+		lockedVaultFile, err = os.ReadFile(config.VaultFilePath)
 		if err != nil {
 			err = fmt.Errorf("failed to retrieve vault file: %v", err)
 			return
@@ -56,14 +55,14 @@ func modifyVault(endpointName string) (err error) {
 		}
 
 		// Unmarshal vault JSON into global struct
-		err = json.Unmarshal([]byte(unlockedVault), &vault)
+		err = json.Unmarshal([]byte(unlockedVault), &config.Vault)
 		if err != nil {
 			return
 		}
 	}
 
 	// Get password from user for host
-	loginUserName, _ := config.Get(endpointName, "User")
+	loginUserName := config.HostInfo[endpointName].EndpointUser
 	hostPassword, err := promptUserForSecret("Enter '%s' password for host '%s' (leave empty to delete entry): ", loginUserName, endpointName)
 	if err != nil {
 		return
@@ -72,7 +71,7 @@ func modifyVault(endpointName string) (err error) {
 	// Remove password if user supplied empty password
 	if hostPassword == "" {
 		// Just return if host is not in vault
-		_, hostExistsinVault := vault[endpointName]
+		_, hostExistsinVault := config.Vault[endpointName]
 		if !hostExistsinVault {
 			return
 		}
@@ -86,7 +85,7 @@ func modifyVault(endpointName string) (err error) {
 		// Check if the user typed 'y' (always lower-case)
 		if userResponse == "y" {
 			// Remove vault entry for host
-			delete(vault, endpointName)
+			delete(config.Vault, endpointName)
 			return
 		} else {
 			fmt.Printf("Did not receive confirmation, exiting.\n")
@@ -109,7 +108,7 @@ func modifyVault(endpointName string) (err error) {
 	// Modify/Add host password
 	var credential Credential
 	credential.LoginUserPassword = hostPassword
-	vault[endpointName] = credential
+	config.Vault[endpointName] = credential
 
 	// Encrypt and write changes to vault file - return with or without error
 	err = lockVault(vaultPassword)
@@ -119,7 +118,7 @@ func modifyVault(endpointName string) (err error) {
 // Encrypts and writes current vault data back to vault file
 func lockVault(vaultPassword string) (err error) {
 	// Marshal vault into json
-	unlockedVault, err := json.Marshal(vault)
+	unlockedVault, err := json.Marshal(config.Vault)
 	if err != nil {
 		return
 	}
@@ -131,7 +130,7 @@ func lockVault(vaultPassword string) (err error) {
 	}
 
 	// Write encrypted vault back to disk - return with or without error
-	err = os.WriteFile(vaultFilePath, lockedVault, 0600)
+	err = os.WriteFile(config.VaultFilePath, lockedVault, 0600)
 	return
 }
 
@@ -140,12 +139,12 @@ func unlockVault(endpointName string) (hostPassword string, err error) {
 	printMessage(VerbosityFullData, "      Host requires password, unlocking vault\n")
 
 	// Open vault if not already open - should only happen once since vault is global
-	if len(vault) == 0 {
+	if len(config.Vault) == 0 {
 		printMessage(VerbosityFullData, "      Reading vault file\n")
 
 		// Read in encrypted vault file
 		var lockedVaultFile []byte
-		lockedVaultFile, err = os.ReadFile(vaultFilePath)
+		lockedVaultFile, err = os.ReadFile(config.VaultFilePath)
 		if err != nil {
 			err = fmt.Errorf("failed to retrieve vault file: %v", err)
 			return
@@ -167,9 +166,8 @@ func unlockVault(endpointName string) (hostPassword string, err error) {
 			return
 		}
 
-		// Unmarshal vault JSON into global struct
-		vault = make(map[string]Credential)
-		err = json.Unmarshal([]byte(unlockedVault), &vault)
+		// Unmarshal vault JSON using global struct
+		err = json.Unmarshal([]byte(unlockedVault), &config.Vault)
 		if err != nil {
 			return
 		}
@@ -178,14 +176,14 @@ func unlockVault(endpointName string) (hostPassword string, err error) {
 	printMessage(VerbosityFullData, "      Retrieving password from vault\n")
 
 	// Double check host is in vault
-	_, hostHasVaultEntry := vault[endpointName]
+	_, hostHasVaultEntry := config.Vault[endpointName]
 	if !hostHasVaultEntry {
 		err = fmt.Errorf("host does not have an entry in the vault")
 		return
 	}
 
 	// Retrieve password for this host
-	hostPassword = vault[endpointName].LoginUserPassword
+	hostPassword = config.Vault[endpointName].LoginUserPassword
 	return
 }
 

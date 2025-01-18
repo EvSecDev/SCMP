@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
 	"fmt"
@@ -17,9 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pkg/sftp"
+	"github.com/bramvdbogaerde/go-scp"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // ###########################################
@@ -245,7 +245,8 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 		return
 	}
 
-	// If the remote addr is IPv6, extract the address part (inside brackets)
+	// If the remote addr is IPv6, extract the address part
+	// Only inside the brackets - OpenSSH does not include brackets when checking against known_hosts
 	if strings.Contains(cleanHost, "]") {
 		cleanHost = strings.TrimPrefix(cleanHost, "[")
 		cleanHost = strings.TrimSuffix(cleanHost, "]")
@@ -258,7 +259,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 	pubKeyType := PubKey.Type()
 
 	// Find an entry that matches the host we are handshaking with
-	for _, knownhostkey := range knownhosts {
+	for _, knownhostkey := range config.KnownHosts {
 		// Separate the public key section from the hashed host section
 		knownhostkey = strings.TrimPrefix(knownhostkey, "|")
 		knownhost := strings.SplitN(knownhostkey, " ", 2)
@@ -272,6 +273,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 			continue
 		}
 
+		// Retrieve fields from known_hosts hash section
 		salt := knownHostsPart[1]
 		hashedKnownHost := knownHostsPart[2]
 		knownkeysPart := strings.Fields(knownhost[1])
@@ -281,7 +283,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 			continue
 		}
 
-		// Hash the cleaned host name with the salt
+		// Hash the cleaned host name with the salt from known_hosts line
 		var saltBytes []byte
 		saltBytes, err = base64.StdEncoding.DecodeString(salt)
 		if err != nil {
@@ -294,14 +296,14 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 		hmacAlgo.Write([]byte(cleanHost))
 		hashed := hmacAlgo.Sum(nil)
 
-		// Return the base64 encoded result
+		// Convert hash hosts name to hex base64
 		hashedHost := base64.StdEncoding.EncodeToString(hashed)
 
-		// Compare hashed values of host
+		// Compare hashed values of host and known_host host
 		if hashedHost == hashedKnownHost {
 			// Grab just the key part from known_hosts
 			localPubKey := strings.Join(knownkeysPart[1:], " ")
-			// Compare pub keys
+			// Compare public keys
 			if localPubKey == remotePubKey {
 				// nil err means SSH is cleared to continue handshake
 				return
@@ -356,27 +358,18 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	// Show progress to user
 	printMessage(VerbosityStandard, "Writing new host entry in known_hosts... ")
 
-	// Get Salt
-	salt := make([]byte, 20)
-	_, err = rand.Read(salt)
-	if err != nil {
-		return
-	}
-
 	// Get hashed host
-	hmacAlgo := hmac.New(sha1.New, salt)
-	hmacAlgo.Write([]byte(cleanHost))
-	hashedHost := hmacAlgo.Sum(nil)
+	hashSection := knownhosts.HashHostname(cleanHost)
 
 	// New line to be added
-	newKnownHost := "|1|" + base64.StdEncoding.EncodeToString(salt) + "|" + base64.StdEncoding.EncodeToString(hashedHost) + " " + pubKeyType + " " + remotePubKey
+	newKnownHost := hashSection + " " + pubKeyType + " " + remotePubKey
 
 	// Lock file for writing - unlock on func return
 	KnownHostMutex.Lock()
 	defer KnownHostMutex.Unlock()
 
 	// Open the known_hosts file
-	knownHostsfile, err := os.OpenFile(knownHostsFilePath, os.O_APPEND|os.O_WRONLY, 0644)
+	knownHostsfile, err := os.OpenFile(config.KnownHostsFilePath, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		err = fmt.Errorf("failed to open known_hosts file: %v", err)
 		return
@@ -394,58 +387,57 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	return
 }
 
-// Transfers byte content to remote temp buffer (based on global temp buffer file path)
-func RunSFTP(client *ssh.Client, localFileContent []byte, tmpRemoteFilePath string) (err error) {
-	// Open new session with ssh client
-	sftpClient, err := sftp.NewClient(client)
+// Uploads content to specified remote file path via SCP
+func SCPUpload(client *ssh.Client, localFileContent []byte, remoteFilePath string) (err error) {
+	// Open SCP client
+	transferClient, err := scp.NewClientBySSHWithTimeout(client, 90*time.Second)
 	if err != nil {
-		err = fmt.Errorf("failed to create sftp session: %v", err)
+		err = fmt.Errorf("failed to create scp session: %v", err)
 		return
 	}
-	defer sftpClient.Close()
+	defer transferClient.Close()
 
-	// Context for SFTP wait - add timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
+	// Convert input data to a Reader for SCP pkg
+	localContentReader := bytes.NewReader(localFileContent)
+	localContentSize := int64(len(localFileContent))
 
-	// Wait for the file transfer
-	errChannel := make(chan error)
-	go func() {
-		// Open remote file
-		remoteTempFile, err := sftpClient.Create(tmpRemoteFilePath)
-		if err != nil {
-			errChannel <- err
-			return
+	// Transfer content to remote file path
+	err = transferClient.Copy(context.Background(), localContentReader, remoteFilePath, "0640", localContentSize)
+	if err != nil {
+		if strings.Contains(err.Error(), "permission denied") {
+			err = fmt.Errorf("unable to write to %s (is it writable by the user?): %v", remoteFilePath, err)
+		} else {
+			err = fmt.Errorf("failed scp transfer: %v", err)
 		}
-
-		// Write file contents to remote file
-		_, err = remoteTempFile.Write([]byte(localFileContent))
-		if err != nil {
-			errChannel <- err
-			return
-		}
-
-		// Signal we are done transferring
-		errChannel <- nil
-	}()
-	// Block until errChannel is done, then parse errors
-	select {
-	// Transfer finishes before timeout with error
-	case err = <-errChannel:
-		if err != nil {
-			if strings.Contains(err.Error(), "permission denied") {
-				err = fmt.Errorf("unable to write to %s (is it writable by the user?): %v", tmpRemoteFilePath, err)
-			}
-			err = fmt.Errorf("error with file transfer: %v", err)
-			return
-		}
-	// Timer finishes before transfer
-	case <-ctx.Done():
-		sftpClient.Close()
-		err = fmt.Errorf("closed ssh session, file transfer timed out")
 		return
 	}
 
+	return
+}
+
+// Downloads a remote files content via SCP
+func SCPDownload(client *ssh.Client, remoteFilePath string) (fileContent string, err error) {
+	// Open SCP client
+	transferClient, err := scp.NewClientBySSHWithTimeout(client, 90*time.Second)
+	if err != nil {
+		err = fmt.Errorf("failed to create scp session: %v", err)
+		return
+	}
+	defer transferClient.Close()
+
+	// Buffer to receive bytes from remote
+	var localTransferBuffer bytes.Buffer
+
+	// Get remote contents
+	_, err = transferClient.CopyFromRemoteFileInfos(context.Background(), &localTransferBuffer, remoteFilePath, nil)
+	if err != nil {
+		err = fmt.Errorf("failed scp transfer: %v", err)
+		return
+	}
+
+	// Convert formats
+	remoteFileBytes := localTransferBuffer.Bytes()
+	fileContent = string(remoteFileBytes)
 	return
 }
 

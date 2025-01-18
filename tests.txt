@@ -1,31 +1,3 @@
-# Setup
-# Incorrect JSON metadata header (testing commit rollback)
-
-## Commit Diff Parsing
-# Same file between template and a host
-
-# Many new files in template
-
-# Many new files many hosts
-
-# Many new files one host
-
-# New file with new directory
-
-# Remove file
-
-# Remove file and parent directory
-
-# Move file within host 
-
-# Move file between hosts
-
-# Copy file within host
-
-# Copy file between hosts
-
-# Sym link file within host
-
 ## SSH deployment
 # Host destination unreachable (timeout)
 

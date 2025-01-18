@@ -196,7 +196,7 @@ func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath
 	}
 
 	// SFTP to temp file
-	err = RunSFTP(sshClient, []byte(localFileContent), tmpRemoteFilePath)
+	err = SCPUpload(sshClient, []byte(localFileContent), tmpRemoteFilePath)
 	if err != nil {
 		return
 	}

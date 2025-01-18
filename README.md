@@ -12,7 +12,7 @@ The configuration for the controller utilizes a semi-standard `~/.ssh/config` th
 The 'semi-standard' part of this is the inclusion of some advanced configuration options to better integrate with git and deployment activities.
 Fear not, you can use your `~/.ssh/config` with the controller and a regular SSH client at the same time.
 
-For sudo passwords, this program utilizes a simple password vault file stored whereever you specify. 
+For sudo passwords, this program utilizes a simple password vault file stored where ever you specify. 
 This vault stores the password per host and is manipulated through controller (add/change/remove).
 This is intended to facilitate deployments to a large number of hosts with potentially different passwords. With the vault, your provide the master password only once.
 The vault is protected by an AEAD cipher (chacha20poly1305) and derives the key via Argon2 from your master password.
@@ -61,6 +61,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - Deploy automatically via git post-commit hook
 - Deploy manually via specifying commit hash
 - Easy recovery from partial deployment failures
+- Deployment test run using single host (use `--max-conns 1 -r HOST`)
 - One-time manual deployment to specific hosts and/or specific files
 - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
 - Deploy all (or a subset of) relevant files (even unchanged) to a newly created remote host
@@ -82,8 +83,6 @@ If you like what this program can do or want to expand functionality yourself, f
 ### Controller Help Menu
 
 ```
-Usage: controller [OPTIONS]...
-
 Examples:
     controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
     controller --config <~/.ssh/config> --deploy-failures
@@ -100,7 +99,7 @@ Options:
     -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository)
     -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
     -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
-    -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10]
+    -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10] (Use 1 to disable deployment concurrency)
     -p, --modify-vault-password <host>         Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
     -n, --new-repo </path/to/repo>:<branch>    Create a new repository at the given path with the given initial branch name
     -s, --seed-repo                            Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
@@ -117,8 +116,6 @@ Documentation: <https://github.com/EvSecDev/SCMPusher>
 
 ## Setup and Configuration
 
-### Controller Installation (Local Setup)
-
 1. Create an SSH private key
     - `ssh-keygen -t ed25519 -N '' -C scmp/controller -f controller_ssh`
 2. Start the installer script and follow the prompts
@@ -126,13 +123,13 @@ Documentation: <https://github.com/EvSecDev/SCMPusher>
 3. Configure the YAML configuration file for all the remote Linux hosts you wish to manage (see comments in YAML for what the fields mean)
 4. Done! Proceed to remote preparation
 
-### Remote Prepation
+### Remote Preparation
 
 1. Create a user that can log into SSH and use Sudo
    - `useradd --create-home --user-group deployer`
    - `passwd deployer`
 2. Add the SSH public key **from the controller installation script** to the users home directory `authorized_keys` file
-   - `mkdir -p /home/deployer/.ssh && echo "ssh-ed25519 AAAADEADBEEFDEABEEFDEADBEEF scmp/controller" > /home/deployer/.ssh/authorized_keys`
+   - `mkdir -p /home/deployer/.ssh && echo "ssh-ed25519 AAAADEADBEEFDEABEEFDEADBEEF scmp/controller" >> /home/deployer/.ssh/authorized_keys`
 3. Modify `/etc/sudoers` with the below line to allow your new user to run Sudo commands with a password
    - `deployer ALL=(root:root) ALL`
    - **Optionally**, restrict the commands your new user can run in the sudoers file to the following:
@@ -241,19 +238,16 @@ UniversalGroups is a set of directories that will only apply to a subset of host
 The functionality is identical to the UniversalConfs directory, but will only apply to hosts that are apart of the group.
 You can specify the directory name and the hosts that should use the directory in the main YAML config.
 
+### File transfers
+
+File transfers for this program are done using SCP and are limited to 90 seconds per file. 
+Something to keep in mind, your end to end bandwidth for a deployment will determine how large of a file can be transferred in that time.
+
 ### Reload commands
 
 It is recommended to use some sort of pre-check/validation/test option for your first reload command for a particular config file.
 Something like `nginx -t` or `nft -f /etc/nftables.conf -c` ensures that the syntax of the file you are pushing is valid before enabling the new config.
 This also ensures that if the actual reload command (like `systemctl restart`) fails, that the system is left running the previously known-good config.
-
-### Warning about the known_hosts file
-
-Beware, using your existing known_hosts file from a standard SSH client is not recommended.
-In some implementations, multiple SSH clients do not play well writing hosts to a single known_hosts.
-In practice, this will look like the controller is continuously prompting you to trust keys for remote hosts you have already trusted.
-
-It is recommended to store the known_hosts file (path specified in the controller YAML configuration file) inside the root of repository.
 
 ### Commit Automatic Rollback
 
