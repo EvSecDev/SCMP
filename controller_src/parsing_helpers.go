@@ -4,7 +4,10 @@ package main
 import (
 	"fmt"
 	"io"
+	"net/url"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing/format/diff"
@@ -14,6 +17,68 @@ import (
 // ###################################
 //      PARSING FUNCTIONS
 // ###################################
+
+// Used when an argument has a file:// URI scheme
+// Loads file in and separates based on newlines or commas and returns a string csv
+func retrieveURIFile(fullURI string) (fileCSV string, err error) {
+	// Return early if not a file URI scheme
+	if !strings.HasPrefix(fullURI, "file:") {
+		return
+	}
+
+	// Parse the URI
+	parsedURI, err := url.Parse(fullURI)
+	if err != nil {
+		return
+	}
+
+	// Refuse non-file URIs - double check on the total format
+	if parsedURI.Scheme != "file" {
+		err = fmt.Errorf("unsupported URI: only 'file' schemes are supported")
+		return
+	}
+
+	// Refuse URIs with host part
+	if parsedURI.Host != "" {
+		err = fmt.Errorf("unsupported URI: cannot use two slashes (hostnames are not supported in this program)")
+		return
+	}
+
+	// Retrive only the path
+	absoluteFilePath := parsedURI.Path
+
+	// Retrieve the file contents
+	fileBytes, err := os.ReadFile(absoluteFilePath)
+	if err != nil {
+		return
+	}
+
+	// Convert file to string
+	file := string(fileBytes)
+
+	// Trim newlines/spaces from beginning/end
+	file = strings.TrimSpace(file)
+
+	// Split file contens by newlins
+	lines := strings.Split(file, "\n")
+
+	// If file is multi-line, convert into CSV
+	if len(lines) > 1 {
+		fileCSV = strings.Join(lines, ",")
+		return
+	} else if len(lines) == 0 {
+		err = fmt.Errorf("file is empty")
+		return
+	}
+
+	// Compile the regular expression to match space or comma
+	separatorRegex := regexp.MustCompile(`[ ,]+`)
+
+	// Use the regular expression to split the string one first line
+	lineArray := separatorRegex.Split(lines[0], -1)
+	fileCSV = strings.Join(lineArray, ",")
+	return
+}
 
 // Checks for user-chosen host/file override with given host/file
 // Returns immediately if override is empty
@@ -51,13 +116,13 @@ func checkForOverride(override string, current string) (skip bool) {
 }
 
 // Retrieves file paths in maps per host and universal conf dir
-func mapFilesByHostOrUniversal(tree *object.Tree) (allHostsFiles map[string]map[string]struct{}, universalFiles map[string]map[string]struct{}, err error) {
+func parseAllRepoFiles(tree *object.Tree) (allHostsFiles map[string]map[string]struct{}, allUniversalFiles map[string]map[string]struct{}, err error) {
 	// Retrieve files from commit tree
 	repoFiles := tree.Files()
 
 	// Initialize maps
 	allHostsFiles = make(map[string]map[string]struct{})
-	universalFiles = make(map[string]map[string]struct{})
+	allUniversalFiles = make(map[string]map[string]struct{})
 
 	// Retrieve all non-changed repository files for this host (and universal dir) for later deduping
 	for {
@@ -76,35 +141,46 @@ func mapFilesByHostOrUniversal(tree *object.Tree) (allHostsFiles map[string]map[
 			return
 		}
 
-		// Split host dir and target path
-		commitSplit := strings.SplitN(repoFile.Name, config.OSPathSeparator, 2)
+		// Parse out by host/universal
+		mapFilesByHostOrUniversal(repoFile.Name, allHostsFiles, allUniversalFiles)
+	}
+	return
+}
 
-		// Skip repo files in root of repository
-		if len(commitSplit) <= 1 {
-			continue
-		}
+// Modifies input maps to divide up repository files between host directories and universal directories
+func mapFilesByHostOrUniversal(repoFilePath string, allHostsFiles map[string]map[string]struct{}, allUniversalFiles map[string]map[string]struct{}) {
+	// Split host dir and target path
+	commitSplit := strings.SplitN(repoFilePath, config.OSPathSeparator, 2)
 
-		// Get host dir part and target file path part
-		topLevelDirName := commitSplit[0]
-		tgtFilePath := commitSplit[1]
-
-		// Add files by universal group dirs to map for later deduping
-		_, fileIsInUniversalGroup := config.AllUniversalGroups[topLevelDirName]
-		if fileIsInUniversalGroup || topLevelDirName == config.UniversalDirectory {
-			// Repo file is under one of the universal group directories
-			universalFiles[topLevelDirName] = make(map[string]struct{})
-			universalFiles[topLevelDirName][tgtFilePath] = struct{}{}
-		}
-
-		// Add files by their host to the map - make map if host map isn't initialized yet
-		_, hostAlreadyExistsInMap := allHostsFiles[topLevelDirName]
-		if !hostAlreadyExistsInMap {
-			allHostsFiles[topLevelDirName] = make(map[string]struct{})
-		}
-		allHostsFiles[topLevelDirName][tgtFilePath] = struct{}{}
+	// Skip repo files in root of repository
+	if len(commitSplit) <= 1 {
+		return
 	}
 
-	return
+	// Get host dir part and target file path part
+	topLevelDirName := commitSplit[0]
+	tgtFilePath := commitSplit[1]
+
+	// Add files by universal group dirs to map for later deduping
+	_, fileIsInUniversalGroup := config.AllUniversalGroups[topLevelDirName]
+	if fileIsInUniversalGroup || topLevelDirName == config.UniversalDirectory {
+		// Make map if inner map isn't initialized already
+		_, dirAlreadyExistsInMap := allUniversalFiles[topLevelDirName]
+		if !dirAlreadyExistsInMap {
+			allUniversalFiles[topLevelDirName] = make(map[string]struct{})
+		}
+
+		// Repo file is under one of the universal group directories
+		allUniversalFiles[topLevelDirName][tgtFilePath] = struct{}{}
+		return
+	}
+
+	// Add files by their host to the map - make map if host map isn't initialized yet
+	_, hostAlreadyExistsInMap := allHostsFiles[topLevelDirName]
+	if !hostAlreadyExistsInMap {
+		allHostsFiles[topLevelDirName] = make(map[string]struct{})
+	}
+	allHostsFiles[topLevelDirName][tgtFilePath] = struct{}{}
 }
 
 // Record universal files that are NOT to be used for each host (host has an override file)

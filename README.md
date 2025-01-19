@@ -65,8 +65,9 @@ If you like what this program can do or want to expand functionality yourself, f
 - One-time manual deployment to specific hosts and/or specific files
 - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
 - Deploy all (or a subset of) relevant files (even unchanged) to a newly created remote host
+- Use file input to any of the host/file arguments using a file URI scheme (like `file:///absolute/path/file`)
 - Group hosts together to allow single universal configuration files to deploy to all or a subset of remote hosts
-- Concurrent SSH Connections to handle a large number of remote hosts (and option to limit concurrency)
+- Concurrent SSH Connections to handle a large number of remote hosts (and option to limit/disable concurrency)
 - Key-based SSH authentication (by file or ssh-agent, per host or all hosts)
 - Password-based Sudo command escalation
 - Create new repositories
@@ -84,33 +85,35 @@ If you like what this program can do or want to expand functionality yourself, f
 
 ```
 Examples:
-    controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-    controller --config <~/.ssh/config> --deploy-failures
+    controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] 
+    controller --config <~/.ssh/config> --deploy-changes [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
     controller --config <~/.ssh/config> --deploy-all [--remote-hosts <www,proxy,db01>] [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
+    controller --config <~/.ssh/config> --deploy-all [--remote-hosts file:///file/containing/hostnames] [--local-files file:///file/containing/file/paths]
+    controller --config <~/.ssh/config> --deploy-failures  [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
+    controller --config <~/.ssh/config> --seed-repo [--remote-hosts <www,proxy,db01>] [--remote-files file:///absolute/path/to/textfile]
     controller --new-repo /opt/repo1:main
-    controller --config <~/.ssh/config> --seed-repo [--remote-hosts <www,proxy,db01>]
 
 Options:
-    -c, --config </path/to/ssh/config>         Path to the configuration file [default: ~/.ssh/config]
-    -d, --deploy-changes                       Deploy changed files in the specified commit [commit default: head]
-    -a, --deploy-all                           Deploy all files in specified commit [commit default: head]
-    -f, --deploy-failures                      Deploy failed files/hosts using failtracker file from last failed deployment
-    -r, --remote-hosts <host1,host2,...>       Override hosts for deployment
-    -R, --remote-files <file1,file2,...>       Override files for seed repository (Suffix wildcards supported in qoutes only)
-    -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository) (Suffix wildcards supported in qoutes only)
-    -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
-    -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
-    -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10] (Use 1 to disable deployment concurrency)
-    -p, --modify-vault-password <host>         Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
-    -n, --new-repo </path/to/repo>:<branch>    Create a new repository at the given path with the given initial branch name
-    -s, --seed-repo                            Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
-    -g, --disable-git-hook                     Disables the automatic deployment git post-commit hook for the current repository
-    -G, --enable-git-hook                      Enables the automatic deployment git post-commit hook for the current repository
-    -t, --test-config                          Test controller configuration syntax and configuration option validity
-    -v, --verbosity <0...5>                    Increase details and frequency of progress messages (Higher number is more verbose) [default: 1]
-    -h, --help                                 Show this help menu
-    -V, --version                              Show version and packages
-        --versionid                            Show only version number
+    -c, --config </path/to/ssh/config>             Path to the configuration file [default: ~/.ssh/config]
+    -d, --deploy-changes                           Deploy changed files in the specified commit [commit default: head]
+    -a, --deploy-all                               Deploy all files in specified commit [commit default: head]
+    -f, --deploy-failures                          Deploy failed files/hosts using failtracker file from last failed deployment
+    -r, --remote-hosts <host1,host*,...|file:///>  Override hosts for deployment
+    -R, --remote-files <file1,file0*,...|file:///> Override files for seed repository
+    -l, --local-files <file1,file0*,...|file:///>  Override files for deployment (Must be relative file paths from root of the repository) 
+    -C, --commitid <hash>                          Commit ID (hash) of the commit to deploy configurations from
+    -T, --dry-run                                  Does everything except start SSH connections. Prints out deployment information
+    -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections [default: 10] (1 disables concurrency)
+    -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
+    -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path with the given initial branch name
+    -s, --seed-repo                                Retrieve existing files from remote hosts to seed the local repository (Requires '--remote-hosts')
+    -g, --disable-git-hook                         Disables the automatic deployment git post-commit hook for the current repository
+    -G, --enable-git-hook                          Enables the automatic deployment git post-commit hook for the current repository
+    -t, --test-config                              Test controller configuration syntax and configuration option validity
+    -v, --verbosity <0...5>                        Increase details and frequency of progress messages (Higher is more verbose) [default: 1]
+    -h, --help                                     Show this help menu
+    -V, --version                                  Show version and packages
+        --versionid                                Show only version number
 
 Documentation: <https://github.com/EvSecDev/SCMPusher>
 ```
@@ -121,7 +124,7 @@ Documentation: <https://github.com/EvSecDev/SCMPusher>
     - `ssh-keygen -t ed25519 -N '' -C scmp/controller -f controller_ssh`
 2. Start the installer script and follow the prompts
     - `./controller_installer*sh`
-3. Configure the YAML configuration file for all the remote Linux hosts you wish to manage (see comments in YAML for what the fields mean)
+3. Configure the SSH configuration file for all the remote Linux hosts you wish to manage (see comments in config for what the fields mean)
 4. Done! Proceed to remote preparation
 
 ### Remote Preparation
@@ -143,8 +146,10 @@ So, what if you already have servers with potentially hundreds of configuration 
 Well, fear not, for there is a SSH client built into the controller as an easier method of transferring and formatting new files.
 The client will permit you to select files on a remote system and automatically format and add them in the correct location to the local repository.
 
-This feature requires that you have installed controller and configured the controller's yaml configuration file with the hosts you want to manage.
-It also requires that the remote host is setup as described in the controller's yaml (port is open, user is allowed, ect.)
+If you already know which files you want from a remote host/hosts, then you can use `--remote-files file:///path/to/textfile` to give the controller a list of files to download from the remote host.
+
+This feature requires that you have installed controller and configured the SSH configuration file with the hosts you want to manage.
+It also requires that the remote host is setup as described in the SSH config (port is open, user is allowed, ect.)
 
 The interface you will be using for this feature is extremely barebones. It looks like this:
 ```
@@ -237,7 +242,7 @@ If a particular host should not ever use the UniversalConf configs, then the con
 
 UniversalGroups is a set of directories that will only apply to a subset of hosts.
 The functionality is identical to the UniversalConfs directory, but will only apply to hosts that are apart of the group.
-You can specify the directory name and the hosts that should use the directory in the main YAML config.
+You can specify the directory name and the hosts that should use the directory in the SSH config.
 
 ### File transfers
 

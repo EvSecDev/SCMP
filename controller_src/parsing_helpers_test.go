@@ -40,6 +40,116 @@ func TestCheckForOverride(t *testing.T) {
 	}
 }
 
+func TestMapFilesByHostOrUniversal(t *testing.T) {
+	// Initialize global config
+	config = Config{
+		OSPathSeparator:    "/",
+		UniversalDirectory: "universal",
+		AllUniversalGroups: map[string]struct{}{
+			"universalGroup1": {},
+			"universalGroup2": {},
+		},
+	}
+
+	// Test cases
+	tests := []struct {
+		name                   string
+		allRepoFiles           []string
+		expectedHostFiles      map[string]map[string]struct{}
+		expectedUniversalFiles map[string]map[string]struct{}
+	}{
+		{
+			name:         "Check for map clobbering",
+			allRepoFiles: []string{"universal/some/other/file.txt", "universal/some/file2.txt", "hostDir/some/host/file.txt", "hostDir/some/file2.txt"},
+			expectedHostFiles: map[string]map[string]struct{}{
+				"hostDir": {
+					"some/host/file.txt": {},
+					"some/file2.txt":     {},
+				},
+			},
+			expectedUniversalFiles: map[string]map[string]struct{}{
+				"universal": {
+					"some/other/file.txt": {},
+					"some/file2.txt":      {},
+				},
+			},
+		},
+		{
+			name:              "File in universal directory",
+			allRepoFiles:      []string{"universal/some/other/file.txt"},
+			expectedHostFiles: map[string]map[string]struct{}{},
+			expectedUniversalFiles: map[string]map[string]struct{}{
+				"universal": {
+					"some/other/file.txt": {},
+				},
+			},
+		},
+		{
+			name:         "File in host directory",
+			allRepoFiles: []string{"hostDir/some/host/file.txt"},
+			expectedHostFiles: map[string]map[string]struct{}{
+				"hostDir": {
+					"some/host/file.txt": {},
+				},
+			},
+			expectedUniversalFiles: map[string]map[string]struct{}{},
+		},
+		{
+			name:                   "File at root (ignored)",
+			allRepoFiles:           []string{"file_at_root.txt"},
+			expectedHostFiles:      map[string]map[string]struct{}{},
+			expectedUniversalFiles: map[string]map[string]struct{}{},
+		},
+	}
+
+	// Run tests
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			// Setup initial maps
+			allHostsFiles := make(map[string]map[string]struct{})
+			allUniversalFiles := make(map[string]map[string]struct{})
+
+			for _, testRepoFile := range test.allRepoFiles {
+				// Call the function under test
+				mapFilesByHostOrUniversal(testRepoFile, allHostsFiles, allUniversalFiles)
+			}
+
+			// Validate results
+			if !equalMaps(allHostsFiles, test.expectedHostFiles) {
+				t.Errorf("Expected host files %v, but got %v", test.expectedHostFiles, allHostsFiles)
+			}
+
+			if !equalMaps(allUniversalFiles, test.expectedUniversalFiles) {
+				t.Errorf("Expected universal files %v, but got %v", test.expectedUniversalFiles, allUniversalFiles)
+			}
+		})
+	}
+}
+
+// Helper function to compare two maps for equality
+func equalMaps(a, b map[string]map[string]struct{}) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for key, aVal := range a {
+		bVal, ok := b[key]
+		if !ok {
+			return false
+		}
+		if len(aVal) != len(bVal) {
+			return false
+		}
+		for file := range aVal {
+			if _, ok := bVal[file]; !ok {
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
 func TestMapDeniedUniversalFiles(t *testing.T) {
 	// Mock Global
 	config = Config{

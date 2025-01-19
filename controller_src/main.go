@@ -132,36 +132,38 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Pusher ===="
-const progVersion string = "v3.2.0"
+const progVersion string = "v3.3.0"
 const usage = `
 Examples:
-    controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-    controller --config <~/.ssh/config> --deploy-failures
+    controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] 
+    controller --config <~/.ssh/config> --deploy-changes [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
     controller --config <~/.ssh/config> --deploy-all [--remote-hosts <www,proxy,db01>] [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
+    controller --config <~/.ssh/config> --deploy-all [--remote-hosts file:///file/containing/hostnames] [--local-files file:///file/containing/file/paths]
+    controller --config <~/.ssh/config> --deploy-failures  [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
+    controller --config <~/.ssh/config> --seed-repo [--remote-hosts <www,proxy,db01>] [--remote-files file:///absolute/path/to/textfile]
     controller --new-repo /opt/repo1:main
-    controller --config <~/.ssh/config> --seed-repo [--remote-hosts <www,proxy,db01>]
 
 Options:
-    -c, --config </path/to/ssh/config>         Path to the configuration file [default: ~/.ssh/config]
-    -d, --deploy-changes                       Deploy changed files in the specified commit [commit default: head]
-    -a, --deploy-all                           Deploy all files in specified commit [commit default: head]
-    -f, --deploy-failures                      Deploy failed files/hosts using failtracker file from last failed deployment
-    -r, --remote-hosts <host1,host2,...>       Override hosts for deployment
-    -R, --remote-files <file1,file2,...>       Override files for seed repository (Suffix wildcards supported in qoutes only)
-    -l, --local-files <file1,file2,...>        Override files for deployment (Must be relative file paths from root of the repository) (Suffix wildcards supported in qoutes only)
-    -C, --commitid <hash>                      Commit ID (hash) of the commit to deploy configurations from
-    -T, --dry-run                              Prints available information and runs through all actions without initiating outbound connections
-    -m, --max-conns <15>                       Maximum simultaneous outbound SSH connections [default: 10] (Use 1 to disable deployment concurrency)
-    -p, --modify-vault-password <host>         Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
-    -n, --new-repo </path/to/repo>:<branch>    Create a new repository at the given path with the given initial branch name
-    -s, --seed-repo                            Retrieve existing files from remote hosts to seed the local repository (Requires user interaction and '--remote-hosts')
-    -g, --disable-git-hook                     Disables the automatic deployment git post-commit hook for the current repository
-    -G, --enable-git-hook                      Enables the automatic deployment git post-commit hook for the current repository
-    -t, --test-config                          Test controller configuration syntax and configuration option validity
-    -v, --verbosity <0...5>                    Increase details and frequency of progress messages (Higher number is more verbose) [default: 1]
-    -h, --help                                 Show this help menu
-    -V, --version                              Show version and packages
-        --versionid                            Show only version number
+    -c, --config </path/to/ssh/config>             Path to the configuration file [default: ~/.ssh/config]
+    -d, --deploy-changes                           Deploy changed files in the specified commit [commit default: head]
+    -a, --deploy-all                               Deploy all files in specified commit [commit default: head]
+    -f, --deploy-failures                          Deploy failed files/hosts using failtracker file from last failed deployment
+    -r, --remote-hosts <host1,host*,...|file:///>  Override hosts for deployment
+    -R, --remote-files <file1,file0*,...|file:///> Override files for seed repository
+    -l, --local-files <file1,file0*,...|file:///>  Override files for deployment (Must be relative file paths from root of the repository) 
+    -C, --commitid <hash>                          Commit ID (hash) of the commit to deploy configurations from
+    -T, --dry-run                                  Does everything except start SSH connections. Prints out deployment information
+    -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections [default: 10] (1 disables concurrency)
+    -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
+    -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path with the given initial branch name
+    -s, --seed-repo                                Retrieve existing files from remote hosts to seed the local repository (Requires '--remote-hosts')
+    -g, --disable-git-hook                         Disables the automatic deployment git post-commit hook for the current repository
+    -G, --enable-git-hook                          Enables the automatic deployment git post-commit hook for the current repository
+    -t, --test-config                              Test controller configuration syntax and configuration option validity
+    -v, --verbosity <0...5>                        Increase details and frequency of progress messages (Higher is more verbose) [default: 1]
+    -h, --help                                     Show this help menu
+    -V, --version                                  Show version and packages
+        --versionid                                Show only version number
 
 Documentation: <https://github.com/EvSecDev/SCMPusher>
 `
@@ -178,7 +180,7 @@ func main() {
 	var commitID string
 	var hostOverride string
 	var remoteFileOverride string
-	var fileOverride string
+	var localFileOverride string
 	var modifyVaultHost string
 	var testConfig bool
 	var createNewRepo string
@@ -203,8 +205,8 @@ func main() {
 	flag.StringVar(&hostOverride, "remote-hosts", "", "")
 	flag.StringVar(&remoteFileOverride, "R", "", "")
 	flag.StringVar(&remoteFileOverride, "remote-files", "", "")
-	flag.StringVar(&fileOverride, "l", "", "")
-	flag.StringVar(&fileOverride, "local-files", "", "")
+	flag.StringVar(&localFileOverride, "l", "", "")
+	flag.StringVar(&localFileOverride, "local-files", "", "")
 	flag.BoolVar(&testConfig, "t", false, "")
 	flag.BoolVar(&testConfig, "test-config", false, "")
 	flag.BoolVar(&dryRunRequested, "T", false, "")
@@ -237,7 +239,7 @@ func main() {
 	// Meta info print out
 	if versionInfoRequested {
 		fmt.Printf("Controller %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Print("Packages: runtime encoding/hex strings golang.org/x/term strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 golang.org/x/crypto/ssh/knownhosts encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal github.com/bramvdbogaerde/go-scp context sort fmt time golang.org/x/crypto/argon2 golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 golang.org/x/crypto/chacha20poly1305 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
+		fmt.Print("Packages: runtime encoding/hex strings net/url golang.org/x/term strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 golang.org/x/crypto/ssh/knownhosts encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal github.com/bramvdbogaerde/go-scp context sort fmt time golang.org/x/crypto/argon2 golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 golang.org/x/crypto/chacha20poly1305 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
 		return
 	} else if versionRequested {
 		fmt.Println(progVersion)
@@ -254,6 +256,14 @@ func main() {
 	err := parseConfig()
 	logError("Error in controller configuration", err, true)
 
+	// Retrieve any files specified by URI by override arguments
+	hostOverride, err = retrieveURIFile(hostOverride)
+	logError("Failed to parse remove-hosts URI", err, true)
+	remoteFileOverride, err = retrieveURIFile(remoteFileOverride)
+	logError("Failed to parse remote-files URI", err, true)
+	localFileOverride, err = retrieveURIFile(localFileOverride)
+	logError("Failed to parse local-files URI", err, true)
+
 	// Parse User Choices - see function comment for what each does
 	if testConfig {
 		// If user wants to test config, just exit once program gets to this point
@@ -267,11 +277,11 @@ func main() {
 	} else if enableGitHook {
 		toggleGitHook("enable")
 	} else if deployChangesRequested {
-		preDeployment("deployChanges", commitID, hostOverride, fileOverride)
+		preDeployment("deployChanges", commitID, hostOverride, localFileOverride)
 	} else if deployAllRequested {
-		preDeployment("deployAll", commitID, hostOverride, fileOverride)
+		preDeployment("deployAll", commitID, hostOverride, localFileOverride)
 	} else if deployFailuresRequested {
-		preDeployment("deployFailures", commitID, hostOverride, fileOverride)
+		preDeployment("deployFailures", commitID, hostOverride, localFileOverride)
 	} else if seedRepoFiles {
 		seedRepositoryFiles(hostOverride, remoteFileOverride)
 	} else {

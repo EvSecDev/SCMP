@@ -54,7 +54,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	}
 
 	// Gather map of files per host and per universal directory
-	allHostsFiles, universalFiles, err := mapFilesByHostOrUniversal(tree)
+	allHostsFiles, universalFiles, err := parseAllRepoFiles(tree)
 	logError("Failed to track files by host/universal directory", err, true)
 
 	// Create map of denied Universal files per host

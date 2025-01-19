@@ -101,8 +101,12 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 	for reloadID, commitFilePaths := range commitFileByCommand {
 		printMessage(VerbosityData, "Host %s: Starting deployment for configs with reload command ID %s\n", endpointName, reloadID)
 
+		// For metrics - get length of this groups file array
+		filesRequiringReload := len(commitFilePaths)
+
 		// Deploy all files for this specific reload command set
 		backupFileHashes := make(map[string]string)
+		var dontRunReloads bool
 		for index, commitFilePath := range commitFilePaths {
 			printMessage(VerbosityData, "Host %s:   Starting deployment for config %s\n", endpointName, commitFilePath)
 
@@ -121,12 +125,14 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			oldRemoteFileHash, err := backupOldConfig(sshClient, Password, targetFilePath, tmpBackupPath)
 			if err != nil {
 				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, err)
+				dontRunReloads = true
 				continue
 			}
 
 			// Compare hashes and skip to next file deployment if remote is same as local
 			if oldRemoteFileHash == commitFileInfo[commitFilePath].Hash {
 				printMessage(VerbosityProgress, "Host %s: File '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
+				filesRequiringReload-- // Decrement counter when one file is found to be identical
 				continue
 			}
 
@@ -140,6 +146,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 				if err != nil {
 					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
 				}
+				dontRunReloads = true
 				continue
 			}
 
@@ -151,6 +158,17 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 		commandReloadArray := commitFileInfo[commitFilePaths[0]].Reload
 
 		printMessage(VerbosityProgress, "Host %s: Starting execution of reload commands\n", endpointName)
+
+		// Do not run reloads if file operations encountered error
+		if dontRunReloads {
+			printMessage(VerbosityProgress, "Host %s:   Refusing to run reloads - file encountered error\n", endpointName)
+			continue
+		}
+		// Do not run reloads if all files are identical local and remote
+		if filesRequiringReload == 0 {
+			printMessage(VerbosityProgress, "Host %s:   Refusing to run reloads - all files in reload group are unchanged\n", endpointName)
+			continue
+		}
 
 		// Run all the commands required by this config file group
 		var ReloadFailed bool
@@ -166,6 +184,9 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 				break
 			}
 		}
+
+		printMessage(VerbosityProgress, "Host %s: Finished execution of reload commands\n", endpointName)
+
 		// Restore configs and skip to next reload group if reload failed
 		if ReloadFailed {
 			printMessage(VerbosityProgress, "Host %s:   Starting restoration of backup configs after reload failure\n", endpointName)
@@ -189,8 +210,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			continue
 		}
 
-		// Increment local metric for configs by number of files under this command group (deployment by command group is all files or none)
-		postDeployedConfigsLocal += len(commitFilePaths)
+		// Increment local metric for configs by number of files that required reloads
+		postDeployedConfigsLocal += filesRequiringReload
 	}
 
 	printMessage(VerbosityProgress, "Host %s: Starting deployment for configs without reload commands\n", endpointName)
