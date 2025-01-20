@@ -20,14 +20,15 @@ import (
 
 // Used when an argument has a file:// URI scheme
 // Loads file in and separates based on newlines or commas and returns a string csv
-func retrieveURIFile(fullURI string) (fileCSV string, err error) {
+func retrieveURIFile(input string) (csv string, err error) {
 	// Return early if not a file URI scheme
-	if !strings.HasPrefix(fullURI, "file:") {
+	if !strings.HasPrefix(input, "file:") {
+		csv = input
 		return
 	}
 
 	// Parse the URI
-	parsedURI, err := url.Parse(fullURI)
+	parsedURI, err := url.Parse(input)
 	if err != nil {
 		return
 	}
@@ -64,7 +65,7 @@ func retrieveURIFile(fullURI string) (fileCSV string, err error) {
 
 	// If file is multi-line, convert into CSV
 	if len(lines) > 1 {
-		fileCSV = strings.Join(lines, ",")
+		csv = strings.Join(lines, ",")
 		return
 	} else if len(lines) == 0 {
 		err = fmt.Errorf("file is empty")
@@ -76,7 +77,7 @@ func retrieveURIFile(fullURI string) (fileCSV string, err error) {
 
 	// Use the regular expression to split the string one first line
 	lineArray := separatorRegex.Split(lines[0], -1)
-	fileCSV = strings.Join(lineArray, ",")
+	csv = strings.Join(lineArray, ",")
 	return
 }
 

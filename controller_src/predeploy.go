@@ -13,6 +13,10 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	printMessage(VerbosityStandard, "%s\n", progCLIHeader)
 	var err error
 
+	// Check working dir for git repo
+	err = retrieveGitRepoPath()
+	logError("Repository Error", err, false)
+
 	// Override commitID with one from failtracker if redeploy requested
 	var failures []string
 	if deployMode == "deployFailures" {

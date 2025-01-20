@@ -22,14 +22,6 @@ func printMessage(requiredVerbosityLevel int, message string, vars ...interface{
 		return
 	}
 
-	// Attempt to put only verbosity level 1 in journald
-	if globalVerbosityLevel == 1 && requiredVerbosityLevel == 1 {
-		err := CreateJournaldLog(fmt.Sprintf(message, vars...), "info")
-		if err != nil {
-			fmt.Printf("Failed to create journald entry: %v\n", err)
-		}
-	}
-
 	// Add timestamps to verbosity levels 2 and up (but only when the timestamp will get printed)
 	if globalVerbosityLevel >= 2 && requiredVerbosityLevel <= globalVerbosityLevel {
 		currentTime := time.Now()
@@ -76,7 +68,7 @@ func parseConfig() (err error) {
 	// Set globals - see global section at top for descriptions
 
 	// Set path to failtracker file (in config directory)
-	configDirectory := filepath.Base(configAbsolutePath)
+	configDirectory := filepath.Dir(configAbsolutePath)
 	config.FailTrackerFilePath = filepath.Join(configDirectory, FailTrackerFile)
 
 	// Retrieve known_hosts file path
@@ -111,26 +103,6 @@ func parseConfig() (err error) {
 
 	// Store all known_hosts as array
 	config.KnownHosts = strings.Split(string(knownHostFile), "\n")
-
-	printMessage(VerbosityProgress, "Retrieving repository file path\n")
-
-	// Get current dir (expected to be root of git repo)
-	currentWorkingDir, err := os.Getwd()
-	if err != nil {
-		return
-	}
-	expectedDotGitPath := filepath.Join(currentWorkingDir, ".git")
-
-	// Error if .git directory is not present in current directory
-	_, err = os.Stat(expectedDotGitPath)
-	if os.IsNotExist(err) {
-		err = fmt.Errorf("not in a git repository, unable to deploy")
-		return
-	} else if err != nil {
-		return
-	}
-	// Current dir is absolute git repo path
-	config.RepositoryPath = currentWorkingDir
 
 	// All config dir names in repo
 	config.UniversalDirectory, _ = sshConfig.Get("", "UniversalDirectory")
@@ -280,6 +252,30 @@ func parseConfig() (err error) {
 		config.HostInfo[hostPattern] = hostInfo
 	}
 
+	return
+}
+
+func retrieveGitRepoPath() (err error) {
+	printMessage(VerbosityProgress, "Retrieving repository file path\n")
+
+	// Get current dir (expected to be root of git repo)
+	currentWorkingDir, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	expectedDotGitPath := filepath.Join(currentWorkingDir, ".git")
+
+	// Error if .git directory is not present in current directory
+	_, err = os.Stat(expectedDotGitPath)
+	if os.IsNotExist(err) {
+		err = fmt.Errorf("not in a git repository, unable to continue")
+		return
+	} else if err != nil {
+		return
+	}
+
+	// Current dir is absolute git repo path
+	config.RepositoryPath = currentWorkingDir
 	return
 }
 

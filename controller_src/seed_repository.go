@@ -40,6 +40,10 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 	err := localSystemChecks()
 	logError("Error in system checks", err, false)
 
+	// Check working dir for git repo
+	err = retrieveGitRepoPath()
+	logError("Repository Error", err, false)
+
 	if dryRunRequested {
 		// Notify user that program is in dry run mode
 		printMessage(VerbosityStandard, "Requested dry-run, aborting deployment\n")
@@ -56,7 +60,6 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 	// Loop hosts chosen by user and prepare relevant host information for deployment
 	for _, endpointName := range userHostChoices {
 		// Ensure user choice has an entry in the config
-		// Retrieve most current global host config
 		_, configHostFromUserChoice := config.HostInfo[endpointName]
 		if !configHostFromUserChoice {
 			logError("Invalid host choice", fmt.Errorf("host %s does not exist in config", endpointName), false)
@@ -92,7 +95,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 				// Ls the remote file for metadata information
 				command := "ls -lA " + remoteFile
 				var fileLS string
-				fileLS, err = RunSSHCommand(client, command, hostInfo.Password)
+				fileLS, err = RunSSHCommand(client, command, "", true, hostInfo.Password)
 				logError("Failed to retrieve remote file information", err, false)
 
 				// Split ls output into fields for this file
@@ -156,7 +159,7 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 		// Get file names and info for the directory
 		command := "ls -lA " + directory
 		var directoryList string
-		directoryList, err = RunSSHCommand(client, command, SudoPassword)
+		directoryList, err = RunSSHCommand(client, command, "", true, SudoPassword)
 		if err != nil {
 			// All errors except permission denied exits selection menu
 			if !strings.Contains(err.Error(), "Permission denied") {
@@ -366,7 +369,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 
 	// Copy desired file to buffer location
 	command := "cp " + targetFilePath + " " + tmpRemoteFilePath
-	_, err = RunSSHCommand(client, command, SudoPassword)
+	_, err = RunSSHCommand(client, command, "", true, SudoPassword)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
@@ -374,7 +377,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 
 	// Ensure buffer file can be read and then deleted later
 	command = "chmod 666 " + tmpRemoteFilePath
-	_, err = RunSSHCommand(client, command, SudoPassword)
+	_, err = RunSSHCommand(client, command, "", true, SudoPassword)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return

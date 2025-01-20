@@ -1,7 +1,0 @@
-# Default choices
-executablePath="/usr/local/bin/scmcontroller"
-RepositoryPath="~/SCMGit"
-BranchName="main"
-SSHUser="deployer"
-SSHPort="22"
-UniversalDirectory="UniversalConfs"

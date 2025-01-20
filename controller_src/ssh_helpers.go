@@ -442,7 +442,7 @@ func SCPDownload(client *ssh.Client, remoteFilePath string) (fileContent string,
 }
 
 // Runs the given remote ssh command with sudo
-func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (CommandOutput string, err error) {
+func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo bool, sudoPassword string) (CommandOutput string, err error) {
 	// Open new session (exec)
 	session, err := client.NewSession()
 	if err != nil {
@@ -473,13 +473,24 @@ func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (Com
 	}
 	defer stdin.Close()
 
-	// Add sudo to command if password was provided
-	if SudoPassword != "" {
-		command = "sudo -S " + command
-	} else {
-		// No given password indicates that passwords are not required for sudo access, but elevated privileges are always required for deployments
-		command = "sudo " + command
+	// Prepare command prefix
+	cmdPrefix := "sudo "
+	if sudoPassword != "" {
+		// sudo password provided, adding stdin arg to sudo
+		cmdPrefix += "-S "
 	}
+	if runAs != "" && runAs != "root" {
+		// Non-root other user requested, adding su to sudo
+		cmdPrefix += "-u " + runAs + " "
+	}
+	if !useSudo {
+		// No sudo requested, remove sudo prefix
+		cmdPrefix = ""
+	}
+
+	// Add prefix to command
+	command = cmdPrefix + command
+
 	printMessage(VerbosityDebug, "  Running command '%s'\n", command)
 
 	// Start the command
@@ -489,8 +500,8 @@ func RunSSHCommand(client *ssh.Client, command string, SudoPassword string) (Com
 		return
 	}
 
-	// Write sudo password to stdin
-	_, err = stdin.Write([]byte(SudoPassword))
+	// Write sudo password to stdin - write even if password is empty
+	_, err = stdin.Write([]byte(sudoPassword))
 	if err != nil {
 		err = fmt.Errorf("failed to write to command stdin: %v", err)
 		return

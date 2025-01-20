@@ -1,4 +1,4 @@
-# SCMPusher
+# Secure Configuration Management Program (SCMP)
 
 ## Description
 
@@ -84,48 +84,84 @@ If you like what this program can do or want to expand functionality yourself, f
 ### Controller Help Menu
 
 ```
-Examples:
-    controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] 
-    controller --config <~/.ssh/config> --deploy-changes [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-    controller --config <~/.ssh/config> --deploy-all [--remote-hosts <www,proxy,db01>] [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
-    controller --config <~/.ssh/config> --deploy-all [--remote-hosts file:///file/containing/hostnames] [--local-files file:///file/containing/file/paths]
-    controller --config <~/.ssh/config> --deploy-failures  [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-    controller --config <~/.ssh/config> --seed-repo [--remote-hosts <www,proxy,db01>] [--remote-files file:///absolute/path/to/textfile]
-    controller --new-repo /opt/repo1:main
+const usage = `Secure Configuration Management Program (SCMP)
+  Deploy configuration files from a git repository to Linux servers via SSH
+  Deploy ad-hoc commands and scripts to Linux servers via SSH
 
 Options:
-    -c, --config </path/to/ssh/config>             Path to the configuration file [default: ~/.ssh/config]
-    -d, --deploy-changes                           Deploy changed files in the specified commit [commit default: head]
-    -a, --deploy-all                               Deploy all files in specified commit [commit default: head]
-    -f, --deploy-failures                          Deploy failed files/hosts using failtracker file from last failed deployment
-    -r, --remote-hosts <host1,host*,...|file:///>  Override hosts for deployment
-    -R, --remote-files <file1,file0*,...|file:///> Override files for seed repository
-    -l, --local-files <file1,file0*,...|file:///>  Override files for deployment (Must be relative file paths from root of the repository) 
-    -C, --commitid <hash>                          Commit ID (hash) of the commit to deploy configurations from
-    -T, --dry-run                                  Does everything except start SSH connections. Prints out deployment information
-    -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections [default: 10] (1 disables concurrency)
-    -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
-    -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path with the given initial branch name
-    -s, --seed-repo                                Retrieve existing files from remote hosts to seed the local repository (Requires '--remote-hosts')
-    -g, --disable-git-hook                         Disables the automatic deployment git post-commit hook for the current repository
-    -G, --enable-git-hook                          Enables the automatic deployment git post-commit hook for the current repository
-    -t, --test-config                              Test controller configuration syntax and configuration option validity
-    -v, --verbosity <0...5>                        Increase details and frequency of progress messages (Higher is more verbose) [default: 1]
-    -h, --help                                     Show this help menu
-    -V, --version                                  Show version and packages
-        --versionid                                Show only version number
+  -c, --config </path/to/ssh/config>             Path to the configuration file
+                                                 [default: ~/.ssh/config]
+  -d, --deploy-changes                           Deploy changed files in the specified commit
+                                                 [commit default: head]
+  -a, --deploy-all                               Deploy all files in specified commit
+                                                 [commit default: head]
+  -f, --deploy-failures                          Deploy failed files/hosts using
+                                                 failtracker file from last failed deployment
+  -e, --execute <"command"|file:///>             Run adhoc single command or upload and
+                                                 execute the script on remote hosts
+  -r, --remote-hosts <host1,host*,...|file:///>  Override hosts to connect to for deployment
+                                                 or adhoc command/script execution
+  -R, --remote-files <file1,file0*,...|file:///> Override file(s) to retrieve using seed-repository
+                                                 Also override default remote path for script execution
+  -l, --local-files <file1,file0*,...|file:///>  Override file(s) for deployment
+                                                 Must be relative file paths from inside the repository
+  -C, --commitid <hash>                          Commit ID (hash) of the commit to
+                                                 deploy configurations from
+  -T, --dry-run                                  Does everything except start SSH connections
+                                                 Prints out deployment information
+  -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections
+                                                 [default: 10] (1 disables concurrency)
+  -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the
+                                                 vault (will create the vault if it doesn't exist)
+  -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path
+                                                 with the given initial branch name
+  -s, --seed-repo                                Retrieve existing files from remote hosts to
+                                                 seed the local repository (Requires '--remote-hosts')
+  -g, --disable-git-hook                         Disables the automatic deployment git
+                                                 post-commit hook for the current repository
+  -G, --enable-git-hook                          Enables the automatic deployment git
+                                                 post-commit hook for the current repository
+  -t, --test-config                              Test controller configuration syntax
+                                                 and configuration option validity
+  -v, --verbose <0...5>                          Increase details and frequency of progress messages
+                                                 (Higher is more verbose) [default: 1]
+  -h, --help                                     Show this help menu
+  -V, --version                                  Show version and packages
+      --versionid                                Show only version number
 
-Documentation: <https://github.com/EvSecDev/SCMPusher>
+Report bugs to: admin@evsec.net
+SCMP home page: <https://github.com/EvSecDev/SCMPusher>
+General help using GNU software: <https://www.gnu.org/gethelp/>
+```
+
+Usage Examples:
+```
+Examples:
+  controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] 
+  controller --config <~/.ssh/config> --deploy-changes [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
+  controller --config <~/.ssh/config> --deploy-all [--remote-hosts <www,proxy,db01>] [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
+  controller --config <~/.ssh/config> --deploy-all [--remote-hosts file:///file/containing/hostnames] [--local-files file:///file/containing/file/paths]
+  controller --config <~/.ssh/config> --deploy-failures  [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
+  controller --config <~/.ssh/config> --execute "tail -n15 /var/log/nginx/error.log" -r <www,proxy,db01>
+  controller --config <~/.ssh/config> --execute file:///home/admin/scripts/setup_new_host.sh -r <www,proxy,db01>
+  controller --config <~/.ssh/config> --seed-repo [--remote-hosts <www,proxy,db01>] [--remote-files file:///absolute/path/to/textfile]
+  controller --new-repo /opt/repo1:main
 ```
 
 ## Setup and Configuration
 
-1. Create an SSH private key
+1. Create an SSH private key (Alternatively, use any existing one)
     - `ssh-keygen -t ed25519 -N '' -C scmp/controller -f controller_ssh`
-2. Start the installer script and follow the prompts
-    - `./controller_installer*sh`
-3. Configure the SSH configuration file for all the remote Linux hosts you wish to manage (see comments in config for what the fields mean)
-4. Done! Proceed to remote preparation
+2. Move the controller executable to your desired location within your path. Example:
+    - `mv controller_v* /usr/local/bin/controller`
+3. To generate a new git repository, run this command:
+    - `controller --new-repo /path/to/you/new/repo:main`
+4. **Optional**: If you want a sample configuration file, run this command
+    - `controller --install-default-config`
+5. **Optional**: If you want to install the AppArmor profile, run this command
+    - `sudo controller --install-apparmor-profile`
+6. Configure the SSH configuration file for all the remote Linux hosts you wish to manage (see comments in config for what the fields mean)
+7. Done! Proceed to remote preparation
 
 ### Remote Preparation
 

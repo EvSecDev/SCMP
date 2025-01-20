@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"runtime"
+	"strings"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
@@ -113,6 +114,8 @@ const (
 	VerbosityDebug
 )
 
+const defaultConfigPath string = "~/.ssh/config"
+
 // #### Written to in other functions - use mutex
 
 // Global for checking remote hosts keys
@@ -131,41 +134,56 @@ var FailTracker string
 var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
-const progCLIHeader string = "==== Secure Configuration Management Pusher ===="
-const progVersion string = "v3.3.0"
-const usage = `
-Examples:
-    controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] 
-    controller --config <~/.ssh/config> --deploy-changes [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-    controller --config <~/.ssh/config> --deploy-all [--remote-hosts <www,proxy,db01>] [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
-    controller --config <~/.ssh/config> --deploy-all [--remote-hosts file:///file/containing/hostnames] [--local-files file:///file/containing/file/paths]
-    controller --config <~/.ssh/config> --deploy-failures  [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-    controller --config <~/.ssh/config> --seed-repo [--remote-hosts <www,proxy,db01>] [--remote-files file:///absolute/path/to/textfile]
-    controller --new-repo /opt/repo1:main
+const progCLIHeader string = "==== Secure Configuration Management Program ===="
+const progVersion string = "v3.4.0"
+const usage = `Secure Configuration Management Program (SCMP)
+  Deploy configuration files from a git repository to Linux servers via SSH
+  Deploy ad-hoc commands and scripts to Linux servers via SSH
 
 Options:
-    -c, --config </path/to/ssh/config>             Path to the configuration file [default: ~/.ssh/config]
-    -d, --deploy-changes                           Deploy changed files in the specified commit [commit default: head]
-    -a, --deploy-all                               Deploy all files in specified commit [commit default: head]
-    -f, --deploy-failures                          Deploy failed files/hosts using failtracker file from last failed deployment
-    -r, --remote-hosts <host1,host*,...|file:///>  Override hosts for deployment
-    -R, --remote-files <file1,file0*,...|file:///> Override files for seed repository
-    -l, --local-files <file1,file0*,...|file:///>  Override files for deployment (Must be relative file paths from root of the repository) 
-    -C, --commitid <hash>                          Commit ID (hash) of the commit to deploy configurations from
-    -T, --dry-run                                  Does everything except start SSH connections. Prints out deployment information
-    -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections [default: 10] (1 disables concurrency)
-    -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the vault (will create the vault if it doesn't exist)
-    -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path with the given initial branch name
-    -s, --seed-repo                                Retrieve existing files from remote hosts to seed the local repository (Requires '--remote-hosts')
-    -g, --disable-git-hook                         Disables the automatic deployment git post-commit hook for the current repository
-    -G, --enable-git-hook                          Enables the automatic deployment git post-commit hook for the current repository
-    -t, --test-config                              Test controller configuration syntax and configuration option validity
-    -v, --verbosity <0...5>                        Increase details and frequency of progress messages (Higher is more verbose) [default: 1]
-    -h, --help                                     Show this help menu
-    -V, --version                                  Show version and packages
-        --versionid                                Show only version number
+  -c, --config </path/to/ssh/config>             Path to the configuration file
+                                                 [default: ~/.ssh/config]
+  -d, --deploy-changes                           Deploy changed files in the specified commit
+                                                 [commit default: head]
+  -a, --deploy-all                               Deploy all files in specified commit
+                                                 [commit default: head]
+  -f, --deploy-failures                          Deploy failed files/hosts using
+                                                 failtracker file from last failed deployment
+  -e, --execute <"command"|file:///>             Run adhoc single command or upload and
+                                                 execute the script on remote hosts
+  -r, --remote-hosts <host1,host*,...|file:///>  Override hosts to connect to for deployment
+                                                 or adhoc command/script execution
+  -R, --remote-files <file1,file0*,...|file:///> Override file(s) to retrieve using seed-repository
+                                                 Also override default remote path for script execution
+  -l, --local-files <file1,file0*,...|file:///>  Override file(s) for deployment
+                                                 Must be relative file paths from inside the repository
+  -C, --commitid <hash>                          Commit ID (hash) of the commit to
+                                                 deploy configurations from
+  -T, --dry-run                                  Does everything except start SSH connections
+                                                 Prints out deployment information
+  -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections
+                                                 [default: 10] (1 disables concurrency)
+  -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the
+                                                 vault (will create the vault if it doesn't exist)
+  -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path
+                                                 with the given initial branch name
+  -s, --seed-repo                                Retrieve existing files from remote hosts to
+                                                 seed the local repository (Requires '--remote-hosts')
+  -g, --disable-git-hook                         Disables the automatic deployment git
+                                                 post-commit hook for the current repository
+  -G, --enable-git-hook                          Enables the automatic deployment git
+                                                 post-commit hook for the current repository
+  -t, --test-config                              Test controller configuration syntax
+                                                 and configuration option validity
+  -v, --verbose <0...5>                          Increase details and frequency of progress messages
+                                                 (Higher is more verbose) [default: 1]
+  -h, --help                                     Show this help menu
+  -V, --version                                  Show version and packages
+      --versionid                                Show only version number
 
-Documentation: <https://github.com/EvSecDev/SCMPusher>
+Report bugs to: admin@evsec.net
+SCMP home page: <https://github.com/EvSecDev/SCMPusher>
+General help using GNU software: <https://www.gnu.org/gethelp/>
 `
 
 // ###################################
@@ -177,6 +195,7 @@ func main() {
 	var deployChangesRequested bool
 	var deployAllRequested bool
 	var deployFailuresRequested bool
+	var executeCommands string
 	var commitID string
 	var hostOverride string
 	var remoteFileOverride string
@@ -187,18 +206,22 @@ func main() {
 	var seedRepoFiles bool
 	var disableGitHook bool
 	var enableGitHook bool
+	var installAAProf bool
+	var installDefaultConfig bool
 	var versionInfoRequested bool
 	var versionRequested bool
 
 	// Read Program Arguments - allowing both short and long args
-	flag.StringVar(&config.FilePath, "c", "~/.ssh/config", "")
-	flag.StringVar(&config.FilePath, "config", "~/.ssh/config", "")
+	flag.StringVar(&config.FilePath, "c", defaultConfigPath, "")
+	flag.StringVar(&config.FilePath, "config", defaultConfigPath, "")
 	flag.BoolVar(&deployChangesRequested, "d", false, "")
 	flag.BoolVar(&deployChangesRequested, "deploy-changes", false, "")
 	flag.BoolVar(&deployAllRequested, "a", false, "")
 	flag.BoolVar(&deployAllRequested, "deploy-all", false, "")
 	flag.BoolVar(&deployFailuresRequested, "f", false, "")
 	flag.BoolVar(&deployFailuresRequested, "deploy-failures", false, "")
+	flag.StringVar(&executeCommands, "e", "", "")
+	flag.StringVar(&executeCommands, "execute", "", "")
 	flag.StringVar(&commitID, "C", "", "")
 	flag.StringVar(&commitID, "commitid", "", "")
 	flag.StringVar(&hostOverride, "r", "", "")
@@ -230,7 +253,9 @@ func main() {
 	flag.IntVar(&globalVerbosityLevel, "verbosity", 1, "")
 
 	// Undocumented internal use only
-	flag.BoolVar(&CalledByGitHook, "git-hook-mode", false, "") // Differentiate between user using deploy-changes and the git hook using deploy-changes
+	flag.BoolVar(&CalledByGitHook, "git-hook-mode", false, "")               // Differentiate between user using deploy-changes and the git hook using deploy-changes
+	flag.BoolVar(&installDefaultConfig, "install-default-config", false, "") // Install the sample config file if it doesn't exist
+	flag.BoolVar(&installAAProf, "install-apparmor-profile", false, "")      // Install the profile if system supports it
 
 	// Custom help menu
 	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...\n%s", os.Args[0], usage) }
@@ -238,14 +263,26 @@ func main() {
 
 	// Meta info print out
 	if versionInfoRequested {
-		fmt.Printf("Controller %s compiled using %s(%s) on %s architecture %s\n", progVersion, runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
-		fmt.Print("Packages: runtime encoding/hex strings net/url golang.org/x/term strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 golang.org/x/crypto/ssh/knownhosts encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal github.com/bramvdbogaerde/go-scp context sort fmt time golang.org/x/crypto/argon2 golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 golang.org/x/crypto/chacha20poly1305 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
+		fmt.Printf("SCMP Controller %s\n", progVersion)
+		fmt.Printf("Built using %s(%s) on %s architecture %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
+		fmt.Print("License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>\n")
+		fmt.Print("Direct Package Imports: runtime encoding/hex strings net/url golang.org/x/term strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 golang.org/x/crypto/ssh/knownhosts encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal github.com/bramvdbogaerde/go-scp context sort fmt time golang.org/x/crypto/argon2 golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 os/exec github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 golang.org/x/crypto/chacha20poly1305 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
 		return
 	} else if versionRequested {
 		fmt.Println(progVersion)
 		return
 	}
 
+	// Quick attempt at installing apparmor profile - failures are not printed under normal verbosity
+	if installAAProf {
+		installAAProfile()
+		return
+	}
+	// Install sample SSH config if it doesn't already exist
+	if installDefaultConfig {
+		installDefaultSSHConfig()
+		return
+	}
 	// New repository creation if requested
 	if createNewRepo != "" {
 		createNewRepository(createNewRepo)
@@ -284,6 +321,10 @@ func main() {
 		preDeployment("deployFailures", commitID, hostOverride, localFileOverride)
 	} else if seedRepoFiles {
 		seedRepositoryFiles(hostOverride, remoteFileOverride)
+	} else if strings.Contains(executeCommands, "file:") {
+		runScript(executeCommands, hostOverride, remoteFileOverride)
+	} else if executeCommands != "" {
+		runCmd(executeCommands, hostOverride)
 	} else {
 		// No valid arguments or valid combination of arguments
 		printMessage(VerbosityStandard, "No arguments specified or incorrect argument combination. Use '-h' or '--help' to guide your way.\n")

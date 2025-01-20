@@ -86,7 +86,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 	// Create backup directory
 	command := "mkdir " + tmpBackupPath
-	_, err = RunSSHCommand(sshClient, command, Password)
+	_, err = RunSSHCommand(sshClient, command, "root", true, Password)
 	if err != nil {
 		// Since we blindly try to create the directory, ignore errors about it already existing
 		if !strings.Contains(err.Error(), "File exists") {
@@ -175,7 +175,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 		for _, command := range commandReloadArray {
 			printMessage(VerbosityData, "Host %s:   Running reload command '%s'\n", endpointName, command)
 
-			_, err = RunSSHCommand(sshClient, command, Password)
+			_, err = RunSSHCommand(sshClient, command, "root", true, Password)
 			if err != nil {
 				// Record this failed command - first failure always stops reloads
 				// Record failures using the arry of all files for this command group and signal to record all the files using index "0"
@@ -302,7 +302,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 	// Cleanup temporary files
 	command = "rm -r " + tmpRemoteFilePath + " " + tmpBackupPath
-	_, err = RunSSHCommand(sshClient, command, Password)
+	_, err = RunSSHCommand(sshClient, command, "root", true, Password)
 	if err != nil {
 		// Only print error if there was a file to remove in the first place
 		if !strings.Contains(err.Error(), "No such file or directory") {

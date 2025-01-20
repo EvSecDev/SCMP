@@ -16,13 +16,12 @@ command -v sha256sum >/dev/null
 # Vars
 repoRoot=$(pwd)
 controllerSRCdir="controller_src"
-controllerCONFdir="controller_configs"
 
 function usage {
 	echo "Usage $0
 
 Options:
-  -b <prog>   Which program to build (controller, controllerpkg)
+  -b <prog>   Which program to build (controller)
   -a <arch>   Architecture of compiled binary (amd64, arm64) [default: amd64]
   -o <os>     Which operating system to build for (linux, windows) [default: linux]
   -f          Build nicely named binary (does not apply to package builds)
@@ -130,10 +129,10 @@ function fix_program_package_list_print {
 	allPackages=("${!packages[@]}")
 
 	# search line in each program that contains package import list for version print
-	packagePrintLine='fmt.Print("Packages: '
+	packagePrintLine='fmt.Print("Direct Package Imports: '
 
 	# Format package list into go print line
-	newPackagePrintLine=$'\t\tfmt.Print("Packages: '"${allPackages[@]}"'\\n")'
+	newPackagePrintLine=$'\t\tfmt.Print("Direct Package Imports: '"${allPackages[@]}"'\\n")'
 
 	# Write new package line into go source file that has main function
 	sed -i "/$packagePrintLine/c\\$newPackagePrintLine" $mainFile
@@ -183,62 +182,6 @@ function controller_binary {
 		mv $outputEXE $controllerEXE
 		sha256sum $controllerEXE > "$controllerEXE".sha256
 	fi
-}
-
-function controller_package {
-	# Always ensure we start in the root of the repository
-	cd $repoRoot/
-
-	# Check for things not supposed to be in a release
-	check_for_dev_artifacts "$controllerSRCdir"
-
-	# Read in config files for install script
-	defaultInstallOptions="$controllerCONFdir/default_install_options.txt"
-	defaultConfigYaml="$controllerCONFdir/scmpc.yaml"
-	defaultApparmorProfile="$controllerCONFdir/apparmor_profile_template"
-
-	# Create installation script
-	cp "$controllerCONFdir/install_script_template.sh" "$repoRoot/install_controller.sh"
-	awk '{if ($0 ~ /#{{DEFAULTS_PLACEHOLDER}}/) {while((getline line < "'$defaultInstallOptions'") > 0) print line} else print $0}' install_controller.sh > .d && mv .d install_controller.sh
-	awk '{if ($0 ~ /#{{CONFIG_PLACEHOLDER}}/) {while((getline line < "'$defaultConfigYaml'") > 0) print line} else print $0}' install_controller.sh > .d && mv .d install_controller.sh
-	awk '{if ($0 ~ /#{{AAPROF_PLACEHOLDER}}/) {while((getline line < "'$defaultApparmorProfile'") > 0) print line} else print $0}' install_controller.sh > .d && mv .d install_controller.sh
-	chmod 750 "$repoRoot/install_controller.sh"
-
-	# Check for new packages that were imported but not included in version output
-	fix_program_package_list_print
-
-	# Ensure readme has updated code blocks
-	update_readme
-
-	# Move into src dir
-	cd $repoRoot/$controllerSRCdir
-
-	# Run tests
-	go test
-
-	# Vars for build
-	inputGoSource="*.go"
-	outputEXE="controller"
-	export CGO_ENABLED=0
-	export GOARCH=$1
-	export GOOS=$2
-
-	# Build binary
-	go build -o $repoRoot/$outputEXE -a -ldflags '-s -w -buildid= -extldflags "-static"' $inputGoSource
-	cd $repoRoot
-
-	# Get version
-	version=$(./$outputEXE --versionid)
-	controllerPKG=""$outputEXE"_installer_"$version"_$GOOS-$GOARCH.sh"
-
-	# Create install script with embedded executable
-	tar -cvzf $outputEXE.tar.gz $outputEXE
-	mv $repoRoot/install_controller.sh $controllerPKG
-	cat $outputEXE.tar.gz | base64 >> $controllerPKG
-	sha256sum $controllerPKG > "$controllerPKG".sha256
-
-	# Cleanup
-	rm $outputEXE.tar.gz $outputEXE
 }
 
 function update_go_packages {
@@ -402,10 +345,6 @@ elif [[ $buildopt == controller ]]
 then
 	controller_binary "$architecture" "$os" "$buildfull"
 	echo "Complete: controller binary built"
-elif [[ $buildopt == controllerpkg ]]
-then
-	controller_package "$architecture" "$os"
-	echo "Complete: controller package built"
 else
 	echo "unknown, bye"
 	exit 1
