@@ -135,7 +135,7 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v3.4.0"
+const progVersion string = "v3.4.1"
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
