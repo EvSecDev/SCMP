@@ -25,7 +25,7 @@ Options:
   -a <arch>   Architecture of compiled binary (amd64, arm64) [default: amd64]
   -o <os>     Which operating system to build for (linux, windows) [default: linux]
   -f          Build nicely named binary (does not apply to package builds)
-  -u          Update go packages for a given program (use -b to choose which program, *pkg options not applicable)
+  -u          Update go packages for a given program (use -b to choose which program)
   -g          Generate releases for github
 "
 }
@@ -210,8 +210,6 @@ function generate_github_release {
 	# Build binary and package - call this script (i dont want to figure out why calling the compile functions doesn't work)
 	./build.sh -b controller -f
 	mv controller_v* ~/Downloads/
-	./build.sh -b controllerpkg -f
-	mv controller_install* ~/Downloads/
 
 	# Get commit where last release was generated from
 	lastReleaseCommitHash=$(cat $repoRoot/.last_release_commit)
