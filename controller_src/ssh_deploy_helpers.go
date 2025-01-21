@@ -18,7 +18,7 @@ import (
 // Run full deployment of a new file to remote host
 func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath string, tmpRemoteFilePath string, fileContents string, fileContentHash string, fileOwnerGroup string, filePermissions int) (err error) {
 	// Transfer local file to remote
-	err = TransferFile(sshClient, fileContents, targetFilePath, SudoPassword, tmpRemoteFilePath)
+	err = TransferFile(sshClient, fileContents, targetFilePath, SudoPassword, tmpRemoteFilePath, fileOwnerGroup, filePermissions)
 	if err != nil {
 		err = fmt.Errorf("failed SFTP config file transfer to remote host: %v", err)
 		return
@@ -50,22 +50,6 @@ func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 	// Compare hashes and restore old conf if they dont match
 	if NewRemoteFileHash != fileContentHash {
 		err = fmt.Errorf("hash of config file post deployment does not match hash of pre deployment")
-		return
-	}
-
-	// Ensure owner/group are correct
-	command = "chown " + fileOwnerGroup + " " + targetFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword)
-	if err != nil {
-		err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
-		return
-	}
-
-	// Ensure permissions are correct
-	command = "chmod " + strconv.Itoa(filePermissions) + " " + targetFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword)
-	if err != nil {
-		err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
 		return
 	}
 
@@ -174,7 +158,7 @@ func CheckRemoteFileExistence(sshClient *ssh.Client, remoteFilePath string, Sudo
 
 // Transfers file content in variable to remote temp buffer, then moves into remote file path location
 // Uses global var for remote temp buffer file path location
-func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath string, SudoPassword string, tmpRemoteFilePath string) (err error) {
+func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath string, SudoPassword string, tmpRemoteFilePath string, fileOwnerGroup string, filePermissions int) (err error) {
 	var command string
 
 	// Check if remote dir exists, if not create
@@ -198,6 +182,22 @@ func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath
 	// SFTP to temp file
 	err = SCPUpload(sshClient, []byte(localFileContent), tmpRemoteFilePath)
 	if err != nil {
+		return
+	}
+
+	// Ensure owner/group are correct
+	command = "chown " + fileOwnerGroup + " " + tmpRemoteFilePath
+	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword)
+	if err != nil {
+		err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
+		return
+	}
+
+	// Ensure permissions are correct
+	command = "chmod " + strconv.Itoa(filePermissions) + " " + tmpRemoteFilePath
+	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword)
+	if err != nil {
+		err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
 		return
 	}
 

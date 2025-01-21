@@ -519,6 +519,7 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo boo
 	defer cancel()
 
 	// Wait for the command to finish with timeout
+	var exitStatusZero bool
 	errChannel := make(chan error)
 	go func() {
 		errChannel <- session.Wait()
@@ -532,6 +533,9 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo boo
 			Commandstderr, _ := io.ReadAll(stderr)
 			err = fmt.Errorf("error with command '%s': %v : %s", command, err, Commandstderr)
 			return
+		} else {
+			// nil from session.Wait() means exit status zero from the command
+			exitStatusZero = true
 		}
 	// Timer finishes before command
 	case <-ctx.Done():
@@ -559,8 +563,8 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo boo
 	CommandOutput = string(Commandstdout)
 	CommandError := string(Commandstderr)
 
-	// If the command had an error on the remote side
-	if CommandError != "" {
+	// If the command had an error on the remote side and session indicated non-zero exit status
+	if CommandError != "" && !exitStatusZero {
 		// Only return valid errors
 		if strings.Contains(CommandError, "[sudo] password for") {
 			// Sudo puts password prompts into stderr when running with '-S'
