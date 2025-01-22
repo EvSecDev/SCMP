@@ -510,8 +510,13 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo boo
 	// Close stdin to signal no more writing
 	err = stdin.Close()
 	if err != nil {
-		err = fmt.Errorf("failed to close stdin: %v", err)
-		return
+		if strings.Contains(err.Error(), "EOF") {
+			// End of file is not an error - reset err and dont return
+			err = nil
+		} else {
+			err = fmt.Errorf("failed to close stdin: %v", err)
+			return
+		}
 	}
 
 	// Context for command wait based on timeout declared in global

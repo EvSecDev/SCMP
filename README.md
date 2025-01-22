@@ -293,7 +293,7 @@ This also ensures that if the actual reload command (like `systemctl restart`) f
 
 ### Commit Automatic Rollback
 
-When the controller is running in automatic mode, there is a feature that will automatically roll back the commit when encountering an error.
+When the controller is called via the git post-commit hook, there is a feature that will automatically roll back the commit when encountering an error.
 During the processing of a commit, any error before the controller connects to remote hosts will result the HEAD being moved to the previous commit.
 
 This is intentional to ensure that the HEAD commit is the most accurate representation of what configurations are currently deployed in the network.
