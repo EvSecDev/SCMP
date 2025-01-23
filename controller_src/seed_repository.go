@@ -26,11 +26,8 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 	}()
 
-	// Refused seeding without specific hosts specified
-	if hostOverride == "" {
-		logError("Invalid arguments", fmt.Errorf("remote-hosts cannot be empty when seeding the repository"), false)
-	} else if strings.Contains(hostOverride, "*") {
-		// TODO: allow wildcards - I'm just being lazy for now
+	// TODO: allow wildcards - I'm just being lazy for now
+	if strings.Contains(hostOverride, "*") {
 		logError("Invalid arguments", fmt.Errorf("remote-hosts cannot contain wildcards for repository seeding"), false)
 	}
 
@@ -54,15 +51,18 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		printMessage(VerbosityProgress, "Outputting information collected for deployment:\n")
 	}
 
-	// Retrieve user host choices and put into array
-	userHostChoices := strings.Split(hostOverride, ",")
-
 	// Loop hosts chosen by user and prepare relevant host information for deployment
-	for _, endpointName := range userHostChoices {
-		// Ensure user choice has an entry in the config
-		_, configHostFromUserChoice := config.HostInfo[endpointName]
-		if !configHostFromUserChoice {
-			logError("Invalid host choice", fmt.Errorf("host %s does not exist in config", endpointName), false)
+	for endpointName, hostInfo := range config.HostInfo {
+		SkipHost := checkForOverride(hostOverride, endpointName)
+		if SkipHost {
+			printMessage(VerbosityProgress, "  Skipping host %s, not desired\n", endpointName)
+			continue
+		}
+
+		// Skip offline hosts
+		if hostInfo.DeploymentState == "offline" {
+			printMessage(VerbosityProgress, "  Skipping host %s, offline\n", endpointName)
+			continue
 		}
 
 		// Retrieve host secrests (keys,passwords)
@@ -70,7 +70,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		logError("Error retrieving host secrets", err, true)
 
 		// Retrieve most current global host config
-		hostInfo := config.HostInfo[endpointName]
+		hostInfo = config.HostInfo[endpointName]
 
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
