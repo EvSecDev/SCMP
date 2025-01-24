@@ -354,7 +354,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	var DefaultReloadCommands = map[string][]string{
 		"/etc/apparmor.d/":     {"apparmor_parser -r /etc/apparmor.d/??baseDirName??"},
 		"/etc/crontab":         {"crontab -n /etc/crontab"},
-		"/etc/network/":        {"ifup -s -a", "systemctl restart networking.service", "systemctl is-active networking.service"},
+		"/etc/network/":        {"ifup -n -a", "systemctl restart networking.service", "systemctl is-active networking.service"},
 		"/etc/nftables":        {"nft -f /etc/nftables.conf -c", "systemctl restart nftables.service", "systemctl is-active nftables.service"},
 		"/etc/nginx":           {"nginx -t", "systemctl restart nginx.service", "systemctl is-active nginx.service"},
 		"/etc/rsyslog":         {"rsyslogd -N1 -f /etc/rsyslog.conf", "systemctl restart rsyslog.service", "systemctl is-active rsyslog.service"},
