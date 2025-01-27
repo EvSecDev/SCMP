@@ -442,7 +442,11 @@ func SCPDownload(client *ssh.Client, remoteFilePath string) (fileContent string,
 }
 
 // Runs the given remote ssh command with sudo
-func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo bool, sudoPassword string) (CommandOutput string, err error) {
+// runAs input will change to the user using sudo if not root
+// useSudo will determine if command runs with sudo or not
+// Empty sudoPassword will run without assuming the user account doesn't require any passwords
+// timeout is the max execution time in seconds for the given command
+func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo bool, sudoPassword string, timeout int) (CommandOutput string, err error) {
 	// Open new session (exec)
 	session, err := client.NewSession()
 	if err != nil {
@@ -520,10 +524,12 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo boo
 	}
 
 	// Context for command wait based on timeout declared in global
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	maxExecutionTime := time.Duration(timeout) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), maxExecutionTime)
 	defer cancel()
 
 	// Wait for the command to finish with timeout
+	var Commandstderr []byte
 	var exitStatusZero bool
 	errChannel := make(chan error)
 	go func() {
@@ -535,8 +541,16 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo boo
 	case err = <-errChannel:
 		if err != nil {
 			// Return both exit status and stderr (readall errors are ignored as exit status will still be present)
-			Commandstderr, _ := io.ReadAll(stderr)
-			err = fmt.Errorf("error with command '%s': %v : %s", command, err, Commandstderr)
+			var errorsError error // Store local error
+			Commandstderr, errorsError = io.ReadAll(stderr)
+			if errorsError != nil {
+				// Return at any errors reading the command error
+				err = fmt.Errorf("error reading error from command '%s': %v", command, errorsError)
+				return
+			}
+
+			// Return commands error
+			err = fmt.Errorf("error with command '%s': %v: %s", command, err, Commandstderr)
 			return
 		} else {
 			// nil from session.Wait() means exit status zero from the command
@@ -546,7 +560,7 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo boo
 	case <-ctx.Done():
 		session.Signal(ssh.SIGTERM)
 		session.Close()
-		err = fmt.Errorf("closed ssh session, command %s timed out", command)
+		err = fmt.Errorf("closed ssh session: exceeded timeout (%d seconds) for command %s", timeout, command)
 		return
 	}
 
@@ -558,7 +572,7 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo boo
 	}
 
 	// Read commands error output from session
-	Commandstderr, err := io.ReadAll(stderr)
+	Commandstderr, err = io.ReadAll(stderr)
 	if err != nil {
 		err = fmt.Errorf("error reading from io.Reader: %v", err)
 		return

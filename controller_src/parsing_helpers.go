@@ -89,6 +89,14 @@ func checkForOverride(override string, current string) (skip bool) {
 		return
 	}
 
+	// Allow current item if item is part of a group
+	// Only applies to host overrides, but shouldn't affect file overrides
+	_, currentItemIsPartofGroup := config.HostInfo[current].UniversalGroups[override]
+	if currentItemIsPartofGroup {
+		skip = false
+		return
+	}
+
 	// Split choices on comma
 	userHostChoices := strings.Split(override, ",")
 

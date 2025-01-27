@@ -95,7 +95,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 				// Ls the remote file for metadata information
 				command := "ls -lA " + remoteFile
 				var fileLS string
-				fileLS, err = RunSSHCommand(client, command, "", true, hostInfo.Password)
+				fileLS, err = RunSSHCommand(client, command, "", true, hostInfo.Password, 30)
 				logError("Failed to retrieve remote file information", err, false)
 
 				// Split ls output into fields for this file
@@ -159,7 +159,7 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 		// Get file names and info for the directory
 		command := "ls -lA " + directory
 		var directoryList string
-		directoryList, err = RunSSHCommand(client, command, "", true, SudoPassword)
+		directoryList, err = RunSSHCommand(client, command, "", true, SudoPassword, 30)
 		if err != nil {
 			// All errors except permission denied exits selection menu
 			if !strings.Contains(err.Error(), "Permission denied") {
@@ -369,7 +369,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 
 	// Copy desired file to buffer location
 	command := "cp " + targetFilePath + " " + tmpRemoteFilePath
-	_, err = RunSSHCommand(client, command, "", true, SudoPassword)
+	_, err = RunSSHCommand(client, command, "", true, SudoPassword, 20)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
@@ -377,7 +377,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 
 	// Ensure buffer file can be read and then deleted later
 	command = "chmod 666 " + tmpRemoteFilePath
-	_, err = RunSSHCommand(client, command, "", true, SudoPassword)
+	_, err = RunSSHCommand(client, command, "", true, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return

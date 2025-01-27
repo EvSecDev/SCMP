@@ -95,17 +95,32 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 					return
 				}
 
-				// Confirm user wants from file deleted
-				var userResponse string
-				userResponse, err = promptUser("Press 'y' to confirm deletion of file '%s': ", fromPath)
-				if err != nil {
-					return
-				} else if userResponse == "y" {
-					// Mark for deletion if no longer present in repo
+				// Reset err var to prevent false-positive error return on prompt function
+				err = nil
+
+				// If file was moved within same host, don't prompt
+				fromDirs := strings.Split(fromPath, "/")
+				topLevelDirFrom := fromDirs[0]
+				toDirs := strings.Split(toPath, "/")
+				topLevelDirTo := toDirs[0]
+
+				// Only prompt for file moves outside of current host
+				if topLevelDirFrom != topLevelDirTo {
+					// Confirm user wants from file deleted
+					var userResponse string
+					userResponse, err = promptUser("Press 'y' to confirm deletion of file '%s': ", fromPath)
+					if err != nil {
+						return
+					} else if userResponse == "y" {
+						// Mark for deletion if no longer present in repo
+						commitFiles[fromPath] = "delete"
+						printMessage(VerbosityFullData, "  File '%s' is to be deleted\n", fromPath)
+					} else {
+						printMessage(VerbosityProgress, "  Skipping deletion of file '%s'\n", fromPath)
+					}
+				} else {
 					commitFiles[fromPath] = "delete"
 					printMessage(VerbosityFullData, "  File '%s' is to be deleted\n", fromPath)
-				} else {
-					printMessage(VerbosityProgress, "  Skipping deletion of file '%s'\n", fromPath)
 				}
 			}
 

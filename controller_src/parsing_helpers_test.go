@@ -8,6 +8,33 @@ import (
 
 // Unit test for checkForOverride
 func TestCheckForOverride(t *testing.T) {
+	// Mock globals
+	config = Config{
+		AllUniversalGroups: map[string]struct{}{
+			"universalGroup1": {},
+			"universalGroup2": {},
+		},
+		HostInfo: map[string]EndpointInfo{
+			"host1": {
+				UniversalGroups: map[string]struct{}{
+					"UniversalConfs_Service1": {},
+				},
+			},
+			"host2": {
+				UniversalGroups: map[string]struct{}{
+					"UniversalConfs_Service1": {},
+				},
+			},
+			"host3": {
+				UniversalGroups: map[string]struct{}{
+					"": {},
+				},
+			},
+		},
+		UniversalDirectory: "universalconfs",
+	}
+
+	// Test cases
 	tests := []struct {
 		override     string
 		current      string
@@ -27,6 +54,8 @@ func TestCheckForOverride(t *testing.T) {
 		{"universalconfs/etc/*", "universalconfs/var/log/file.txt", true},
 		{"universalconfs/*", "universalconfs_ssh/etc/ssh/sshd_config", true},
 		{"host0*", "host0436", false},
+		{"UniversalConfs_Service1", "host2", false},
+		{"UniversalConfs_Service1", "host3", true},
 	}
 
 	for _, test := range tests {
