@@ -21,11 +21,11 @@ function usage {
 	echo "Usage $0
 
 Options:
-  -b <prog>   Which program to build (controller)
+  -b          Build the program using defaults
   -a <arch>   Architecture of compiled binary (amd64, arm64) [default: amd64]
   -o <os>     Which operating system to build for (linux, windows) [default: linux]
-  -f          Build nicely named binary (does not apply to package builds)
-  -u          Update go packages for a given program (use -b to choose which program)
+  -f          Build nicely named binary
+  -u          Update go packages for program
   -g          Generate releases for github
 "
 }
@@ -188,14 +188,11 @@ function update_go_packages {
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
 
-	# By program, id src directory variable name
-	srcDirVar="${1}SRCdir"
-
 	# Move into src dir
-	cd ${!srcDirVar}
+	cd $controllerSRCdir
 
 	# Run go updates
-	echo "==== Updating $1 Go packages ===="
+	echo "==== Updating Controller Go packages ===="
 	go get -u all
 	go mod verify
 	go mod tidy
@@ -304,14 +301,14 @@ architecture="amd64"
 os="linux"
 
 # Argument parsing
-while getopts 'a:b:o:fnugh' opt
+while getopts 'a:o:fbnugh' opt
 do
 	case "$opt" in
 	  'a')
 	    architecture="$OPTARG"
 	    ;;
 	  'b')
-	    buildopt="$OPTARG"
+	    buildmode='true'
 	    ;;
 	  'f')
 	    buildfull='true'
@@ -337,9 +334,9 @@ done
 if [[ $updatepackages == true ]]
 then
 	# Using the builtopt cd into the src dir and update packages then exit
-	update_go_packages "$buildopt"
+	update_go_packages
 	exit 0
-elif [[ $buildopt == controller ]]
+elif [[ $buildmode == true ]]
 then
 	controller_binary "$architecture" "$os" "$buildfull"
 	echo "Complete: controller binary built"

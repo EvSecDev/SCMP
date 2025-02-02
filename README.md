@@ -65,7 +65,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - One-time manual deployment to specific hosts and/or specific files
 - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
 - Deploy all (or a subset of) relevant files (even unchanged) to a newly created remote host
-- Use file input to any of the host/file arguments using a file URI scheme (like `file:///absolute/path/file`)
+- Use file input to any of the host/file arguments using a file URI scheme (like `file:///absolute/path/file`, `file://relative/path/file`)
 - Group hosts together to allow single universal configuration files to deploy to all or a subset of remote hosts
 - Concurrent SSH Connections to handle a large number of remote hosts (and option to limit/disable concurrency)
 - Key-based SSH authentication (by file or ssh-agent, per host or all hosts)
@@ -129,7 +129,7 @@ Options:
   -V, --version                                  Show version and packages
       --versionid                                Show only version number
 
-Report bugs to: admin@evsec.net
+Report bugs to: dev@evsec.net
 SCMP home page: <https://github.com/EvSecDev/SCMPusher>
 General help using GNU software: <https://www.gnu.org/gethelp/>
 ```
@@ -156,12 +156,13 @@ Examples:
     - `mv controller_v* /usr/local/bin/controller`
 3. To generate a new git repository, run this command:
     - `controller --new-repo /path/to/you/new/repo:main`
-4. **Optional**: If you want a sample configuration file, run this command
-    - `controller --install-default-config`
-5. **Optional**: If you want to install the AppArmor profile, run this command
-    - `sudo controller --install-apparmor-profile`
-6. Configure the SSH configuration file for all the remote Linux hosts you wish to manage (see comments in config for what the fields mean)
-7. Done! Proceed to remote preparation
+    - 3a) **Optional**: If you want a sample configuration file, run this command
+      - `controller --install-default-config`
+    - 3b) **Optional**: If you want to install the AppArmor profile, run this command
+      - `sudo controller --install-apparmor-profile`
+    - 3c) **Optional**: If you want bash auto-completion for the controller arguments, see the snippet to add to your `~/.bashrc` in the Notes section
+4. Configure the SSH configuration file for all the remote Linux hosts you wish to manage (see comments in config for what the fields mean)
+5. Done! Proceed to remote preparation
 
 ### Remote Preparation
 
@@ -290,6 +291,138 @@ Something to keep in mind, your end to end bandwidth for a deployment will deter
 It is recommended to use some sort of pre-check/validation/test option for your first reload command for a particular config file.
 Something like `nginx -t` or `nft -f /etc/nftables.conf -c` ensures that the syntax of the file you are pushing is valid before enabling the new config.
 This also ensures that if the actual reload command (like `systemctl restart`) fails, that the system is left running the previously known-good config.
+
+### BASH Auto-Completion
+
+In order to get auto-completion of the controller's arguments, SSH hosts, and git commit hashes, add this function to your `~/.bashrc`
+
+If your controller binary is named something else, rename both `_controller` and `controller` to your name (keeping the underscore prefix)
+
+```
+# Auto completion for SCMP Controller arugments
+_controller() {
+    local cur prev opts
+
+    # Define all available options
+    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --disable-git-hook --enable-git-hook --test-config --verbose --help --version --versionid"
+
+    # Define arguments for specific options
+    local_config="--config"
+    local_deploy_changes="--deploy-changes --deploy-all --deploy-failures"
+    local_execute="--execute"
+    local_remote_hosts="--remote-hosts"
+    local_remote_files="--remote-files"
+    local_local_files="--local-files"
+    local_commitid="--commitid"
+    local_max_conns="--max-conns"
+    local_modify_vault_password="--modify-vault-password"
+    local_new_repo="--new-repo"
+    local_seed_repo="--seed-repo"
+    local_verbose="--verbose"
+
+    # Get the current word the user is typing
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    # Autocompletion for options
+    if [[ ${cur} == -* ]]
+    then
+        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+        return 0
+    fi
+
+    # Autocomplete for file URI - Bash strips out 'file:' for some reason
+    if [[ "$cur" == "//"* ]]
+    then
+        # Expand the ~ to the full home directory path
+        cur="${cur/#\~/$HOME}"
+
+        # Remove leading '//' from the current word to autocomplete the file path
+        local file_path="${cur#//}"
+
+        # Attempt to complete the path without '//'
+        completions=($(compgen -f -- "$file_path"))
+
+        # Add '//' to the beginning of each completion result
+        for i in "${!completions[@]}"; do
+            # Add '//' to the beginning
+            completions[$i]="//${completions[$i]}"
+
+            # Check if the completion is a directory and add trailing slash - doesn't work if leading with ~/
+            if [[ -d "${completions[$i]#//}" ]]
+            then
+                completions[$i]="${completions[$i]}/"  # Append trailing slash for directories
+            fi
+        done
+
+        # Set the completion results (prevent addition of spaces after)
+        COMPREPLY=("${completions[@]}")
+        compopt -o nospace
+        return 0
+    fi
+
+    # Autocomplete arguments for specific information
+    case ${prev} in
+        --config | --local-files | -c | -l)
+            # Expand the ~ to the full home directory path
+            cur="${cur/#\~/$HOME}"
+
+            # Generate completions for both files and directories
+            local completions
+            completions=( $(compgen -o dirnames -f -- "$cur") )
+
+            # Check if completions are directories or files
+            COMPREPLY=()
+            for item in "${completions[@]}"; do
+                if [[ -d "$item" ]]; then
+                    # Append a trailing slash for directories
+                    COMPREPLY+=( "${item}/" )
+                    compopt -o nospace
+                elif [[ -f "$item" ]]; then
+                    COMPREPLY+=( "${item}" )
+                fi
+            done
+            return 0
+            ;;
+        --remote-hosts | --modify-vault-password | -r | -p)
+            # Autocomplete hostnames from SSH config file (default: ~/.ssh/config)
+            local ssh_config="${HOME}/.ssh/config"
+            if [[ -f "${ssh_config}" ]]
+            then
+                # Extract hostnames from the SSH config file
+                COMPREPLY=( $(awk '/^Host / {print $2}' "${ssh_config}" | grep -i "^${cur}") )
+            fi
+            return 0
+            ;;
+        --commitid)
+            # Autocomplete commit ids from git log if in a repository
+            if [[ -d ".git" ]]
+            then
+                # Extract commit hash from log
+                local commit_hashes
+                commit_hashes=$(git log --pretty=format:"%H" -n 10)
+                COMPREPLY=( $(compgen -W "${commit_hashes}" -- ${cur}) )
+            fi
+            return 0
+            ;;
+        --max-conns)
+            COMPREPLY=( $(compgen -W "1 5 10 15" -- ${cur}) )
+            return 0
+            ;;
+        --verbose)
+            COMPREPLY=( $(compgen -W "0 1 2 3 4 5" -- ${cur}) )
+            return 0
+            ;;
+    esac
+
+    # No specific completion, show the general options
+    COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+    return 0
+}
+# Register completion for SCMP Controller
+complete -F _controller controller
+```
+
 
 ### Commit Automatic Rollback
 

@@ -4,7 +4,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,29 +26,20 @@ func retrieveURIFile(input string) (csv string, err error) {
 		return
 	}
 
-	// Parse the URI
-	parsedURI, err := url.Parse(input)
-	if err != nil {
-		return
-	}
+	printMessage(VerbosityData, "Received File URI '%s'\n", input)
 
-	// Refuse non-file URIs - double check on the total format
-	if parsedURI.Scheme != "file" {
-		err = fmt.Errorf("unsupported URI: only 'file' schemes are supported")
-		return
-	}
+	// Not adhering to actual URI standards -- I just want file paths
+	path := strings.TrimPrefix(input, "file://")
 
-	// Refuse URIs with host part
-	if parsedURI.Host != "" {
-		err = fmt.Errorf("unsupported URI: cannot use two slashes (hostnames are not supported in this program)")
-		return
-	}
+	printMessage(VerbosityFullData, "Preprocessed File URI Path '%s'\n", path)
 
-	// Retrive only the path
-	absoluteFilePath := parsedURI.Path
+	// Check for ~/ and expand if required
+	path = expandHomeDirectory(path)
+
+	printMessage(VerbosityData, "File URI contains path '%s'\n", path)
 
 	// Retrieve the file contents
-	fileBytes, err := os.ReadFile(absoluteFilePath)
+	fileBytes, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
@@ -66,6 +56,7 @@ func retrieveURIFile(input string) (csv string, err error) {
 	// If file is multi-line, convert into CSV
 	if len(lines) > 1 {
 		csv = strings.Join(lines, ",")
+		printMessage(VerbosityFullData, "Extracted Override List from File: %v\n", csv)
 		return
 	} else if len(lines) == 0 {
 		err = fmt.Errorf("file is empty")
@@ -78,6 +69,7 @@ func retrieveURIFile(input string) (csv string, err error) {
 	// Use the regular expression to split the string one first line
 	lineArray := separatorRegex.Split(lines[0], -1)
 	csv = strings.Join(lineArray, ",")
+	printMessage(VerbosityFullData, "Extracted Override List from File: %v\n", csv)
 	return
 }
 

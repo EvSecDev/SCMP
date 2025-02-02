@@ -319,6 +319,7 @@ func toggleGitHook(toggleAction string) {
 func expandHomeDirectory(path string) (absolutePath string) {
 	// Return early if path doesn't have '~/' prefix
 	if !strings.HasPrefix(path, "~/") {
+		absolutePath = path
 		return
 	}
 
