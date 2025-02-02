@@ -205,11 +205,16 @@ function generate_github_release {
 	os=$2
 
 	# Build binary and package - call this script (i dont want to figure out why calling the compile functions doesn't work)
-	./build.sh -b controller -f
+	./build.sh -b -f
 	mv controller_v* ~/Downloads/
 
 	# Get commit where last release was generated from
 	lastReleaseCommitHash=$(cat $repoRoot/.last_release_commit)
+	if [[ -z $lastReleaseCommitHash ]]
+	then
+		echo "Could not determine when last release was by commit, refusing to continue"
+		exit 1
+	fi
 
 	# Collect commit messages up until the last release commit (not including the release commit messages
 	commitMsgsSinceLastRelease=$(git log --format=%B $lastReleaseCommitHash~0..HEAD)
