@@ -443,10 +443,10 @@ func SCPDownload(client *ssh.Client, remoteFilePath string) (fileContent string,
 
 // Runs the given remote ssh command with sudo
 // runAs input will change to the user using sudo if not root
-// useSudo will determine if command runs with sudo or not
+// disableSudo will determine if command runs with sudo or not (default, will always use sudo)
 // Empty sudoPassword will run without assuming the user account doesn't require any passwords
 // timeout is the max execution time in seconds for the given command
-func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo bool, sudoPassword string, timeout int) (CommandOutput string, err error) {
+func RunSSHCommand(client *ssh.Client, command string, runAs string, disableSudo bool, sudoPassword string, timeout int) (CommandOutput string, err error) {
 	// Open new session (exec)
 	session, err := client.NewSession()
 	if err != nil {
@@ -487,7 +487,7 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, useSudo boo
 		// Non-root other user requested, adding su to sudo
 		cmdPrefix += "-u " + runAs + " "
 	}
-	if !useSudo {
+	if disableSudo {
 		// No sudo requested, remove sudo prefix
 		cmdPrefix = ""
 	}

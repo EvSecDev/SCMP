@@ -33,6 +33,7 @@ type Config struct {
 	AllUniversalGroups  map[string]struct{}     // Universal group config directory names
 	IgnoreDirectories   []string                // Directories to ignore inside the git repository
 	MaxSSHConcurrency   int                     // Maximum threads for ssh sessions
+	DisableSudo         bool                    // Disable using sudo for remote commands
 	UserHomeDirectory   string                  // Absolute path to users home directory (to expand '~/' in paths)
 	VaultFilePath       string                  // Path to password vault file
 	Vault               map[string]Credential   // Password vault
@@ -169,6 +170,8 @@ Options:
                                                  with the given initial branch name
   -s, --seed-repo                                Retrieve existing files from remote hosts to
                                                  seed the local repository (Requires '--remote-hosts')
+      --disable-privilege-escalation             Disables use of sudo when executing commands remotely
+                                                 All commands will be run as the login user
   -g, --disable-git-hook                         Disables the automatic deployment git
                                                  post-commit hook for the current repository
   -G, --enable-git-hook                          Enables the automatic deployment git
@@ -182,7 +185,7 @@ Options:
       --versionid                                Show only version number
 
 Report bugs to: dev@evsec.net
-SCMP home page: <https://github.com/EvSecDev/SCMPusher>
+SCMP home page: <https://github.com/EvSecDev/SCMP>
 General help using GNU software: <https://www.gnu.org/gethelp/>
 `
 
@@ -242,6 +245,7 @@ func main() {
 	flag.StringVar(&createNewRepo, "new-repo", "", "")
 	flag.BoolVar(&seedRepoFiles, "s", false, "")
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
+	flag.BoolVar(&config.DisableSudo, "disable-privilege-escalation", false, "")
 	flag.BoolVar(&disableGitHook, "g", false, "")
 	flag.BoolVar(&disableGitHook, "disable-git-hook", false, "")
 	flag.BoolVar(&enableGitHook, "G", false, "")

@@ -117,6 +117,8 @@ Options:
                                                  with the given initial branch name
   -s, --seed-repo                                Retrieve existing files from remote hosts to
                                                  seed the local repository (Requires '--remote-hosts')
+      --disable-privilege-escalation             Disables use of sudo when executing commands remotely
+                                                 All commands will be run as the login user
   -g, --disable-git-hook                         Disables the automatic deployment git
                                                  post-commit hook for the current repository
   -G, --enable-git-hook                          Enables the automatic deployment git
@@ -130,7 +132,7 @@ Options:
       --versionid                                Show only version number
 
 Report bugs to: dev@evsec.net
-SCMP home page: <https://github.com/EvSecDev/SCMPusher>
+SCMP home page: <https://github.com/EvSecDev/SCMP>
 General help using GNU software: <https://www.gnu.org/gethelp/>
 ```
 

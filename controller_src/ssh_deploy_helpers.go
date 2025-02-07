@@ -38,7 +38,7 @@ func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 
 	// Get Hash of new deployed conf file
 	command := "sha256sum " + targetFilePath
-	CommandOutput, err := RunSSHCommand(sshClient, command, "root", true, SudoPassword, 90)
+	CommandOutput, err := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during hash of deployed file: %v", err)
 		return
@@ -73,7 +73,7 @@ func backupOldConfig(sshClient *ssh.Client, SudoPassword string, targetFilePath 
 
 	// Get the SHA256 hash of the remote old conf file
 	command := "sha256sum " + targetFilePath
-	CommandOutput, err := RunSSHCommand(sshClient, command, "root", true, SudoPassword, 90)
+	CommandOutput, err := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err)
 		return
@@ -90,7 +90,7 @@ func backupOldConfig(sshClient *ssh.Client, SudoPassword string, targetFilePath 
 
 	// Backup old config
 	command = "cp -p " + targetFilePath + " " + tmpBackupFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 90)
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
 	if err != nil {
 		err = fmt.Errorf("error making backup of old config file: %v", err)
 		return
@@ -114,7 +114,7 @@ func restoreOldConfig(sshClient *ssh.Client, targetFilePath string, tmpBackupPat
 
 	// Move backup conf into place
 	command := "mv " + backupFilePath + " " + targetFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 90)
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
 		return
@@ -122,7 +122,7 @@ func restoreOldConfig(sshClient *ssh.Client, targetFilePath string, tmpBackupPat
 
 	// Check to make sure restore worked with hash
 	command = "sha256sum " + targetFilePath
-	CommandOutput, err := RunSSHCommand(sshClient, command, "root", true, SudoPassword, 90)
+	CommandOutput, err := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err)
 		return
@@ -143,7 +143,7 @@ func restoreOldConfig(sshClient *ssh.Client, targetFilePath string, tmpBackupPat
 // Checks if file is already present on remote host
 func CheckRemoteFileExistence(sshClient *ssh.Client, remoteFilePath string, SudoPassword string) (fileExists bool, err error) {
 	command := "ls " + remoteFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 10)
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 	if err != nil {
 		fileExists = false
 		if strings.Contains(err.Error(), "No such file or directory") {
@@ -164,11 +164,11 @@ func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath
 	// Check if remote dir exists, if not create
 	dir := filepath.Dir(remoteFilePath)
 	command = "ls -d " + dir
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 10)
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 	if err != nil {
 		if strings.Contains(err.Error(), "No such file or directory") {
 			command = "mkdir -p " + dir
-			_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 10)
+			_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 			if err != nil {
 				err = fmt.Errorf("failed to create directory: %v", err)
 				return
@@ -187,7 +187,7 @@ func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath
 
 	// Ensure owner/group are correct
 	command = "chown " + fileOwnerGroup + " " + tmpRemoteFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 10)
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
 		return
@@ -195,7 +195,7 @@ func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath
 
 	// Ensure permissions are correct
 	command = "chmod " + strconv.Itoa(filePermissions) + " " + tmpRemoteFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 10)
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
 		return
@@ -203,7 +203,7 @@ func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath
 
 	// Move file from tmp dir to actual deployment path
 	command = "mv " + tmpRemoteFilePath + " " + remoteFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 30)
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 30)
 	if err != nil {
 		err = fmt.Errorf("failed to move new file into place: %v", err)
 		return
@@ -218,7 +218,7 @@ func deleteFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 
 	// Attempt remove file
 	command := "rm " + targetFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 30)
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 30)
 	if err != nil {
 		// Real errors only if file was present to begin with
 		if !strings.Contains(strings.ToLower(err.Error()), "no such file or directory") {
@@ -236,13 +236,13 @@ func deleteFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 	for i := 0; i < maxLoopCount; i++ {
 		// Check for presence of anything in dir
 		command = "ls -A " + targetPath
-		CommandOutput, _ := RunSSHCommand(sshClient, command, "root", true, SudoPassword, 10)
+		CommandOutput, _ := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 
 		// Empty stdout means empty dir
 		if CommandOutput == "" {
 			// Safe remove directory
 			command = "rmdir " + targetPath
-			_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 30)
+			_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 30)
 			if err != nil {
 				// Error breaks loop
 				err = fmt.Errorf("failed to remove empty parent directory '%s' for file '%s': %v", targetPath, targetFilePath, err)
@@ -281,7 +281,7 @@ func createSymLink(sshClient *ssh.Client, SudoPassword string, targetFilePath st
 
 	// Create symbolic link
 	command := "ln -s " + symLinkTarget + " " + targetFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", true, SudoPassword, 10)
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("failed to create symbolic link: %v", err)
 		return
