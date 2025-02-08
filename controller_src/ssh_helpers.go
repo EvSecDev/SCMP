@@ -322,23 +322,23 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 
 	// Key was not found in known_hosts - Prompt user
 	fmt.Printf("Host %s not in known_hosts. Key: %s %s\n", cleanHost, pubKeyType, remotePubKey)
-	userResponse, err := promptUser("Do you want to add this key to known_hosts? [y/N/all]: ")
+	addToKnownHosts, err := promptUser("Do you want to add this key to known_hosts? [y/N/all/skip]: ")
 	if err != nil {
 		return
 	}
-	userResponse = strings.TrimSpace(userResponse)
+	addToKnownHosts = strings.TrimSpace(addToKnownHosts)
+	addToKnownHosts = strings.ToLower(addToKnownHosts)
 
-	// User wants to trust all future pub key prompts
-	if strings.ToLower(userResponse) == "all" {
+	// Parse user response
+	if addToKnownHosts == "all" {
+		// User wants to trust all future pub key prompts 'all' implies 'yes' to this first host key
 		// For the duration of this program run, all unknown remote host keys will be added to known_hosts
 		addAllUnknownHosts = true
-
-		// 'all' implies 'yes' to this first host key
-		userResponse = "y"
-	}
-
-	// User did not say yes, abort connection
-	if strings.ToLower(userResponse) != "y" {
+	} else if addToKnownHosts == "skip" {
+		// Continue connection, but don't write host key
+		return
+	} else if addToKnownHosts != "y" {
+		// User did not say yes, abort connection
 		err = fmt.Errorf("not continuing with connection to %s", cleanHost)
 		return
 	}
