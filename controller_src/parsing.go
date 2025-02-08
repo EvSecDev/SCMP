@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -66,10 +67,16 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 
 		// Add file to map depending on how it changed in this commit
 		if from == nil {
-			printMessage(VerbosityFullData, "  File '%s' is brand new and to be created\n", toPath)
-			// Newly created files
-			//   like `touch etc/file.txt`
-			commitFiles[toPath] = "create"
+			// Decide if file is dir metadata or actual config
+			if strings.HasSuffix(toPath, directoryMetadataFileName) {
+				printMessage(VerbosityFullData, "  Dir Metadata '%s' is brand new and will affect parent\n", toPath)
+				commitFiles[toPath] = "dirCreate"
+			} else {
+				printMessage(VerbosityFullData, "  File '%s' is brand new and to be created\n", toPath)
+				// Newly created files
+				//   like `touch etc/file.txt`
+				commitFiles[toPath] = "create"
+			}
 		} else if to == nil {
 			printMessage(VerbosityFullData, "  File '%s' is to be deleted\n", fromPath)
 			// Deleted Files
@@ -124,14 +131,26 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 				}
 			}
 
-			// To path should always be present (otherwise it would be nil and caught earlier)
-			printMessage(VerbosityProgress, "  File '%s' is modified and to be created\n", toPath)
-			commitFiles[toPath] = "create"
+			// Decide if file is dir metadata or actual config
+			if strings.HasSuffix(toPath, directoryMetadataFileName) {
+				printMessage(VerbosityFullData, "  Dir Metadata '%s' is modified and will modify target directory\n", toPath)
+				commitFiles[toPath] = "dirModify"
+			} else {
+				// To path should always be present (otherwise it would be nil and caught earlier)
+				printMessage(VerbosityProgress, "  File '%s' is modified and to be created\n", toPath)
+				commitFiles[toPath] = "create"
+			}
 		} else if fromPath == toPath {
-			printMessage(VerbosityFullData, "  File '%s' is modified in place and to be created\n", fromPath)
-			// Editted in place
-			//   like `nano etc/file.txt`
-			commitFiles[fromPath] = "create"
+			// Decide if file is dir metadata or actual config
+			if strings.HasSuffix(toPath, directoryMetadataFileName) {
+				printMessage(VerbosityFullData, "  Dir Metadata '%s' is modified in place and will modify target directory\n", toPath)
+				commitFiles[toPath] = "dirModify"
+			} else {
+				printMessage(VerbosityFullData, "  File '%s' is modified in place and to be created\n", fromPath)
+				// Editted in place
+				//   like `nano etc/file.txt`
+				commitFiles[toPath] = "create"
+			}
 		} else {
 			printMessage(VerbosityFullData, "  File '%s' unknown and unsupported\n", fromPath)
 			// Anything else - no idea why this would happen
@@ -204,8 +223,13 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 
 		printMessage(VerbosityData, "    File available\n")
 
-		// Add repo file to the commit map with always create action
-		commitFiles[repoFilePath] = "create"
+		// Decide if file is dir metadata or actual config
+		if strings.HasSuffix(repoFilePath, directoryMetadataFileName) {
+			commitFiles[repoFilePath] = "dirCreate"
+		} else {
+			// Add repo file to the commit map with always create action
+			commitFiles[repoFilePath] = "create"
+		}
 
 		// If its a symlink - find target and add
 		fileMode := fmt.Sprintf("%v", repoFile.Mode)
@@ -249,7 +273,7 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 		}
 
 		// Check if host state is marked as offline, if so, skip this host
-		if hostInfo.DeploymentState == "offline" {
+		if hostInfo.DeploymentState == "offline" && !config.IgnoreDeploymentState {
 			printMessage(VerbosityFullData, "    Host is marked as offline, skipping\n")
 			continue
 		}
@@ -380,12 +404,12 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 			continue
 		}
 
-		// Skip loading other file types - safety blocker
-		if commitFileAction != "create" {
+		// Skip loading unsupported file types - safety blocker
+		if commitFileAction != "create" && commitFileAction != "dirCreate" && commitFileAction != "dirModify" {
 			continue
 		}
 
-		printMessage(VerbosityData, "    Retrieving config file contents\n")
+		printMessage(VerbosityData, "    Retrieving file contents\n")
 
 		// Get file from git tree
 		var file *object.File
@@ -412,7 +436,32 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 			return
 		}
 
-		printMessage(VerbosityData, "    Extracting config file metadata\n")
+		printMessage(VerbosityData, "    Extracting file metadata\n")
+
+		// Directory metadata
+		if strings.HasSuffix(commitFilePath, directoryMetadataFileName) {
+			// Get just directory name
+			directoryName := filepath.Dir(commitFilePath)
+
+			// Extract metadata
+			var jsonDirMetadata MetaHeader
+			err = json.Unmarshal(content, &jsonDirMetadata)
+			if err != nil {
+				err = fmt.Errorf("failed parsing directory JSON metadata for '%s': %v", directoryName, err)
+				return
+			}
+
+			// Save Directory metadata to map
+			var info CommitFileInfo
+			info.FileOwnerGroup = jsonDirMetadata.TargetFileOwnerGroup
+			info.FilePermissions = jsonDirMetadata.TargetFilePermissions
+			info.ReloadRequired = false
+			info.Action = commitFileAction
+			commitFileInfo[commitFilePath] = info
+
+			// Skip to next file
+			continue
+		}
 
 		// Grab metadata out of contents
 		var metadata, configContent string
@@ -422,7 +471,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 			return
 		}
 
-		printMessage(VerbosityData, "    Hashing config content\n")
+		printMessage(VerbosityData, "    Hashing file content\n")
 
 		// SHA256 Hash the metadata-less contents
 		contentHash := SHA256Sum(configContent)

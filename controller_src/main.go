@@ -22,21 +22,22 @@ var config Config
 
 // Struct for global config
 type Config struct {
-	FilePath            string                  // Path to main config - ~/.ssh/config
-	FailTrackerFilePath string                  // Path to failtracker file (within same directory as main config)
-	OSPathSeparator     string                  // Path separator for compiled OS filesystem
-	HostInfo            map[string]EndpointInfo // Hold some basic information about all the hosts
-	KnownHostsFilePath  string                  // Path to known server public keys - ~/.ssh/known_hosts
-	KnownHosts          []string                // Content of known server public keys - ~/.ssh/known_hosts
-	RepositoryPath      string                  // Absolute path to git repository (based on current working dir)
-	UniversalDirectory  string                  // Universal config directory inside git repo
-	AllUniversalGroups  map[string]struct{}     // Universal group config directory names
-	IgnoreDirectories   []string                // Directories to ignore inside the git repository
-	MaxSSHConcurrency   int                     // Maximum threads for ssh sessions
-	DisableSudo         bool                    // Disable using sudo for remote commands
-	UserHomeDirectory   string                  // Absolute path to users home directory (to expand '~/' in paths)
-	VaultFilePath       string                  // Path to password vault file
-	Vault               map[string]Credential   // Password vault
+	FilePath              string                  // Path to main config - ~/.ssh/config
+	FailTrackerFilePath   string                  // Path to failtracker file (within same directory as main config)
+	OSPathSeparator       string                  // Path separator for compiled OS filesystem
+	HostInfo              map[string]EndpointInfo // Hold some basic information about all the hosts
+	KnownHostsFilePath    string                  // Path to known server public keys - ~/.ssh/known_hosts
+	KnownHosts            []string                // Content of known server public keys - ~/.ssh/known_hosts
+	RepositoryPath        string                  // Absolute path to git repository (based on current working dir)
+	UniversalDirectory    string                  // Universal config directory inside git repo
+	AllUniversalGroups    map[string]struct{}     // Universal group config directory names
+	IgnoreDirectories     []string                // Directories to ignore inside the git repository
+	MaxSSHConcurrency     int                     // Maximum threads for ssh sessions
+	DisableSudo           bool                    // Disable using sudo for remote commands
+	IgnoreDeploymentState bool                    // Ignore any deployment state for a host in the config
+	UserHomeDirectory     string                  // Absolute path to users home directory (to expand '~/' in paths)
+	VaultFilePath         string                  // Path to password vault file
+	Vault                 map[string]Credential   // Password vault
 }
 
 // Struct for host-specific Information
@@ -116,6 +117,7 @@ const (
 )
 
 const defaultConfigPath string = "~/.ssh/config"
+const directoryMetadataFileName string = ".directory_metadata_information.json"
 
 // #### Written to in other functions - use mutex
 
@@ -136,7 +138,7 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v3.5.2"
+const progVersion string = "v3.6.0"
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
@@ -172,6 +174,8 @@ Options:
                                                  seed the local repository (Requires '--remote-hosts')
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
+      --ignore-deployment-state                  Ignores the current deployment state in the configuration file
+                                                 For example, will deploy to a host marked as offline
   -g, --disable-git-hook                         Disables the automatic deployment git
                                                  post-commit hook for the current repository
   -G, --enable-git-hook                          Enables the automatic deployment git
@@ -246,6 +250,7 @@ func main() {
 	flag.BoolVar(&seedRepoFiles, "s", false, "")
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
 	flag.BoolVar(&config.DisableSudo, "disable-privilege-escalation", false, "")
+	flag.BoolVar(&config.IgnoreDeploymentState, "ignore-deployment-state", false, "")
 	flag.BoolVar(&disableGitHook, "g", false, "")
 	flag.BoolVar(&disableGitHook, "disable-git-hook", false, "")
 	flag.BoolVar(&enableGitHook, "G", false, "")
@@ -270,7 +275,7 @@ func main() {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
 		fmt.Print("License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>\n")
-		fmt.Print("Direct Package Imports: runtime encoding/hex strings net/url golang.org/x/term strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 golang.org/x/crypto/ssh/knownhosts encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal github.com/bramvdbogaerde/go-scp context sort fmt time golang.org/x/crypto/argon2 golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 os/exec github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 golang.org/x/crypto/chacha20poly1305 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
+		fmt.Print("Direct Package Imports: runtime encoding/hex strings golang.org/x/term strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 golang.org/x/crypto/ssh/knownhosts encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal github.com/bramvdbogaerde/go-scp context sort fmt time golang.org/x/crypto/argon2 golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 os/exec github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 golang.org/x/crypto/chacha20poly1305 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
 		return
 	} else if versionRequested {
 		fmt.Println(progVersion)

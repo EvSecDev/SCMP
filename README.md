@@ -41,19 +41,16 @@ If you like what this program can do or want to expand functionality yourself, f
 - Create new files
 - Create new directories
 - Modify existing files content
-- Modify owner and group of files
-- Modify permissions of files
+- Modify owner and group of files or directories
+- Modify permissions of files or directories
 - Removing 'managed' files
 - Removing empty 'managed' directories
 - Run a linear series of commands to enable/reload/start services associated with files
 
 ### What it **can't** do: Remote Host Actions
 
-- Removing files not previously in repository
-- Removing directories not previously in repository
-- Changing owner and group of directories
-- Changing permissions of directories
-- Manage executables or shared objects
+- Removing files or directories not previously in repository
+- Manage binary files (executables or shared objects)
 - Deploy without existing commandlets on remote system (ls, rm, mv, ect.)
 
 ### What it **can** do: Local Actions
@@ -69,7 +66,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - Group hosts together to allow single universal configuration files to deploy to all or a subset of remote hosts
 - Concurrent SSH Connections to handle a large number of remote hosts (and option to limit/disable concurrency)
 - Key-based SSH authentication (by file or ssh-agent, per host or all hosts)
-- Password-based Sudo command escalation
+- Password-based Sudo command escalation (and non-sudo actions via explicit argument)
 - Create new repositories
 - Collect configurations from existing systems to bootstrap the local repository
 
@@ -119,6 +116,8 @@ Options:
                                                  seed the local repository (Requires '--remote-hosts')
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
+      --ignore-deployment-state                  Ignores the current deployment state in the configuration file
+                                                 For example, will deploy to a host marked as offline
   -g, --disable-git-hook                         Disables the automatic deployment git
                                                  post-commit hook for the current repository
   -G, --enable-git-hook                          Enables the automatic deployment git
@@ -283,6 +282,27 @@ UniversalGroups is a set of directories that will only apply to a subset of host
 The functionality is identical to the UniversalConfs directory, but will only apply to hosts that are apart of the group.
 You can specify the directory name and the hosts that should use the directory in the SSH config.
 
+### Directory Management
+
+The version control and deployment of directory and directory metadata is split in two. 
+The existence of a directory/directory structure will imply the creation of the same structure on the remote host.
+Removal of managed directories in the repository will only remove the remote directory if the remote directory is empty.
+
+Metadata of directories is handled through a special JSON file that lives directly under the directory it applies to.
+The file name is static and will always need to be `.directory_metadata_information.json`
+
+The JSON is the same as the metadata header in files with no reload section:
+```
+{
+  "FileOwnerGroup": "www-data:www-data",
+  "FilePermissions": 755
+}
+```
+
+This metadata file is not seeded and is manually created.
+This feature is not meant to be used everywhere. The default is the remote hosts default (usually `root:root` `rwxr-xr-x`).
+This metadata file should only be used where custom permissions are absolutely required.
+
 ### File transfers
 
 File transfers for this program are done using SCP and are limited to 90 seconds per file. 
@@ -424,7 +444,6 @@ _controller() {
 # Register completion for SCMP Controller
 complete -F _controller controller
 ```
-
 
 ### Commit Automatic Rollback
 

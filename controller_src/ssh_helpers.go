@@ -596,3 +596,58 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, disableSudo
 
 	return
 }
+
+func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuffer string, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) (out string, err error) {
+	// Upload script contents
+	err = SCPUpload(sshClient, scriptFileBytes, remoteTransferBuffer)
+	if err != nil {
+		return
+	}
+
+	// Move script into execution location
+	command := "mv " + remoteTransferBuffer + " " + remoteFilePath
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+	if err != nil {
+		return
+	}
+
+	// Hash remote script file
+	command = "sha256sum " + remoteFilePath
+	remoteScriptHash, err := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
+	if err != nil {
+		return
+	}
+	// Parse hash command output to get just the hex
+	remoteScriptHash = SHA256RegEx.FindString(remoteScriptHash)
+
+	printMessage(VerbosityFullData, "Remote Script Hash '%s'\n", remoteScriptHash)
+
+	// Ensure original hash is identical to remote hash
+	if remoteScriptHash != scriptHash {
+		err = fmt.Errorf("remote script hash does not match local hash, bailing on execution")
+		return
+	}
+
+	// Change permissions on remote file
+	command = "chmod 700 " + remoteFilePath
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+	if err != nil {
+		return
+	}
+
+	// Execute script
+	command = scriptInterpreter + " " + remoteFilePath
+	out, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 900)
+	if err != nil {
+		return
+	}
+
+	// Cleanup: Remove script
+	command = "rm " + remoteFilePath
+	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+	if err != nil {
+		return
+	}
+
+	return
+}

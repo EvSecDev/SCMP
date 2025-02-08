@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/base64"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -218,7 +219,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 	// Loop through target files and deploy (non-reload required configs)
 	for index, commitFilePath := range commitFilesNoReload {
-		printMessage(VerbosityData, "Host %s:   Starting deployment for config %s\n", endpointName, commitFilePath)
+		printMessage(VerbosityData, "Host %s:   Starting deployment for %s\n", endpointName, commitFilePath)
 
 		// Move index up one to differentiate between first array item and entire host failure - offset is tracked in record failure function
 		commitIndex := index + 1
@@ -241,6 +242,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 				// Only record errors where removal of the specific file failed
 				if strings.Contains(err.Error(), "failed to remove file") {
 					recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
+					continue
 				}
 
 				// Other errors (removing empty parent dirs) are not recorded
@@ -259,10 +261,35 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			err = createSymLink(sshClient, Password, targetFilePath, targetFileAction)
 			if err != nil {
 				recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
+				continue
 			}
 
 			// Done creating link (or recording error) - Next deployment file
 			postDeployedConfigsLocal++
+			continue
+		}
+
+		// Create/Modify directory if requested
+		if targetFileAction == "dirCreate" || targetFileAction == "dirModify" {
+			// Trim directory metadata file name from path
+			targetFilePath = filepath.Dir(targetFilePath)
+
+			printMessage(VerbosityData, "Host %s:   Checking directory %s\n", endpointName, targetFilePath)
+
+			// Check if dir needs to be created/modified, and do so if required
+			var DirModified bool
+			DirModified, err = modifyDirectory(sshClient, Password, targetFilePath, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
+			if err != nil {
+				recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
+				continue
+			}
+
+			// Only increment metrics for modifications
+			if DirModified {
+				printMessage(VerbosityData, "Host %s:   Modified Directory %s\n", endpointName, targetFilePath)
+				// Done modifying directory (or recording error) - Next deployment file
+				postDeployedConfigsLocal++
+			}
 			continue
 		}
 

@@ -3,7 +3,6 @@ package main
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -65,17 +64,13 @@ func executeCommand(hostInfo EndpointInfo, command string) {
 
 // Run a script on host(s)
 func runScript(scriptFile string, hosts string, remoteFilePath string) {
-	// Parse the URI
-	parsedURI, err := url.Parse(scriptFile)
-	logError("Invalid URI", err, false)
+	// Not adhering to actual URI standards -- I just want file paths
+	localScriptFilePath := strings.TrimPrefix(scriptFile, "file://")
 
-	// Refuse URIs with host part
-	if parsedURI.Host != "" {
-		logError("Unsupported URI", fmt.Errorf("cannot use two slashes (hostnames are not supported in this program)"), false)
-	}
+	// Check for ~/ and expand if required
+	localScriptFilePath = expandHomeDirectory(localScriptFilePath)
 
-	// Get path from URI
-	localScriptFilePath := parsedURI.Path
+	printMessage(VerbosityFullData, "File URI Path '%s'\n", localScriptFilePath)
 
 	// Retrieve the file contents
 	scriptFileBytes, err := os.ReadFile(localScriptFilePath)
@@ -101,6 +96,8 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 
 	// Hash local script contents
 	scriptHash := SHA256Sum(scriptFileStr)
+
+	printMessage(VerbosityFullData, "Local Script Hash '%s'\n", scriptHash)
 
 	printMessage(VerbosityStandard, "Executing script '%s'\n", localScriptFilePath)
 
@@ -146,9 +143,9 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 		// Upload and execute the script - disable concurrency if maxconns is 1
 		wg.Add(1)
 		if config.MaxSSHConcurrency > 1 {
-			go executeScript(&wg, semaphore, hostInfo, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+			go executeScriptOnHost(&wg, semaphore, hostInfo, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 		} else {
-			executeScript(&wg, semaphore, hostInfo, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+			executeScriptOnHost(&wg, semaphore, hostInfo, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 			if len(executionErrors) > 0 {
 				// Execution error occured, don't continue with other hosts
 				break
@@ -165,7 +162,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 }
 
 // Connect to a host, upload a script, execute script and print output
-func executeScript(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo EndpointInfo, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) {
+func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo EndpointInfo, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) {
 	// Signal routine is done after return
 	defer wg.Done()
 
@@ -182,51 +179,8 @@ func executeScript(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo Endpoin
 	}
 	defer client.Close()
 
-	// Upload script contents
-	err = SCPUpload(client, scriptFileBytes, hostInfo.RemoteTransferBuffer)
-	if err != nil {
-		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.EndpointName, err)
-		executionErrorsMutex.Unlock()
-	}
-
-	// Move script into execution location
-	command := "mv " + hostInfo.RemoteTransferBuffer + " " + remoteFilePath
-	_, err = RunSSHCommand(client, command, "root", config.DisableSudo, hostInfo.Password, 10)
-	if err != nil {
-		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.EndpointName, err)
-		executionErrorsMutex.Unlock()
-	}
-
-	// Hash remote script file
-	command = "sha256sum " + remoteFilePath
-	remoteScriptHash, err := RunSSHCommand(client, command, "root", config.DisableSudo, hostInfo.Password, 90)
-	if err != nil {
-		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.EndpointName, err)
-		executionErrorsMutex.Unlock()
-	}
-
-	// Ensure original hash is identical to remote hash
-	if remoteScriptHash != scriptHash {
-		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("  Host '%s': Remote script hash does not match local hash, bailing on execution\n", hostInfo.EndpointName)
-		executionErrorsMutex.Unlock()
-	}
-
-	// Change permissions on remote file
-	command = "chmod 700 " + remoteFilePath
-	_, err = RunSSHCommand(client, command, "root", config.DisableSudo, hostInfo.Password, 10)
-	if err != nil {
-		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.EndpointName, err)
-		executionErrorsMutex.Unlock()
-	}
-
-	// Execute script
-	command = scriptInterpreter + " " + remoteFilePath
-	scriptOutput, err := RunSSHCommand(client, command, "root", config.DisableSudo, hostInfo.Password, 900)
+	// Run the script remotely
+	scriptOutput, err := executeScript(client, hostInfo.Password, hostInfo.RemoteTransferBuffer, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 	if err != nil {
 		executionErrorsMutex.Lock()
 		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.EndpointName, err)
@@ -234,13 +188,4 @@ func executeScript(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo Endpoin
 	}
 
 	printMessage(VerbosityStandard, "  Host '%s':\n%s\n", hostInfo.EndpointName, scriptOutput)
-
-	// Cleanup: Remove script
-	command = "rm " + remoteFilePath
-	_, err = RunSSHCommand(client, command, "root", config.DisableSudo, hostInfo.Password, 10)
-	if err != nil {
-		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.EndpointName, err)
-		executionErrorsMutex.Unlock()
-	}
 }

@@ -470,3 +470,107 @@ func TestSeparateHostDirFromPath(t *testing.T) {
 		})
 	}
 }
+
+func TestPermissionsSymbolicToNumeric(t *testing.T) {
+	// Define test cases
+	tests := []struct {
+		input    string
+		expected int
+	}{
+		{"rwxr-xr-x", 755}, // Full permissions for owner, read and execute for others
+		{"rw-r--r--", 644}, // Read/write for owner, read-only for others
+		{"r--r--r--", 444}, // Read-only for everyone
+		{"rw-rw-rw-", 666}, // Read and write for everyone
+		{"rwx------", 700}, // Full permissions for owner only
+		{"------x", 1},     // Only execute permission for others
+	}
+
+	// Iterate over test cases
+	for _, test := range tests {
+		t.Run(test.input, func(t *testing.T) {
+			// Call the function
+			result := permissionsSymbolicToNumeric(test.input)
+
+			// Check if the result matches the expected value
+			if result != test.expected {
+				t.Errorf("For input %s, expected %d, but got %d", test.input, test.expected, result)
+			}
+		})
+	}
+}
+
+func TestExtractMetadataFromLS(t *testing.T) {
+	tests := []struct {
+		name          string
+		lsOutput      string
+		expectedType  string
+		expectedPerms string
+		expectedOwner string
+		expectedGroup string
+		expectedSize  int
+		expectedName  string
+		expectedErr   bool
+	}{
+		{
+			name:          "Valid input",
+			lsOutput:      "-rwxr-xr-x 1 user group 1234 Jan 1 12:34 filename",
+			expectedType:  "-",
+			expectedPerms: "rwxr-xr-x",
+			expectedOwner: "user",
+			expectedGroup: "group",
+			expectedSize:  1234,
+			expectedName:  "filename",
+			expectedErr:   false,
+		},
+		{
+			name:          "Incomplete input",
+			lsOutput:      "drwxr-xr-x",
+			expectedType:  "",
+			expectedPerms: "",
+			expectedOwner: "",
+			expectedGroup: "",
+			expectedSize:  0,
+			expectedName:  "",
+			expectedErr:   true,
+		},
+		{
+			name:          "Invalid size",
+			lsOutput:      "-rwxr-xr-x 1 user group invalid_size Jan 1 12:34 filename",
+			expectedType:  "-",
+			expectedPerms: "rwxr-xr-x",
+			expectedOwner: "user",
+			expectedGroup: "group",
+			expectedSize:  0,
+			expectedName:  "filename",
+			expectedErr:   true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			Type, Permissions, Owner, Group, Size, Name, err := extractMetadataFromLS(test.lsOutput)
+
+			if (err != nil) != test.expectedErr {
+				t.Errorf("extractMetadataFromLS() error = %v, wantErr %v", err, test.expectedErr)
+			}
+			if Type != test.expectedType {
+				t.Errorf("extractMetadataFromLS() Type = %v, want %v", Type, test.expectedType)
+			}
+			if Permissions != test.expectedPerms {
+				t.Errorf("extractMetadataFromLS() Permissions = %v, want %v", Permissions, test.expectedPerms)
+			}
+			if Owner != test.expectedOwner {
+				t.Errorf("extractMetadataFromLS() Owner = %v, want %v", Owner, test.expectedOwner)
+			}
+			if Group != test.expectedGroup {
+				t.Errorf("extractMetadataFromLS() Group = %v, want %v", Group, test.expectedGroup)
+			}
+			if Size != test.expectedSize {
+				t.Errorf("extractMetadataFromLS() Size = %v, want %v", Size, test.expectedSize)
+			}
+			if Name != test.expectedName {
+				t.Errorf("extractMetadataFromLS() Name = %v, want %v", Name, test.expectedName)
+			}
+		})
+	}
+}

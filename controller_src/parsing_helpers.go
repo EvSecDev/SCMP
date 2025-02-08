@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/go-git/go-git/v5/plumbing/format/diff"
@@ -441,5 +442,59 @@ func separateHostDirFromPath(localRepoPath string) (hostDir string, targetFilePa
 
 	// Add leading slash to path
 	targetFilePath = "/" + targetFilePath
+	return
+}
+
+// Converts symbolic linux permission to numeric representation
+// Like rwxr-x-rx -> 755
+func permissionsSymbolicToNumeric(permissions string) (perm int) {
+	var bits string
+	// Loop permission fields
+	for _, field := range []string{permissions[:3], permissions[3:6], permissions[6:]} {
+		bit := 0
+		// Read
+		if strings.Contains(field, "r") {
+			bit += 4
+		}
+		// Write
+		if strings.Contains(field, "w") {
+			bit += 2
+		}
+		// Execute
+		if strings.Contains(field, "x") {
+			bit += 1
+		}
+		// Convert sum'd bits to string to concat with other loop iterations
+		bits = bits + strconv.Itoa(bit)
+	}
+
+	// Convert back to integer (ignore error, we control all input values)
+	perm, _ = strconv.Atoi(bits)
+	return
+}
+
+// Extracts all file information from ls -lA
+// Permissions(as 755), Ownership, type, size, name
+func extractMetadataFromLS(lsOutput string) (Type string, Permissions string, Owner string, Group string, Size int, Name string, err error) {
+	// Split ls output into fields for this file
+	fileInfo := strings.Fields(lsOutput)
+
+	// Skip misc ls output
+	if len(fileInfo) < 9 {
+		err = fmt.Errorf("ls output not complete, not parsing")
+		return
+	}
+
+	// Retrieve
+	Type = string(fileInfo[0][0])
+	Permissions = string(fileInfo[0][1:])
+	Owner = string(fileInfo[2])
+	Group = string(fileInfo[3])
+	Size, err = strconv.Atoi(fileInfo[4])
+	if err != nil {
+		err = fmt.Errorf("failed to parse size field")
+		Size = 0
+	}
+	Name = fileInfo[8]
 	return
 }

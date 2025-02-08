@@ -194,43 +194,34 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 
 		// Extract information from the ls output
 		for _, file := range directoryListFiles {
-			// Split ls output into fields for this file
-			fileInfo := strings.Fields(file)
-
-			// Skip misc ls output
-			if len(fileInfo) < 9 {
+			// Retrieve File metadata
+			fileType, permissions, fileOwner, fileGroup, _, fileName, errLocal := extractMetadataFromLS(file)
+			if errLocal != nil {
+				// Only error for this function is incomplete ls, which we skip
 				continue
 			}
 
 			// Determine column spacing from longest file name
-			if length := len(fileInfo[8]); length > maxLength {
+			if length := len(fileName); length > maxLength {
 				maxLength = length
 			}
 
-			// Split out permissions and check for directory or regular file
-			fileType := string(fileInfo[0][0])
-
 			// Add file names to their own index - for selection reference
-			dirList = append(dirList, fileInfo[8])
+			dirList = append(dirList, fileName)
 
 			// Identify if file is directory
 			if fileType == "d" {
 				// Skip further processing of directories
-				isDir[fileInfo[8]] = true
+				isDir[fileName] = true
 				continue
 			} else if fileType == "-" {
-				isDir[fileInfo[8]] = false
+				isDir[fileName] = false
 			}
 
-			// Filtering file metadata
-			permissions := string(fileInfo[0][1:])
-			fileOwner := string(fileInfo[2])
-			fileGroup := string(fileInfo[3])
-
 			// Add file info to map
-			filesInfo[fileInfo[8]] = append(filesInfo[fileInfo[8]], permissions)
-			filesInfo[fileInfo[8]] = append(filesInfo[fileInfo[8]], fileOwner)
-			filesInfo[fileInfo[8]] = append(filesInfo[fileInfo[8]], fileGroup)
+			filesInfo[fileName] = append(filesInfo[fileName], permissions)
+			filesInfo[fileName] = append(filesInfo[fileName], fileOwner)
+			filesInfo[fileName] = append(filesInfo[fileName], fileGroup)
 		}
 
 		// Use the length of dir list after filtering
@@ -519,33 +510,5 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		return
 	}
 
-	return
-}
-
-// Converts symbolic linux permission to numeric representation
-// Like rwxr-x-rx -> 755
-func permissionsSymbolicToNumeric(permissions string) (perm int) {
-	var bits string
-	// Loop permission fields
-	for _, field := range []string{permissions[:3], permissions[3:6], permissions[6:]} {
-		bit := 0
-		// Read
-		if strings.Contains(field, "r") {
-			bit += 4
-		}
-		// Write
-		if strings.Contains(field, "w") {
-			bit += 2
-		}
-		// Execute
-		if strings.Contains(field, "x") {
-			bit += 1
-		}
-		// Convert sum'd bits to string to concat with other loop iterations
-		bits = bits + strconv.Itoa(bit)
-	}
-
-	// Convert back to integer (ignore error, we control all input values)
-	perm, _ = strconv.Atoi(bits)
 	return
 }
