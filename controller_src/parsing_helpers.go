@@ -286,6 +286,7 @@ func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string
 	skipFile := checkForOverride(fileOverride, path)
 	if skipFile {
 		printMessage(VerbosityFullData, "  File not desired\n")
+		SkipFile = true
 		return
 	}
 
@@ -297,6 +298,7 @@ func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string
 	// Ensure file is valid against config
 	if repoFileIsValid(path) {
 		// Not valid, skip
+		SkipFile = true
 		return
 	}
 

@@ -181,8 +181,8 @@ func createNewRepository(newRepoInfo string) {
 	// Create initial commit
 	_, err = worktree.Commit("Initial commit", &git.CommitOptions{
 		Author: &object.Signature{
-			Name:  "SCMPController",
-			Email: "scmpc@localhost",
+			Name:  autoCommitUserName,
+			Email: autoCommitUserEmail,
 		},
 	})
 	logError("Failed to create first commit", err, false)
@@ -337,7 +337,7 @@ profile SCMController @{exelocation} flags=(enforce) {
 
   ## Repository access
   # allow read/write for files in repository (write is needed for seeding operations)
-  @{repolocation}/** rw,
+  @{repolocation}/{,**} rw,
   # allow locking in git's directory (for commit rollback on early error)
   @{repolocation}/.git/** k,
 }

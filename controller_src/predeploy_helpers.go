@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -41,6 +42,87 @@ func localSystemChecks() (err error) {
 	}
 	if noActiveNetInterface {
 		err = fmt.Errorf("no active network interfaces found, will not attempt network connections")
+		return
+	}
+
+	return
+}
+
+// Commit changes in git repository
+func commitChanges() (err error) {
+	// If automatic commit is not desired, return early
+	if !config.AutoCommit {
+		return
+	}
+
+	// Check if working tree is clean
+	repo, err := git.PlainOpen(config.RepositoryPath)
+	if err != nil {
+		return
+	}
+
+	// Get working tree
+	worktree, err := repo.Worktree()
+	if err != nil {
+		return
+	}
+
+	// Check current status
+	status, err := worktree.Status()
+	if err != nil {
+		return
+	}
+
+	// If repository changes are all committed, return early
+	if status.IsClean() {
+		return
+	}
+
+	// Add all files to worktree
+	err = worktree.AddGlob(".")
+	if err != nil {
+		return
+	}
+
+	// Prompt user for commit message
+	printMessage(VerbosityStandard, "Automatic Commit Requested. All unstaged files will be committed.\n")
+	printMessage(VerbosityStandard, "  If a changelog file is desired, use 'file://' to specify the path.\n")
+	scanner := bufio.NewScanner(os.Stdin)
+	printMessage(VerbosityStandard, "Commit Message: ")
+	scanner.Scan()
+	commitMessage := scanner.Text()
+	err = scanner.Err()
+	if err != nil {
+		return
+	}
+
+	// Retrieve commit message from user supplied file
+	if strings.HasPrefix(commitMessage, "file://") {
+		// Not adhering to actual URI standards -- I just want file paths
+		pathToCommitMessage := strings.TrimPrefix(commitMessage, "file://")
+
+		// Check for ~/ and expand if required
+		pathToCommitMessage = expandHomeDirectory(pathToCommitMessage)
+
+		// Retrieve the file contents
+		var fileBytes []byte
+		fileBytes, err = os.ReadFile(pathToCommitMessage)
+		if err != nil {
+			return
+		}
+
+		// Convert file to string
+		commitMessage = string(fileBytes)
+	}
+
+	// Commit changes
+	_, err = worktree.Commit(commitMessage, &git.CommitOptions{
+		Author: &object.Signature{
+			Name:  autoCommitUserName,
+			Email: autoCommitUserEmail,
+		},
+	})
+	if err != nil {
 		return
 	}
 

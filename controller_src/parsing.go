@@ -62,6 +62,7 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 
 		// Skip if not valid - only check tofile (valid deployment with tofile could include invalid fromfile)
 		if SkipToFile {
+			printMessage(VerbosityFullData, "  Skipping Invalid File '%s'\n", toPath)
 			continue
 		}
 
@@ -146,7 +147,7 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 				printMessage(VerbosityFullData, "  Dir Metadata '%s' is modified in place and will modify target directory\n", toPath)
 				commitFiles[toPath] = "dirModify"
 			} else {
-				printMessage(VerbosityFullData, "  File '%s' is modified in place and to be created\n", fromPath)
+				printMessage(VerbosityFullData, "  File '%s' is modified in place and to be created\n", toPath)
 				// Editted in place
 				//   like `nano etc/file.txt`
 				commitFiles[toPath] = "create"

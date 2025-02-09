@@ -114,6 +114,8 @@ Options:
                                                  with the given initial branch name
   -s, --seed-repo                                Retrieve existing files from remote hosts to
                                                  seed the local repository (Requires '--remote-hosts')
+      --commit-unstaged-changes                  Automatically commit any unstaged changes to the repository
+                                                 Only applies to '--deploy-changes' argument (dry-run will not work)
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file

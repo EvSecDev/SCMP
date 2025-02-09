@@ -24,6 +24,12 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		logError("Failed to extract commitID/failures from failtracker file", err, false)
 	}
 
+	// Ensure repository has all changes committed if desired
+	if deployMode == "deployChanges" {
+		err = commitChanges()
+		logError("Error committing repository changes", err, true)
+	}
+
 	// Open repo and get details - using HEAD commit if commitID is empty
 	// Pass by reference to ensure commitID can be used later if user did not specify one
 	tree, commit, err := getCommit(&commitID)
