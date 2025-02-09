@@ -67,7 +67,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 	}
 
 	// Connect to the SSH server
-	sshClient, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
+	sshClient, err := connectToSSH(endpointInfo.Endpoint, endpointInfo.EndpointUser, endpointInfo.Password, endpointInfo.PrivateKey, endpointInfo.KeyAlgo)
 	if err != nil {
 		recordDeploymentFailure(endpointName, commitFilePaths, 0, fmt.Errorf("failed connect to SSH server %v", err))
 		return

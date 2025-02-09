@@ -189,12 +189,13 @@ func ParseEndpointAddress(endpointIP string, Port string) (endpointSocket string
 
 // Handle building client config and connection to remote host
 // Attempts to automatically recover from some errors like no route to host by waiting a bit
-func connectToSSH(endpointSocket string, endpointUser string, PrivateKey ssh.Signer, keyAlgorithm string) (client *ssh.Client, err error) {
+func connectToSSH(endpointSocket string, endpointUser string, LoginPassword string, PrivateKey ssh.Signer, keyAlgorithm string) (client *ssh.Client, err error) {
 	// Setup config for client
 	SSHconfig := &ssh.ClientConfig{
 		User: endpointUser,
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(PrivateKey),
+			ssh.Password(LoginPassword),
 		},
 		// Some IPS rules flag on GO's ssh client string
 		ClientVersion: "SSH-2.0-OpenSSH_9.8p1",

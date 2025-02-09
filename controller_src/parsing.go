@@ -82,12 +82,7 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 			printMessage(VerbosityFullData, "  File '%s' is to be deleted\n", fromPath)
 			// Deleted Files
 			//   like `rm etc/file.txt`
-			var userResponse string
-			userResponse, err = promptUser("Press 'y' to confirm deletion of file '%s': ", fromPath)
-			if err != nil {
-				return
-			}
-			if userResponse == "y" {
+			if config.AllowRemoteDeletions {
 				commitFiles[fromPath] = "delete"
 			} else {
 				printMessage(VerbosityProgress, "  Skipping deletion of file '%s'\n", fromPath)
@@ -114,19 +109,14 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 
 				// Only prompt for file moves outside of current host
 				if topLevelDirFrom != topLevelDirTo {
-					// Confirm user wants from file deleted
-					var userResponse string
-					userResponse, err = promptUser("Press 'y' to confirm deletion of file '%s': ", fromPath)
-					if err != nil {
-						return
-					} else if userResponse == "y" {
+					if config.AllowRemoteDeletions {
 						// Mark for deletion if no longer present in repo
 						commitFiles[fromPath] = "delete"
 						printMessage(VerbosityFullData, "  File '%s' is to be deleted\n", fromPath)
 					} else {
 						printMessage(VerbosityProgress, "  Skipping deletion of file '%s'\n", fromPath)
 					}
-				} else {
+				} else if config.AllowRemoteDeletions {
 					commitFiles[fromPath] = "delete"
 					printMessage(VerbosityFullData, "  File '%s' is to be deleted\n", fromPath)
 				}

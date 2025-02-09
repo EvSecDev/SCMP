@@ -2,7 +2,7 @@
 
 ## Description
 
-A secure and automated configuration management terminal-based tool backed by git to centrally control and push configuration files to Linux servers through SSH.
+A secure and automated configuration management terminal-based tool backed by git to centrally control and push configuration files to Unix servers through SSH.
 
 This program is designed to assist and automate a Linux administrators job functions by centrally allowing them to edit, version control, and deploy changes to configuration files of remote Linux systems.
 This program is NOT intended as a configuration management system (like Terraform), but rather a CLI tool to replace the manual process of SSH'ing into many remote servers to manage configuration files.
@@ -26,7 +26,7 @@ Using the Go x/crypto/ssh package, this program will SSH into the hosts defined 
 Although this program does need permissions on remote systems for writing system-wide configuration files and potentially restarting services, it does NOT need to SSH as root.
 In general, it is recommended to use some or all of these below security precautions.
   - Sudo access that requires a password.
-  - Only allowing your user sudo access for ls, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum, and your reload commands.
+  - Only allowing your user sudo access for the standard commands (listed below in dependencies section) and your reload commands.
   - Using network level host IP authentication (such as IPsec AH)
   - Using the supplied apparmor profile for the controller.
   - Regular encrypted backups of git repository
@@ -36,47 +36,55 @@ If you like what this program can do or want to expand functionality yourself, f
 
 ## Capabilities Overview
 
-### What it **can** do: Remote Host Actions
+### What it can do:
 
-- Create new files
-- Create new directories
-- Modify existing files content
-- Modify owner and group of files or directories
-- Modify permissions of files or directories
-- Removing 'managed' files
-- Removing empty 'managed' directories
-- Run a linear series of commands to enable/reload/start services associated with files
+- Deployments
+  - Deploy changed configurations automatically via git post-commit hook or manually via specifying a commit hash
+  - Deploy all (or a subset of) tracked files
+  - Deploy individual/lists of files to individual/lists of hosts
+  - Deployment test run using single host (use `--max-conns 1 -r HOST`)
+  - Run a linear series of commands to enable/reload/start services associated with files
+  - Easy retry of deployment failures with a single argument
+  - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
+- File/Directory Management
+  - Create/modify files/file content and directories
+  - Modify permissions, owner, and group of files and directories
+  - Removing 'managed' files and directories
+  - Group files together to apply to multiple hosts
+  - Options to ignore specific directories in the repository
+- Host Management
+  - Use standard SSH client config to management endpoints
+  - Ability to mark individual hosts as offline to prevent deployments to that host
+  - Apply file groups to distribute single file version to all or a subset of all hosts
+- SSH
+  - Password-based login
+  - Key-based authentication (by file or ssh-agent, per host or all hosts)
+  - Concurrent connections (and option to limit/disable concurrency)
+  - Password-based Sudo command escalation (and non-sudo actions via explicit argument)
+  - Encrypted credential caching for login/sudo passwords
+- Controller Functionality
+  - Create new repositories
+  - Collect configurations from existing systems to bootstrap the local repository
+  - Use file input to any of the host/file arguments using a file URI scheme (like `file:///absolute/path/file`, `file://relative/path/file`)
 
-### What it **can't** do: Remote Host Actions
+### What it can NOT do:
 
-- Removing files or directories not previously in repository
-- Manage binary files (executables or shared objects)
-- Deploy without existing commandlets on remote system (ls, rm, mv, ect.)
+- File/Directory Management
+  - Handle some special files (device, pipes, sockets, ect.)
+  - Removing files or directories not previously in repository
+  - Manage binary files (executables or shared objects)
+- SSH
+  - 2FA (TOTP) logins
+  - Use Control Sockets
+  - Use any form of client forwarding (tunnels, x11, agents)
 
-### What it **can** do: Local Actions
+### Dependencies:
 
-- Deploy automatically via git post-commit hook
-- Deploy manually via specifying commit hash
-- Easy recovery from partial deployment failures
-- Deployment test run using single host (use `--max-conns 1 -r HOST`)
-- One-time manual deployment to specific hosts and/or specific files
-- Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
-- Deploy all (or a subset of) relevant files (even unchanged) to a newly created remote host
-- Use file input to any of the host/file arguments using a file URI scheme (like `file:///absolute/path/file`, `file://relative/path/file`)
-- Group hosts together to allow single universal configuration files to deploy to all or a subset of remote hosts
-- Concurrent SSH Connections to handle a large number of remote hosts (and option to limit/disable concurrency)
-- Key-based SSH authentication (by file or ssh-agent, per host or all hosts)
-- Password-based Sudo command escalation (and non-sudo actions via explicit argument)
-- Create new repositories
-- Collect configurations from existing systems to bootstrap the local repository
-
-### What it **can't** do: Local Actions
-
-- SSH Password logins
-- SSH 2FA (TOTP) logins
-- Use SSH Control Sockets
-- Use any form of client forwarding (tunnels, x11, agents)
-- Handle some special files (device, pipes, sockets, ect.)
+- Remote Host Requirements:
+  - OpenSSH Server
+  - Commands: `ls, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum`
+- Local Host Requirements:
+  - Unix file paths
 
 ### Controller Help Menu
 
@@ -114,8 +122,10 @@ Options:
                                                  with the given initial branch name
   -s, --seed-repo                                Retrieve existing files from remote hosts to
                                                  seed the local repository (Requires '--remote-hosts')
-      --commit-unstaged-changes                  Automatically commit any unstaged changes to the repository
+      --commit-changes                           Automatically commit any unstaged changes to the repository
                                                  Only applies to '--deploy-changes' argument (dry-run will not work)
+      --allow-remote-deletions                   Allows deletions in local repository to propagate to remote hosts
+                                                 Only applies to '--deploy-changes'
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file
@@ -135,20 +145,6 @@ Options:
 Report bugs to: dev@evsec.net
 SCMP home page: <https://github.com/EvSecDev/SCMP>
 General help using GNU software: <https://www.gnu.org/gethelp/>
-```
-
-Usage Examples:
-```
-Examples:
-  controller --config <~/.ssh/config> --deploy-changes [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>] 
-  controller --config <~/.ssh/config> --deploy-changes [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-  controller --config <~/.ssh/config> --deploy-all [--remote-hosts <www,proxy,db01>] [--commitid <14a4187d22d2eb38b3ed8c292a180b805467f1f7>]
-  controller --config <~/.ssh/config> --deploy-all [--remote-hosts file:///file/containing/hostnames] [--local-files file:///file/containing/file/paths]
-  controller --config <~/.ssh/config> --deploy-failures  [--remote-hosts <www,proxy,db01>] [--local-files <www/etc/hosts,proxy/etc/fstab>]
-  controller --config <~/.ssh/config> --execute "tail -n15 /var/log/nginx/error.log" -r <www,proxy,db01>
-  controller --config <~/.ssh/config> --execute file:///home/admin/scripts/setup_new_host.sh -r <www,proxy,db01>
-  controller --config <~/.ssh/config> --seed-repo [--remote-hosts <www,proxy,db01>] [--remote-files file:///absolute/path/to/textfile]
-  controller --new-repo /opt/repo1:main
 ```
 
 ## Setup and Configuration
@@ -262,9 +258,6 @@ The structure of the local repository is supposed to be a replica of the remote 
     -> home
       -> user
         -> .bashrc
-  -> Host3
-    -> root
-      -> .bashrc
 -----------------------------
 ```
 

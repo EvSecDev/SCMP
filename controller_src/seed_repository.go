@@ -79,7 +79,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 
 		// Connect to the SSH server
-		client, err := connectToSSH(hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.PrivateKey, hostInfo.KeyAlgo)
+		client, err := connectToSSH(hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
 		logError("Failed connect to SSH server", err, false)
 		defer client.Close()
 

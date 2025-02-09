@@ -35,6 +35,7 @@ type Config struct {
 	MaxSSHConcurrency     int                     // Maximum threads for ssh sessions
 	DisableSudo           bool                    // Disable using sudo for remote commands
 	AutoCommit            bool                    // When running with deploy-changes automatically commit any unstaged changes
+	AllowRemoteDeletions  bool                    // Allow deletions in local repo to delete files on remote hosts
 	IgnoreDeploymentState bool                    // Ignore any deployment state for a host in the config
 	UserHomeDirectory     string                  // Absolute path to users home directory (to expand '~/' in paths)
 	VaultFilePath         string                  // Path to password vault file
@@ -141,7 +142,7 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v3.6.1"
+const progVersion string = "v3.6.2"
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
@@ -177,6 +178,8 @@ Options:
                                                  seed the local repository (Requires '--remote-hosts')
       --commit-changes                           Automatically commit any unstaged changes to the repository
                                                  Only applies to '--deploy-changes' argument (dry-run will not work)
+      --allow-remote-deletions                   Allows deletions in local repository to propagate to remote hosts
+                                                 Only applies to '--deploy-changes'
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file
@@ -255,6 +258,7 @@ func main() {
 	flag.BoolVar(&seedRepoFiles, "s", false, "")
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
 	flag.BoolVar(&config.AutoCommit, "commit-changes", false, "")
+	flag.BoolVar(&config.AllowRemoteDeletions, "allow-remote-deletions", false, "")
 	flag.BoolVar(&config.DisableSudo, "disable-privilege-escalation", false, "")
 	flag.BoolVar(&config.IgnoreDeploymentState, "ignore-deployment-state", false, "")
 	flag.BoolVar(&disableGitHook, "g", false, "")
