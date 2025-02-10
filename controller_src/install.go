@@ -155,9 +155,12 @@ func createNewRepository(newRepoInfo string) {
 		metadataHeader.TargetFileOwnerGroup = "root:root"
 		metadataHeader.TargetFilePermissions = 640
 
-		// Add reloads or dont depending on example file name
+		// Add reloads/checks or dont depending on example file name
 		if !strings.Contains(exampleFile, "noreload") {
-			metadataHeader.ReloadCommands = []string{"systemctl restart rsyslog.service", "systemctl is-active rsyslog"}
+			metadataHeader.ReloadCommands = []string{"ls /var/log/custom.log", "ping -W2 -c1 syslog.example.com >/dev/null"}
+		}
+		if !strings.Contains(exampleFile, "noreload") {
+			metadataHeader.CheckCommands = []string{"systemctl restart rsyslog.service", "systemctl is-active rsyslog"}
 		}
 
 		// Create example metadata header files

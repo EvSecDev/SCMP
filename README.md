@@ -43,6 +43,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Deploy all (or a subset of) tracked files
   - Deploy individual/lists of files to individual/lists of hosts
   - Deployment test run using single host (use `--max-conns 1 -r HOST`)
+  - Run a linear series of commands prior to any deployment actions
   - Run a linear series of commands to enable/reload/start services associated with files
   - Easy retry of deployment failures with a single argument
   - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
@@ -303,11 +304,18 @@ This metadata file should only be used where custom permissions are absolutely r
 File transfers for this program are done using SCP and are limited to 90 seconds per file. 
 Something to keep in mind, your end to end bandwidth for a deployment will determine how large of a file can be transferred in that time.
 
-### Reload commands
+### Check/Reload commands
 
 It is recommended to use some sort of pre-check/validation/test option for your first reload command for a particular config file.
 Something like `nginx -t` or `nft -f /etc/nftables.conf -c` ensures that the syntax of the file you are pushing is valid before enabling the new config.
 This also ensures that if the actual reload command (like `systemctl restart`) fails, that the system is left running the previously known-good config.
+
+These reload commands will be grouped when identical between several files in the deployment.
+This ensures that if you change multiple files that all require the same systemd service to be restarted, that the service is only restarted once.
+
+If you want to run any commands prior to the new configuration being written, use the `Checks` JSON array in the metadata header.
+Check commands that fail for a group of files sharing the same reload commands will cause the reloads to NOT run (although all files which have checks that do not fail will be written to remote host)
+Check commands are not grouped together and will run multiple times even if identical between multiple files.
 
 ### BASH Auto-Completion
 

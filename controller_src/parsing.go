@@ -489,6 +489,14 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 			// Reload commands are not present, set to false
 			info.ReloadRequired = false
 		}
+		info.Checks = jsonMetadata.CheckCommands
+		if len(info.Checks) > 0 {
+			// Check commands are present, set bool to true
+			info.ChecksRequired = true
+		} else {
+			// Check commands are not present, set to false
+			info.ChecksRequired = false
+		}
 		info.Hash = contentHash
 		info.Data = configContent
 		info.Action = commitFileAction
@@ -500,6 +508,10 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 		printMessage(VerbosityFullData, "      Owner and Group: %s\n", info.FileOwnerGroup)
 		printMessage(VerbosityFullData, "      Permissions:     %d\n", info.FilePermissions)
 		printMessage(VerbosityFullData, "      Content Hash:    %s\n", info.Hash)
+		printMessage(VerbosityFullData, "      Checks Required? %t\n", info.ChecksRequired)
+		if info.ChecksRequired {
+			printMessage(VerbosityFullData, "      Check Commands   %s\n", info.Checks)
+		}
 		printMessage(VerbosityFullData, "      Reload Required? %t\n", info.ReloadRequired)
 		if info.ReloadRequired {
 			printMessage(VerbosityFullData, "      Reload Comamnds  %s\n", info.Reload)

@@ -69,6 +69,7 @@ type Credential struct {
 type MetaHeader struct {
 	TargetFileOwnerGroup  string   `json:"FileOwnerGroup"`
 	TargetFilePermissions int      `json:"FilePermissions"`
+	CheckCommands         []string `json:"Checks,omitempty"`
 	ReloadCommands        []string `json:"Reload,omitempty"`
 }
 
@@ -81,6 +82,8 @@ type CommitFileInfo struct {
 	Action          string
 	FileOwnerGroup  string
 	FilePermissions int
+	ChecksRequired  bool
+	Checks          []string
 	ReloadRequired  bool
 	Reload          []string
 }

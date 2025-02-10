@@ -42,7 +42,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 	var commitFilesNoReload []string
 	for _, commitFilePath := range commitFilePaths {
 		// New files with reload commands
-		if commitFileInfo[commitFilePath].ReloadRequired && len(commitFileInfo[commitFilePath].Reload) > 0 {
+		if commitFileInfo[commitFilePath].ReloadRequired {
 			// Create an ID based on the command array to uniquely identify the group that files will belong to
 			// The data represented in cmdArrayID does not matter and it is not used outside this loop, it only needs to be unique
 			reloadCommands := fmt.Sprintf("%v", commitFileInfo[commitFilePath].Reload)
@@ -119,6 +119,29 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			// Reminder:
 			// targetFilePath   should be the file path as expected on the remote system
 			// commitFilePath   should be the local file path within the commit repository - is REQUIRED to reference keys in the big config information maps (commitFileData, commitFileActions, ect.)
+
+			// Run Check commands before beginning deployment of this file
+			if commitFileInfo[commitFilePath].ChecksRequired {
+				var CheckFailed bool
+				for _, command := range commitFileInfo[commitFilePath].Checks {
+					printMessage(VerbosityData, "Host %s:   Running check command '%s'\n", endpointName, command)
+
+					_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, Password, 90)
+					if err != nil {
+						// Record this failed command - first failure always stops file deployment
+						recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during check command %s: %v", command, err))
+						CheckFailed = true
+						break
+					}
+				}
+
+				// Skip to next file if check failed
+				if CheckFailed {
+					// Failures in checks for any single file in a reload group means reloads should not occur
+					dontRunReloads = true
+					continue
+				}
+			}
 
 			printMessage(VerbosityData, "Host %s:   Backing up config %s\n", endpointName, targetFilePath)
 
@@ -232,6 +255,27 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 		// What to do - Create/Delete/symlink the config
 		targetFileAction := commitFileInfo[commitFilePath].Action
+
+		// Run Check commands before beginning deployment of this file
+		if commitFileInfo[commitFilePath].ChecksRequired {
+			var CheckFailed bool
+			for _, command := range commitFileInfo[commitFilePath].Checks {
+				printMessage(VerbosityData, "Host %s:   Running check command '%s'\n", endpointName, command)
+
+				_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, Password, 90)
+				if err != nil {
+					// Record this failed command - first failure always stops file deployment
+					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during check command %s: %v", command, err))
+					CheckFailed = true
+					break
+				}
+			}
+
+			// Skip to next file if check failed
+			if CheckFailed {
+				continue
+			}
+		}
 
 		// Delete file on remote if deleted in repo
 		if targetFileAction == "delete" {
