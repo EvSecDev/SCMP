@@ -22,6 +22,7 @@ function usage {
 
 Options:
   -b          Build the program using defaults
+  -r          Replace binary in path with updated one
   -a <arch>   Architecture of compiled binary (amd64, arm64) [default: amd64]
   -o <os>     Which operating system to build for (linux, windows) [default: linux]
   -f          Build nicely named binary
@@ -142,6 +143,9 @@ function controller_binary {
 	# function args
 	buildFull=$3
 
+	# Move built binary to path location
+	replaceDeployedExe=$4
+
 	# Always ensure we start in the root of the repository
 	cd $repoRoot/
 
@@ -181,6 +185,11 @@ function controller_binary {
 		# Rename with version
 		mv $outputEXE $controllerEXE
 		sha256sum $controllerEXE > "$controllerEXE".sha256
+	elif [[ $replaceDeployedExe == true ]]
+	then
+		# Replace existing binary with new one
+		deployedBinaryPath=$(which $outputEXE)
+		mv $outputEXE $deployedBinaryPath
 	fi
 }
 
@@ -304,9 +313,10 @@ function generate_github_release {
 buildfull='false'
 architecture="amd64"
 os="linux"
+replaceDeployedExe='false'
 
 # Argument parsing
-while getopts 'a:o:fbnugh' opt
+while getopts 'a:o:fbnugrh' opt
 do
 	case "$opt" in
 	  'a')
@@ -315,6 +325,9 @@ do
 	  'b')
 	    buildmode='true'
 	    ;;
+          'r')
+            replaceDeployedExe='true'
+            ;;
 	  'f')
 	    buildfull='true'
 	    ;;
@@ -343,7 +356,7 @@ then
 	exit 0
 elif [[ $buildmode == true ]]
 then
-	controller_binary "$architecture" "$os" "$buildfull"
+	controller_binary "$architecture" "$os" "$buildfull" "$replaceDeployedExe"
 	echo "Complete: controller binary built"
 else
 	echo "unknown, bye"

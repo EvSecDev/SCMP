@@ -35,7 +35,7 @@ type Config struct {
 	MaxSSHConcurrency     int                     // Maximum threads for ssh sessions
 	DisableSudo           bool                    // Disable using sudo for remote commands
 	AutoCommit            bool                    // When running with deploy-changes automatically commit any unstaged changes
-	AllowRemoteDeletions  bool                    // Allow deletions in local repo to delete files on remote hosts
+	AllowDeletions        bool                    // Allow deletions in local repo to delete files on remote hosts or vault entries
 	IgnoreDeploymentState bool                    // Ignore any deployment state for a host in the config
 	UserHomeDirectory     string                  // Absolute path to users home directory (to expand '~/' in paths)
 	VaultFilePath         string                  // Path to password vault file
@@ -109,6 +109,7 @@ var dryRunRequested bool       // for printing relevant information and bailing 
 //	2 - Progress: more progress messages (no actual data outputted)
 //	3 - Data: shows limited data being processed
 //	4 - FullData: shows full data being processed
+//	5 - Debug: shows extra data during processing (raw bytes)
 var globalVerbosityLevel int
 
 // Descriptive Names for available verbosity levels
@@ -121,10 +122,12 @@ const (
 	VerbosityDebug
 )
 
+// Program Constants
 const defaultConfigPath string = "~/.ssh/config"
 const directoryMetadataFileName string = ".directory_metadata_information.json"
 const autoCommitUserName string = "SCMPController"
 const autoCommitUserEmail string = "scmpc@localhost"
+const environmentUnknownSSHHostKey string = "UnknownSSHHostKeyAction"
 
 // #### Written to in other functions - use mutex
 
@@ -145,7 +148,7 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v3.6.2"
+const progVersion string = "v3.6.3"
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
@@ -181,8 +184,8 @@ Options:
                                                  seed the local repository (Requires '--remote-hosts')
       --commit-changes                           Automatically commit any unstaged changes to the repository
                                                  Only applies to '--deploy-changes' argument (dry-run will not work)
-      --allow-remote-deletions                   Allows deletions in local repository to propagate to remote hosts
-                                                 Only applies to '--deploy-changes'
+      --allow-deletions                          Allows deletions (remote files or vault entires)
+                                                 Only applies to '--deploy-changes' or '--modify-vault-password'
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file
@@ -261,7 +264,7 @@ func main() {
 	flag.BoolVar(&seedRepoFiles, "s", false, "")
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
 	flag.BoolVar(&config.AutoCommit, "commit-changes", false, "")
-	flag.BoolVar(&config.AllowRemoteDeletions, "allow-remote-deletions", false, "")
+	flag.BoolVar(&config.AllowDeletions, "allow-deletions", false, "")
 	flag.BoolVar(&config.DisableSudo, "disable-privilege-escalation", false, "")
 	flag.BoolVar(&config.IgnoreDeploymentState, "ignore-deployment-state", false, "")
 	flag.BoolVar(&disableGitHook, "g", false, "")

@@ -321,11 +321,21 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 		return
 	}
 
+	// If env var is set, use as prompt answer
+	envaddToKnownHosts := os.Getenv(environmentUnknownSSHHostKey)
+
 	// Key was not found in known_hosts - Prompt user
 	fmt.Printf("Host %s not in known_hosts. Key: %s %s\n", cleanHost, pubKeyType, remotePubKey)
-	addToKnownHosts, err := promptUser("Do you want to add this key to known_hosts? [y/N/all/skip]: ")
-	if err != nil {
-		return
+	var addToKnownHosts string
+	if envaddToKnownHosts != "" {
+		// Put environment answer into answer var - also show answered prompt
+		addToKnownHosts = envaddToKnownHosts
+		printMessage(VerbosityStandard, "Do you want to add this key to known_hosts? [y/N/all/skip]: %s\n", addToKnownHosts)
+	} else {
+		addToKnownHosts, err = promptUser("Do you want to add this key to known_hosts? [y/N/all/skip]: ")
+		if err != nil {
+			return
+		}
 	}
 	addToKnownHosts = strings.TrimSpace(addToKnownHosts)
 	addToKnownHosts = strings.ToLower(addToKnownHosts)

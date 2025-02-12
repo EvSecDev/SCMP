@@ -125,8 +125,8 @@ Options:
                                                  seed the local repository (Requires '--remote-hosts')
       --commit-changes                           Automatically commit any unstaged changes to the repository
                                                  Only applies to '--deploy-changes' argument (dry-run will not work)
-      --allow-remote-deletions                   Allows deletions in local repository to propagate to remote hosts
-                                                 Only applies to '--deploy-changes'
+      --allow-deletions                          Allows deletions (remote files or vault entires)
+                                                 Only applies to '--deploy-changes' or '--modify-vault-password'
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file
