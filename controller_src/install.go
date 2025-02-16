@@ -290,7 +290,7 @@ Host *
 	if !os.IsNotExist(err) {
 		printMessage(VerbosityProgress, "SSH Config file already exists, not overwritting it. Please configure manually.\n")
 		return
-	} else {
+	} else if err != nil {
 		printMessage(VerbosityProgress, "Unable to check if SSH config file already exists: %v\n", err)
 		return
 	}
@@ -358,7 +358,7 @@ profile SCMController @{exelocation} flags=(enforce) {
 	if os.IsNotExist(err) {
 		printMessage(VerbosityProgress, "AppArmor not supported by this system\n")
 		return
-	} else {
+	} else if err != nil {
 		printMessage(VerbosityProgress, "Unable to check if AppArmor is supported by this system: %v\n", err)
 		return
 	}

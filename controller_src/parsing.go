@@ -186,7 +186,7 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 			// Break at end of list
 			if err == io.EOF {
 				err = nil
-				return
+				break
 			}
 
 			// Fail if next file doesnt work
