@@ -146,36 +146,51 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			printMessage(VerbosityData, "Host %s:   Backing up config %s\n", endpointName, targetFilePath)
 
 			// Create a backup config on remote host if remote file already exists
-			oldRemoteFileHash, err := backupOldConfig(sshClient, Password, targetFilePath, tmpBackupPath)
+			oldRemoteFileHash, oldRemoteFileMeta, err := backupOldConfig(sshClient, Password, targetFilePath, tmpBackupPath)
 			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, err)
+				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during backup of existing config"))
 				dontRunReloads = true
 				continue
 			}
 
 			// Compare hashes and skip to next file deployment if remote is same as local
 			if oldRemoteFileHash == commitFileInfo[commitFilePath].Hash {
-				printMessage(VerbosityProgress, "Host %s: File '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
-				filesRequiringReload-- // Decrement counter when one file is found to be identical
-				continue
-			}
-
-			printMessage(VerbosityData, "Host %s:   Transferring config %s to remote\n", endpointName, commitFilePath)
-
-			// Transfer config file to remote with correct ownership and permissions
-			err = createFile(sshClient, Password, targetFilePath, tmpRemoteFilePath, commitFileInfo[commitFilePath].Data, commitFileInfo[commitFilePath].Hash, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
-			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, err)
-				err = restoreOldConfig(sshClient, targetFilePath, tmpBackupPath, oldRemoteFileHash, Password)
+				// Modify metadata of file if required
+				var fileModified bool
+				fileModified, err = modifyMetadata(sshClient, Password, targetFilePath, oldRemoteFileMeta, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
 				if err != nil {
-					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
+					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during file metadata check: %v", err))
+					dontRunReloads = true
+					continue
 				}
-				dontRunReloads = true
-				continue
-			}
 
-			// Record backup file hashes to map in case reload fails and restoration needs to occur
-			backupFileHashes[targetFilePath] = oldRemoteFileHash
+				// If file was modified, continue to reloads, otherwise skip
+				if !fileModified {
+					printMessage(VerbosityProgress, "Host %s: File '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
+					filesRequiringReload-- // Decrement counter when one file is found to be identical
+					continue
+				} else {
+					printMessage(VerbosityProgress, "Host %s: File '%s' metadata modified, but content hash matches local.\n", endpointName, targetFilePath)
+				}
+			} else {
+
+				printMessage(VerbosityData, "Host %s:   Transferring config %s to remote\n", endpointName, commitFilePath)
+
+				// Transfer config file to remote with correct ownership and permissions
+				err = createFile(sshClient, Password, targetFilePath, tmpRemoteFilePath, commitFileInfo[commitFilePath].Data, commitFileInfo[commitFilePath].Hash, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
+				if err != nil {
+					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, err)
+					err = restoreOldConfig(sshClient, targetFilePath, tmpBackupPath, oldRemoteFileHash, Password)
+					if err != nil {
+						recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
+					}
+					dontRunReloads = true
+					continue
+				}
+
+				// Record backup file hashes to map in case reload fails and restoration needs to occur
+				backupFileHashes[targetFilePath] = oldRemoteFileHash
+			}
 		}
 
 		// Since all the files use the same command array, just pick out one file to get the reload command array from
@@ -320,9 +335,24 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 			printMessage(VerbosityData, "Host %s:   Checking directory %s\n", endpointName, targetFilePath)
 
+			// Check if directory exists, if not create
+			directoryExists, lsOutput, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, Password, true)
+			if err != nil {
+				recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
+				continue
+			}
+			if !directoryExists {
+				command := "mkdir -p " + targetFilePath
+				_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, Password, 10)
+				if err != nil {
+					recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
+					continue
+				}
+			}
+
 			// Check if dir needs to be created/modified, and do so if required
 			var DirModified bool
-			DirModified, err = modifyDirectory(sshClient, Password, targetFilePath, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
+			DirModified, err = modifyMetadata(sshClient, Password, targetFilePath, lsOutput, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
 			if err != nil {
 				recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
 				continue
@@ -340,7 +370,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 		printMessage(VerbosityData, "Host %s:   Backing up config %s\n", endpointName, targetFilePath)
 
 		// Create a backup config on remote host if remote file already exists
-		oldRemoteFileHash, err := backupOldConfig(sshClient, Password, targetFilePath, tmpBackupPath)
+		oldRemoteFileHash, oldRemoteFileMeta, err := backupOldConfig(sshClient, Password, targetFilePath, tmpBackupPath)
 		if err != nil {
 			recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
 			continue
@@ -348,21 +378,34 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 		// Compare hashes and skip to next file deployment if remote is same as local
 		if oldRemoteFileHash == commitFileInfo[commitFilePath].Hash {
-			printMessage(VerbosityProgress, "Host %s: File '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
-			continue
-		}
-
-		printMessage(VerbosityData, "Host %s:   Transferring config %s to remote\n", endpointName, commitFilePath)
-
-		// Transfer config file to remote with correct ownership and permissions
-		err = createFile(sshClient, Password, targetFilePath, tmpRemoteFilePath, commitFileInfo[commitFilePath].Data, commitFileInfo[commitFilePath].Hash, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
-		if err != nil {
-			recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
-			err = restoreOldConfig(sshClient, targetFilePath, tmpBackupPath, oldRemoteFileHash, Password)
+			// Modify metadata of file if required
+			var fileModified bool
+			fileModified, err = modifyMetadata(sshClient, Password, targetFilePath, oldRemoteFileMeta, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
 			if err != nil {
-				recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
+				recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during file metadata check: %v", err))
+				continue
 			}
-			continue
+
+			// If file was modified, continue to metrics and next file, otherwise skip immediately to next file
+			if !fileModified {
+				printMessage(VerbosityProgress, "Host %s: File '%s' hash matches local... skipping this file\n", endpointName, targetFilePath)
+				continue
+			} else {
+				printMessage(VerbosityProgress, "Host %s: File '%s' metadata modified, but content hash matches local.\n", endpointName, targetFilePath)
+			}
+		} else {
+			printMessage(VerbosityData, "Host %s:   Transferring config %s to remote\n", endpointName, commitFilePath)
+
+			// Transfer config file to remote with correct ownership and permissions
+			err = createFile(sshClient, Password, targetFilePath, tmpRemoteFilePath, commitFileInfo[commitFilePath].Data, commitFileInfo[commitFilePath].Hash, commitFileInfo[commitFilePath].FileOwnerGroup, commitFileInfo[commitFilePath].FilePermissions)
+			if err != nil {
+				recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, err)
+				err = restoreOldConfig(sshClient, targetFilePath, tmpBackupPath, oldRemoteFileHash, Password)
+				if err != nil {
+					recordDeploymentFailure(endpointName, commitFilesNoReload, commitIndex, fmt.Errorf("failed old config restoration: %v", err))
+				}
+				continue
+			}
 		}
 
 		// Increment local metric for config

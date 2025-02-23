@@ -25,7 +25,7 @@ func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 	}
 
 	// Check if deployed file is present on disk
-	NewFileExists, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, SudoPassword, false)
+	NewFileExists, _, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, SudoPassword, false)
 	if err != nil {
 		err = fmt.Errorf("error checking deployed file presence on remote host: %v", err)
 		return
@@ -58,9 +58,9 @@ func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 
 // Create a copy of an existing config file into the temporary backup file path (only if targetFilePath exists)
 // Also returns the hash of the file before being touched for verification of restore if needed
-func backupOldConfig(sshClient *ssh.Client, SudoPassword string, targetFilePath string, tmpBackupPath string) (oldRemoteFileHash string, err error) {
+func backupOldConfig(sshClient *ssh.Client, SudoPassword string, targetFilePath string, tmpBackupPath string) (oldRemoteFileHash string, oldRemoteFileMeta string, err error) {
 	// Find if target file exists on remote
-	oldFileExists, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, SudoPassword, false)
+	oldFileExists, oldRemoteFileMeta, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, SudoPassword, false)
 	if err != nil {
 		err = fmt.Errorf("failed checking file presence on remote host: %v", err)
 		return
@@ -141,14 +141,15 @@ func restoreOldConfig(sshClient *ssh.Client, targetFilePath string, tmpBackupPat
 }
 
 // Checks if file/dir is already present on remote host
-func CheckRemoteFileDirExistence(sshClient *ssh.Client, remotePath string, SudoPassword string, IsDir bool) (Exists bool, err error) {
+// Also retrieve metadata for file/dir
+func CheckRemoteFileDirExistence(sshClient *ssh.Client, remotePath string, SudoPassword string, IsDir bool) (Exists bool, Metadata string, err error) {
 	var command string
 	if IsDir {
-		command = "ls -d " + remotePath
+		command = "ls -ld " + remotePath
 	} else {
-		command = "ls " + remotePath
+		command = "ls -l " + remotePath
 	}
-	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+	Metadata, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 	if err != nil {
 		Exists = false
 		if strings.Contains(err.Error(), "No such file or directory") {
@@ -168,7 +169,7 @@ func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath
 
 	// Check if remote dir exists, if not create
 	directoryPath := filepath.Dir(remoteFilePath)
-	directoryExists, err := CheckRemoteFileDirExistence(sshClient, directoryPath, SudoPassword, true)
+	directoryExists, _, err := CheckRemoteFileDirExistence(sshClient, directoryPath, SudoPassword, true)
 	if err != nil {
 		err = fmt.Errorf("failed checking directory existence: %v", err)
 		return
@@ -235,8 +236,7 @@ func deleteFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 
 	// Danger Zone: Remove empty parent dirs
 	targetPath := filepath.Dir(targetFilePath)
-	maxLoopCount := 1000 // for safety - sane number to avoid endless dir loops
-	for i := 0; i < maxLoopCount; i++ {
+	for i := 0; i < maxDirectoryLoopCount; i++ {
 		// Check for presence of anything in dir
 		command = "ls -A " + targetPath
 		CommandOutput, _ := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
@@ -267,7 +267,7 @@ func deleteFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 // Create symbolic link to specific target file (as present in file action string)
 func createSymLink(sshClient *ssh.Client, SudoPassword string, targetFilePath string, targetFileAction string) (err error) {
 	// Check if a file is already there - if so, error
-	OldSymLinkExists, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, SudoPassword, false)
+	OldSymLinkExists, _, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, SudoPassword, false)
 	if err != nil {
 		err = fmt.Errorf("failed checking file existence before creating symbolic link: %v", err)
 		return
@@ -293,39 +293,15 @@ func createSymLink(sshClient *ssh.Client, SudoPassword string, targetFilePath st
 	return
 }
 
-// Creates or modifies a remote directory
-// Handles owner, group, and permissions
-func modifyDirectory(sshClient *ssh.Client, SudoPassword string, targetDirectoryName string, DirOwnerGroup string, DirPermissions int) (Modified bool, err error) {
-	// Check if directory exists, if not create
-	directoryExists, err := CheckRemoteFileDirExistence(sshClient, targetDirectoryName, SudoPassword, true)
-	if err != nil {
-		err = fmt.Errorf("failed checking directory existence: %v", err)
-		return
-	}
-	if !directoryExists {
-		command := "mkdir -p " + targetDirectoryName
-		_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
-		if err != nil {
-			err = fmt.Errorf("failed to create directory: %v", err)
-			return
-		}
-	}
-
-	// Get metadata from existing directory
-	command := "ls -ld " + targetDirectoryName
-	lsOutput, err := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
-	if err != nil {
-		err = fmt.Errorf("failed to retrieve directory metadata: %v", err)
-		return
-	}
-
+// Modifies metadata if supplied remote file/dir metadata does not match supplied metadata
+func modifyMetadata(sshClient *ssh.Client, SudoPassword string, targetName string, lsOutput string, ExpectedOwnerGroup string, ExpectedPermissions int) (Modified bool, err error) {
 	// Extract ls information
 	Type, permissionsSymbolic, owner, group, _, _, err := extractMetadataFromLS(lsOutput)
 	if err != nil {
 		return
 	}
-	if Type != "d" {
-		err = fmt.Errorf("expected remote path to be directory, but got type '%s' instead", Type)
+	if Type != "-" && Type != "d" {
+		err = fmt.Errorf("expected remote path to be file or directory, but got type '%s' instead", Type)
 		return
 	}
 
@@ -333,8 +309,8 @@ func modifyDirectory(sshClient *ssh.Client, SudoPassword string, targetDirectory
 	RemotePermissions := permissionsSymbolicToNumeric(permissionsSymbolic)
 
 	// Check if remote permissions match expected
-	if RemotePermissions != DirPermissions {
-		command = "chmod " + strconv.Itoa(RemotePermissions) + " " + targetDirectoryName
+	if RemotePermissions != ExpectedPermissions {
+		command := "chmod " + strconv.Itoa(RemotePermissions) + " " + targetName
 		_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
@@ -349,8 +325,8 @@ func modifyDirectory(sshClient *ssh.Client, SudoPassword string, targetDirectory
 
 	// Check if remote ownership match expected
 	RemoteOwnerGroup := owner + ":" + group
-	if RemoteOwnerGroup != DirOwnerGroup {
-		command = "chown " + DirOwnerGroup + " " + targetDirectoryName
+	if RemoteOwnerGroup != ExpectedOwnerGroup {
+		command := "chown " + ExpectedOwnerGroup + " " + targetName
 		_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)

@@ -356,7 +356,65 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		"/etc/squid-deb-proxy": {"squid -f /etc/squid-deb-proxy/squid-deb-proxy.conf -k check", "systemctl restart squid-deb-proxy.service", "systemctl is-active squid-deb-proxy.service"},
 		"/etc/squid/":          {"squid -f /etc/squid/squid.conf -k check", "systemctl restart squid.service", "systemctl is-active squid.service"},
 		"/etc/syslog-ng":       {"syslog-ng -s", "systemctl restart syslog-ng", "systemctl is-active syslog-ng"},
+		"/etc/chrony":          {"chronyd -f /etc/chrony/chrony.conf -p", "systemctl restart chrony.service", "systemctl is-active chrony.service"},
 	}
+
+	// Default Directory permissions (to ignore)
+	const defaultOwnerGroup string = "root:root"
+	const defaultPermissions int = 755
+
+	// Map to hold metadata for each directory
+	directoryTreeMetadata := make(map[string]MetaHeader)
+
+	// Loop over directories in path and retrieve metadata information that is different than linux default
+	directory := filepath.Dir(targetFilePath)
+	for i := 0; i < maxDirectoryLoopCount; i++ {
+		// Break if no more parent dirs
+		if directory == "." || len(directory) < 2 {
+			break
+		}
+
+		printMessage(VerbosityProgress, "  File '%s': Retrieving metadata for parent directory '%s'\n", targetFilePath, directory)
+
+		// Retrieve metadata
+		command := "ls -ld " + directory
+		var directoryMetadata string
+		directoryMetadata, err = RunSSHCommand(client, command, "root", config.DisableSudo, SudoPassword, 10)
+		if err != nil {
+			err = fmt.Errorf("ssh command failure: %v", err)
+			return
+		}
+
+		printMessage(VerbosityProgress, "  File '%s': Parsing metadata for parent directory '%s'\n", targetFilePath, directory)
+
+		// Extract ls information
+		Type, permissionsSymbolic, owner, group, _, _, lerr := extractMetadataFromLS(directoryMetadata)
+		if lerr != nil {
+			return
+		}
+		if Type != "d" {
+			printMessage(VerbosityProgress, "Warning: expected remote path to be directory, but got type '%s' instead", Type)
+			continue
+		}
+
+		// Metadata
+		var dirMetadata MetaHeader
+		dirMetadata.TargetFileOwnerGroup = owner + ":" + group
+		dirMetadata.TargetFilePermissions = permissionsSymbolicToNumeric(permissionsSymbolic)
+
+		printMessage(VerbosityData, "  File '%s': Metadata for parent directory '%s': %s %s\n", targetFilePath, directory, permissionsSymbolic, dirMetadata.TargetFileOwnerGroup)
+
+		// Save metadata to map if not the default
+		if dirMetadata.TargetFileOwnerGroup != defaultOwnerGroup || dirMetadata.TargetFilePermissions != defaultPermissions {
+			printMessage(VerbosityProgress, "  File '%s': Parent directory '%s' has non-standard metadata, saving\n", targetFilePath, directory)
+			directoryTreeMetadata[directory] = dirMetadata
+		}
+
+		// Move up one directory for next loop iteration
+		directory = filepath.Dir(directory)
+	}
+
+	printMessage(VerbosityProgress, "  File '%s': Downloading file\n", targetFilePath)
 
 	// Copy desired file to buffer location
 	command := "cp " + targetFilePath + " " + tmpRemoteFilePath
@@ -380,6 +438,8 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		return
 	}
 
+	printMessage(VerbosityProgress, "  File '%s': Parsing metadata information\n", targetFilePath)
+
 	// Replace target path separators with local os ones
 	hostFilePath := strings.ReplaceAll(targetFilePath, "/", config.OSPathSeparator)
 
@@ -393,6 +453,8 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	var metadataHeader MetaHeader
 	metadataHeader.TargetFileOwnerGroup = fileInfo[1] + ":" + fileInfo[2]
 	metadataHeader.TargetFilePermissions = numberPermissions
+
+	printMessage(VerbosityProgress, "  File '%s': Retrieving reload command information from user\n", targetFilePath)
 
 	// Ask user for confirmation to use reloads
 	reloadWanted, err := promptUser("Does file '%s' need reload commands? [y/N]: ", configFilePath)
@@ -481,7 +543,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		metadataHeader.ReloadCommands = reloadCmds
 	}
 
-	printMessage(VerbosityProgress, "Adding JSON metadata header to file %s\n", configFilePath)
+	printMessage(VerbosityProgress, "Adding JSON metadata header to file '%s'\n", configFilePath)
 
 	// Marshal metadata JSON
 	metadata, errNoFatal := json.MarshalIndent(metadataHeader, "", "  ")
@@ -493,11 +555,11 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	// Add header to file contents
 	configFile := Delimiter + "\n" + string(metadata) + "\n" + Delimiter + "\n" + fileContents
 
-	printMessage(VerbosityProgress, "Writing file %s to repository\n", configFilePath)
+	printMessage(VerbosityProgress, "Writing file '%s' to repository\n", configFilePath)
 
 	// Create any missing directories in repository
 	configParentDirs := filepath.Dir(configFilePath)
-	errNoFatal = os.MkdirAll(configParentDirs, os.ModePerm)
+	errNoFatal = os.MkdirAll(configParentDirs, 0700)
 	if errNoFatal != nil {
 		printMessage(VerbosityStandard, "Failed to create missing directories in local repository for file '%s': %v\n", configFilePath, errNoFatal)
 		return
@@ -508,6 +570,38 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	if errNoFatal != nil {
 		printMessage(VerbosityStandard, "Failed to write file '%s' to local repository: %v\n", configFilePath, errNoFatal)
 		return
+	}
+
+	// Loop over parent directories and write any non-standard json directory metadata
+	for directory, metadata := range directoryTreeMetadata {
+		printMessage(VerbosityProgress, "  File '%s': Writing metadata information for directory '%s'\n", targetFilePath, directory)
+
+		// Prepare directory metadata file name
+		directory = strings.ReplaceAll(directory, "/", config.OSPathSeparator)
+		directoryMetaPath := filepath.Join(directory, directoryMetadataFileName)
+		directoryMetaPath = endpointName + directoryMetaPath
+
+		// Marshall metadata json
+		metadata, errNoFatal := json.MarshalIndent(metadata, "", "  ")
+		if errNoFatal != nil {
+			printMessage(VerbosityStandard, "  Failed to marshal metadata header into JSON format for directory '%s': %v\n", directory, errNoFatal)
+			continue
+		}
+
+		// Open/create the directory metadata file
+		directoryMetaFile, errNoFatal := os.OpenFile(directoryMetaPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+		if errNoFatal != nil {
+			printMessage(VerbosityStandard, "  Failed to open/create directory metadata file: %v\n", errNoFatal)
+			continue
+		}
+		defer directoryMetaFile.Close()
+
+		// Write directory metadata file
+		_, errNoFatal = directoryMetaFile.WriteString(string(metadata))
+		if errNoFatal != nil {
+			printMessage(VerbosityStandard, "  Failed to write directory metadata to local repository: %v\n", errNoFatal)
+			continue
+		}
 	}
 
 	return
