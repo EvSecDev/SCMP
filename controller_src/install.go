@@ -158,8 +158,6 @@ func createNewRepository(newRepoInfo string) {
 		// Add reloads/checks or dont depending on example file name
 		if !strings.Contains(exampleFile, "noreload") {
 			metadataHeader.ReloadCommands = []string{"ls /var/log/custom.log", "ping -W2 -c1 syslog.example.com >/dev/null"}
-		}
-		if !strings.Contains(exampleFile, "noreload") {
 			metadataHeader.CheckCommands = []string{"systemctl restart rsyslog.service", "systemctl is-active rsyslog"}
 		}
 

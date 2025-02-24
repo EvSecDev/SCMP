@@ -231,9 +231,6 @@ func recordDeploymentError(commitID string) (err error) {
 		}
 	}
 
-	printMessage(VerbosityStandard, "\nPlease fix the errors, then run the following command to redeploy OR create new commit if file corrections are needed:\n")
-	printMessage(VerbosityStandard, "%s -c %s --deploy-failures\n", PathToExe, config.FilePath)
-
 	// Remove errors that are not root-cause failures before writing to tracker file
 	// If a redeploy can't re-attempt the failed action, then it shouldn't be in failtracker file
 	var rootCauseErrors []string
@@ -249,7 +246,8 @@ func recordDeploymentError(commitID string) (err error) {
 	// Add FailTracker string to repo working directory fail file
 	FailTrackerFile, err := os.Create(config.FailTrackerFilePath)
 	if err != nil {
-		err = fmt.Errorf("Failed to create FailTracker File - manual redeploy using '--use-failtracker-only' will not work. Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A): %v\n", err)
+		printMessage(VerbosityStandard, "\nWarning: Failed to create failtracker file. Manual redeploy using '--use-failtracker-only' will not work.\n")
+		printMessage(VerbosityStandard, "  Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A)\n")
 		return
 	}
 	defer FailTrackerFile.Close()
@@ -260,10 +258,13 @@ func recordDeploymentError(commitID string) (err error) {
 	// Write string to file (overwrite old contents)
 	_, err = FailTrackerFile.WriteString(FailTrackerAndCommit)
 	if err != nil {
-		err = fmt.Errorf("Failed to write FailTracker to File - manual redeploy using '--use-failtracker-only' will not work. Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A): %v\n", err)
+		printMessage(VerbosityStandard, "\nWarning: Failed to create failtracker file. Manual redeploy using '--use-failtracker-only' will not work.\n")
+		printMessage(VerbosityStandard, "  Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A)\n")
 		return
 	}
 
+	printMessage(VerbosityStandard, "\nPlease fix the errors, then run the following command to redeploy OR create new commit if file corrections are needed:\n")
+	printMessage(VerbosityStandard, "%s -c %s --deploy-failures\n", PathToExe, config.FilePath)
 	printMessage(VerbosityStandard, "================================================\n")
 	return
 }

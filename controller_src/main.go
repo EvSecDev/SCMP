@@ -30,12 +30,14 @@ type Config struct {
 	KnownHosts            []string                // Content of known server public keys - ~/.ssh/known_hosts
 	RepositoryPath        string                  // Absolute path to git repository (based on current working dir)
 	UniversalDirectory    string                  // Universal config directory inside git repo
-	AllUniversalGroups    map[string]struct{}     // Universal group config directory names
+	AllUniversalGroups    map[string][]string     // Universal group config directory names and their respective hosts
 	IgnoreDirectories     []string                // Directories to ignore inside the git repository
 	MaxSSHConcurrency     int                     // Maximum threads for ssh sessions
 	DisableSudo           bool                    // Disable using sudo for remote commands
 	AutoCommit            bool                    // When running with deploy-changes automatically commit any unstaged changes
 	AllowDeletions        bool                    // Allow deletions in local repo to delete files on remote hosts or vault entries
+	RunInstallCommands    bool                    // Run the install command section of all relevant files metadata header section (within the given deployment)
+	RunUninstallCommands  bool                    // Run the uninstall command section of all relevant files metadata header section (within the given deployment)
 	IgnoreDeploymentState bool                    // Ignore any deployment state for a host in the config
 	UserHomeDirectory     string                  // Absolute path to users home directory (to expand '~/' in paths)
 	VaultFilePath         string                  // Path to password vault file
@@ -69,6 +71,7 @@ type Credential struct {
 type MetaHeader struct {
 	TargetFileOwnerGroup  string   `json:"FileOwnerGroup"`
 	TargetFilePermissions int      `json:"FilePermissions"`
+	InstallCommands       []string `json:"Install,omitempty"`
 	CheckCommands         []string `json:"Checks,omitempty"`
 	ReloadCommands        []string `json:"Reload,omitempty"`
 }
@@ -82,6 +85,8 @@ type CommitFileInfo struct {
 	Action          string
 	FileOwnerGroup  string
 	FilePermissions int
+	InstallOptional bool
+	Install         []string
 	ChecksRequired  bool
 	Checks          []string
 	ReloadRequired  bool
@@ -149,7 +154,7 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v3.7.0"
+const progVersion string = "v3.8.0"
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
@@ -187,6 +192,8 @@ Options:
                                                  Only applies to '--deploy-changes' argument (dry-run will not work)
       --allow-deletions                          Allows deletions (remote files or vault entires)
                                                  Only applies to '--deploy-changes' or '--modify-vault-password'
+      --install                                  Runs installation commands in config files metadata JSON header
+	                                             Commands are run before file deployments (before checks)
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file
@@ -266,6 +273,7 @@ func main() {
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
 	flag.BoolVar(&config.AutoCommit, "commit-changes", false, "")
 	flag.BoolVar(&config.AllowDeletions, "allow-deletions", false, "")
+	flag.BoolVar(&config.RunInstallCommands, "install", false, "")
 	flag.BoolVar(&config.DisableSudo, "disable-privilege-escalation", false, "")
 	flag.BoolVar(&config.IgnoreDeploymentState, "ignore-deployment-state", false, "")
 	flag.BoolVar(&disableGitHook, "g", false, "")

@@ -263,12 +263,6 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 			continue
 		}
 
-		// Check if host state is marked as offline, if so, skip this host
-		if hostInfo.DeploymentState == "offline" && !config.IgnoreDeploymentState {
-			printMessage(VerbosityFullData, "    Host is marked as offline, skipping\n")
-			continue
-		}
-
 		// Get Denied universal files for this host
 		hostsDeniedUniversalFiles := deniedUniversalFiles[endpointName]
 
@@ -284,16 +278,10 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 			// Format a commitFilePath with the expected remote host path separators
 			filePath := strings.ReplaceAll(commitFile, config.OSPathSeparator, "/")
 
-			// Skip Universal files if this host ignores universal configs
-			if hostInfo.IgnoreUniversal && commitHost == config.UniversalDirectory {
-				printMessage(VerbosityFullData, "        File is universal and universal not requested for this host\n")
-				continue
-			}
-
 			// Skip files not relevant to this host (either file is local to host, in global universal dir, or in host group universal)
 			_, hostIsInFilesUniversalGroup := hostInfo.UniversalGroups[commitHost]
-			if commitHost != endpointName && commitHost != config.UniversalDirectory && !hostIsInFilesUniversalGroup {
-				printMessage(VerbosityFullData, "        File not for this host/host's universal group, and not universal \n")
+			if commitHost != endpointName && !hostIsInFilesUniversalGroup {
+				printMessage(VerbosityFullData, "        File not for this host/host's universal group and not universal \n")
 				continue
 			}
 
@@ -497,6 +485,14 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 			// Check commands are not present, set to false
 			info.ChecksRequired = false
 		}
+		info.Install = jsonMetadata.InstallCommands
+		if len(info.Install) > 0 {
+			// Install commands are present, set bool to true
+			info.InstallOptional = true
+		} else {
+			// Install commands are not present, set to false
+			info.InstallOptional = false
+		}
 		info.Hash = contentHash
 		info.Data = configContent
 		info.Action = commitFileAction
@@ -505,16 +501,20 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 		commitFileInfo[filePath] = info
 
 		// Print verbose file metadata information
-		printMessage(VerbosityFullData, "      Owner and Group: %s\n", info.FileOwnerGroup)
-		printMessage(VerbosityFullData, "      Permissions:     %d\n", info.FilePermissions)
-		printMessage(VerbosityFullData, "      Content Hash:    %s\n", info.Hash)
-		printMessage(VerbosityFullData, "      Checks Required? %t\n", info.ChecksRequired)
-		if info.ChecksRequired {
-			printMessage(VerbosityFullData, "      Check Commands   %s\n", info.Checks)
+		printMessage(VerbosityFullData, "      Owner and Group:  %s\n", info.FileOwnerGroup)
+		printMessage(VerbosityFullData, "      Permissions:      %d\n", info.FilePermissions)
+		printMessage(VerbosityFullData, "      Content Hash:     %s\n", info.Hash)
+		printMessage(VerbosityFullData, "      Install Required? %t\n", info.InstallOptional)
+		if info.InstallOptional {
+			printMessage(VerbosityFullData, "      Install Commands  %s\n", info.Install)
 		}
-		printMessage(VerbosityFullData, "      Reload Required? %t\n", info.ReloadRequired)
+		printMessage(VerbosityFullData, "      Checks Required?  %t\n", info.ChecksRequired)
+		if info.ChecksRequired {
+			printMessage(VerbosityFullData, "      Check Commands    %s\n", info.Checks)
+		}
+		printMessage(VerbosityFullData, "      Reload Required?  %t\n", info.ReloadRequired)
 		if info.ReloadRequired {
-			printMessage(VerbosityFullData, "      Reload Comamnds  %s\n", info.Reload)
+			printMessage(VerbosityFullData, "      Reload Comamnds   %s\n", info.Reload)
 		}
 	}
 

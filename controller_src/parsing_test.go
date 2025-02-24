@@ -17,14 +17,14 @@ func TestFilterHostsAndFiles(t *testing.T) {
 			"host1": {
 				DeploymentState: "online",
 				IgnoreUniversal: false,
-				UniversalGroups: map[string]struct{}{"UniversalConfs_Service1": {}},
+				UniversalGroups: map[string]struct{}{"UniversalConfs_Service1": {}, "UniversalConfs": {}},
 
 				EndpointName: "host1",
 			},
 			"host2": {
 				DeploymentState: "",
 				IgnoreUniversal: false,
-				UniversalGroups: map[string]struct{}{"UniversalConfs_Service2": {}},
+				UniversalGroups: map[string]struct{}{"UniversalConfs_Service2": {}, "UniversalConfs": {}},
 				DeploymentFiles: []string{""},
 				EndpointName:    "host2",
 			},
@@ -38,20 +38,21 @@ func TestFilterHostsAndFiles(t *testing.T) {
 			"host4": {
 				DeploymentState: "",
 				IgnoreUniversal: false,
-				UniversalGroups: map[string]struct{}{"": {}},
+				UniversalGroups: map[string]struct{}{"UniversalConfs": {}},
 				DeploymentFiles: []string{""},
 				EndpointName:    "host4",
 			},
 			"host5": {
 				DeploymentState: "offline",
 				IgnoreUniversal: false,
-				UniversalGroups: map[string]struct{}{"": {}},
+				UniversalGroups: map[string]struct{}{"UniversalConfs": {}},
 				DeploymentFiles: []string{""},
 				EndpointName:    "host5",
 			},
 		},
-		UniversalDirectory: "UniversalConfs",
-		AllUniversalGroups: map[string]struct{}{"UniversalConfs_Service1": {}},
+		UniversalDirectory:    "UniversalConfs",
+		AllUniversalGroups:    map[string][]string{"UniversalConfs_Service1": {"host"}},
+		IgnoreDeploymentState: false,
 	}
 
 	// Test cases

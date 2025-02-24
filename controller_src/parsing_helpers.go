@@ -77,6 +77,13 @@ func retrieveURIFile(input string) (csv string, err error) {
 // Checks for user-chosen host/file override with given host/file
 // Returns immediately if override is empty
 func checkForOverride(override string, current string) (skip bool) {
+	// If input is a host and state is offline and user did not request deployment state override, then skip
+	_, inputCheckIsAHost := config.HostInfo[current]
+	if inputCheckIsAHost && config.HostInfo[current].DeploymentState == "offline" && !config.IgnoreDeploymentState {
+		skip = true
+		return
+	}
+
 	// Return early if no override
 	if override == "" {
 		return

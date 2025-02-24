@@ -66,3 +66,104 @@ func TestPrintMessage(t *testing.T) {
 		})
 	}
 }
+
+// Unit Test
+func TestFilterHostGroups(t *testing.T) {
+	// Mock global
+	config.UniversalDirectory = "UniversalConfs"
+
+	tests := []struct {
+		endpointName                 string
+		universalGroupsCSV           string
+		ignoreUniversalString        string
+		expectedHostIgnoresUniversal bool
+		expectedHostUniversalGroups  map[string]struct{}
+		expectedAllUniversalGroups   map[string][]string
+	}{
+		{
+			endpointName:                 "host1",
+			universalGroupsCSV:           "group1,group2",
+			ignoreUniversalString:        "no",
+			expectedHostIgnoresUniversal: false,
+			expectedHostUniversalGroups: map[string]struct{}{
+				"group1":         {},
+				"group2":         {},
+				"UniversalConfs": {}, // Default universal group should be added
+			},
+			expectedAllUniversalGroups: map[string][]string{
+				"group1":         {"host1"},
+				"group2":         {"host1"},
+				"UniversalConfs": {"host1"},
+			},
+		},
+		{
+			endpointName:                 "host2",
+			universalGroupsCSV:           "group1",
+			ignoreUniversalString:        "yes",
+			expectedHostIgnoresUniversal: true,
+			expectedHostUniversalGroups: map[string]struct{}{
+				"group1": {},
+			},
+			expectedAllUniversalGroups: map[string][]string{
+				"group1": {"host2"},
+			},
+		},
+		{
+			endpointName:                 "host3",
+			universalGroupsCSV:           "",
+			ignoreUniversalString:        "no",
+			expectedHostIgnoresUniversal: false,
+			expectedHostUniversalGroups: map[string]struct{}{
+				"UniversalConfs": {},
+			},
+			expectedAllUniversalGroups: map[string][]string{
+				"UniversalConfs": {"host3"},
+			},
+		},
+	}
+
+	for _, test := range tests {
+		// Reset global state for each test
+		config.AllUniversalGroups = make(map[string][]string)
+
+		t.Run(test.endpointName, func(t *testing.T) {
+			// Run the function
+			HostIgnoresUniversal, HostUniversalGroups := filterHostGroups(test.endpointName, test.universalGroupsCSV, test.ignoreUniversalString)
+
+			// Check if the results match expectations
+			if HostIgnoresUniversal != test.expectedHostIgnoresUniversal {
+				t.Errorf("expected HostIgnoresUniversal to be %v, got %v", test.expectedHostIgnoresUniversal, HostIgnoresUniversal)
+			}
+
+			if len(HostUniversalGroups) != len(test.expectedHostUniversalGroups) {
+				t.Errorf("expected HostUniversalGroups length to be %d, got %d", len(test.expectedHostUniversalGroups), len(HostUniversalGroups))
+			} else {
+				for group := range test.expectedHostUniversalGroups {
+					if _, exists := HostUniversalGroups[group]; !exists {
+						t.Errorf("expected HostUniversalGroups to contain group %s", group)
+					}
+				}
+			}
+
+			// Check the global map AllUniversalGroups
+			for group, expectedHosts := range test.expectedAllUniversalGroups {
+				if len(config.AllUniversalGroups[group]) != len(expectedHosts) {
+					t.Errorf("expected %d hosts in group %s, got %d", len(expectedHosts), group, len(config.AllUniversalGroups[group]))
+				} else {
+					for _, expectedHost := range expectedHosts {
+						found := false
+						for _, host := range config.AllUniversalGroups[group] {
+							if host == expectedHost {
+								found = true
+								break
+							}
+						}
+						if !found {
+							t.Errorf("expected host %s in group %s, but it was not found", expectedHost, group)
+						}
+					}
+				}
+			}
+		})
+	}
+}

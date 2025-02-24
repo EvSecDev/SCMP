@@ -26,11 +26,6 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 	}()
 
-	// TODO: allow wildcards - I'm just being lazy for now
-	if strings.Contains(hostOverride, "*") {
-		logError("Invalid arguments", fmt.Errorf("remote-hosts cannot contain wildcards for repository seeding"), false)
-	}
-
 	printMessage(VerbosityStandard, "==== Secure Configuration Management Repository Seeding ====\n")
 
 	// Check local system
@@ -56,12 +51,6 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		SkipHost := checkForOverride(hostOverride, endpointName)
 		if SkipHost {
 			printMessage(VerbosityProgress, "  Skipping host %s, not desired\n", endpointName)
-			continue
-		}
-
-		// Skip offline hosts
-		if hostInfo.DeploymentState == "offline" {
-			printMessage(VerbosityProgress, "  Skipping host %s, offline\n", endpointName)
 			continue
 		}
 

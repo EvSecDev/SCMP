@@ -23,14 +23,14 @@ func runCmd(command string, hosts string) {
 	printMessage(VerbosityStandard, "Executing command '%s' on hosts '%s'\n", command, hosts)
 
 	// Loop hosts chosen by user and prepare relevant host information for deployment
-	for _, endpointName := range strings.Split(hosts, ",") {
-		// Ensure user choice has an entry in the config
-		_, configHostFromUserChoice := config.HostInfo[endpointName]
-		if !configHostFromUserChoice {
-			logError("Argument error", fmt.Errorf("host %s does not exist in config", endpointName), false)
+	for endpointName := range config.HostInfo {
+		SkipHost := checkForOverride(hosts, endpointName)
+		if SkipHost {
+			printMessage(VerbosityProgress, "  Skipping host %s, not desired\n", endpointName)
+			continue
 		}
 
-		// Retrieve host secrests (keys,passwords)
+		// Retrieve host secrets (keys,passwords)
 		err := retrieveHostSecrets(endpointName)
 		logError("Failed to retrieve host secrets", err, false)
 
@@ -119,11 +119,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 	for endpointName := range config.HostInfo {
 		// Only run against hosts specified
 		if checkForOverride(hosts, endpointName) {
-			continue
-		}
-
-		// Skip offline hosts
-		if config.HostInfo[endpointName].DeploymentState == "offline" {
+			printMessage(VerbosityProgress, "  Skipping host %s, not desired\n", endpointName)
 			continue
 		}
 

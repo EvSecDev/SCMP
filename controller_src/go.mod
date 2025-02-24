@@ -7,7 +7,7 @@ require (
 	github.com/coreos/go-systemd v0.0.0-20191104093116-d3cd4ed1dbcf
 	github.com/go-git/go-git/v5 v5.13.2
 	github.com/kevinburke/ssh_config v1.2.0
-	golang.org/x/crypto v0.33.0
+	golang.org/x/crypto v0.34.0
 	golang.org/x/term v0.29.0
 )
 

@@ -134,24 +134,11 @@ func parseConfig() (err error) {
 	// Initialize vault map
 	config.Vault = make(map[string]Credential)
 
-	// Group dir names in repo
-	GroupDirectories, _ := sshConfig.Get("", "GroupDirs")
-	if strings.Contains(GroupDirectories, config.OSPathSeparator) {
-		err = fmt.Errorf("GroupDirs should be relative paths from the root of repository")
-		return
-	}
-	GroupNames := strings.Split(GroupDirectories, ",")
-
-	// Create list of all universal group names
-	config.AllUniversalGroups = make(map[string]struct{})
-	for _, GroupName := range GroupNames {
-		config.AllUniversalGroups[GroupName] = struct{}{}
-	}
-
 	printMessage(VerbosityProgress, "Retrieving Configurations for Hosts\n")
 
 	// Array of Hosts and their info
 	config.HostInfo = make(map[string]EndpointInfo)
+	config.AllUniversalGroups = make(map[string][]string)
 	var hostInfo EndpointInfo
 	for _, host := range sshConfig.Hosts {
 		// Skip host patterns with more than one pattern
@@ -217,25 +204,6 @@ func parseConfig() (err error) {
 		// Save deployment state of this host
 		hostInfo.DeploymentState, _ = sshConfig.Get(hostPattern, "DeploymentState")
 
-		printMessage(VerbosityData, "    Retrieving Host Ignore Universal State\n")
-
-		// If host ignores universal configs
-		ignoreUniversalString, _ := sshConfig.Get(hostPattern, "IgnoreUniversal")
-		if strings.ToLower(ignoreUniversalString) == "yes" {
-			hostInfo.IgnoreUniversal = true
-		} else {
-			hostInfo.IgnoreUniversal = false
-		}
-
-		// Get universal groups this host is a part of
-		// Makes for easy quick lookups if host is part of a group
-		universalGroupsCSV, _ := sshConfig.Get(hostPattern, "GroupTags")
-		universalGroupsList := strings.Split(universalGroupsCSV, ",")
-		hostInfo.UniversalGroups = make(map[string]struct{})
-		for _, universalGroup := range universalGroupsList {
-			hostInfo.UniversalGroups[universalGroup] = struct{}{}
-		}
-
 		printMessage(VerbosityData, "    Retrieving if host requires vault password\n")
 
 		// Create list of hosts that would need vault access
@@ -248,8 +216,56 @@ func parseConfig() (err error) {
 			hostInfo.RequiresVault = false
 		}
 
+		printMessage(VerbosityData, "    Retrieving Host Ignore Universal State\n")
+
+		// Get all groups this host is a part of
+		universalGroupsCSV, _ := sshConfig.Get(hostPattern, "GroupTags")
+
+		// Get yes/no if host ignores main universal
+		ignoreUniversalString, _ := sshConfig.Get(hostPattern, "IgnoreUniversal")
+
+		// Parse config host groups into necessary global/host variables
+		HostIgnoresUniversal, HostUniversalGroups := filterHostGroups(hostPattern, universalGroupsCSV, ignoreUniversalString)
+		hostInfo.IgnoreUniversal = HostIgnoresUniversal
+		hostInfo.UniversalGroups = HostUniversalGroups
+
 		// Save host back into global map
 		config.HostInfo[hostPattern] = hostInfo
+	}
+
+	return
+}
+
+// Creates two maps relating to host groups
+// First map: key'd on group and contains only groups that the host is a part of (values are empty)
+// Second map: global key'd on group and contains array of hosts belonging to that group
+func filterHostGroups(endpointName string, universalGroupsCSV string, ignoreUniversalString string) (HostIgnoresUniversal bool, HostUniversalGroups map[string]struct{}) {
+	// Convert CSV of host groups to array
+	universalGroupsList := strings.Split(universalGroupsCSV, ",")
+
+	// If host ignores universal configs
+	if strings.ToLower(ignoreUniversalString) == "yes" {
+		HostIgnoresUniversal = true
+	} else {
+		HostIgnoresUniversal = false
+
+		// Not ignoring, make this host a part of the universal group
+		universalGroupsList = append(universalGroupsList, config.UniversalDirectory)
+	}
+
+	// Get universal groups this host is a part of
+	HostUniversalGroups = make(map[string]struct{})
+	for _, universalGroup := range universalGroupsList {
+		// Skip empty hosts' group
+		if universalGroup == "" {
+			continue
+		}
+
+		// Map of groups that this host is a part of
+		HostUniversalGroups[universalGroup] = struct{}{}
+
+		// Add this hosts name to the global universal map for groups this host is a part of
+		config.AllUniversalGroups[universalGroup] = append(config.AllUniversalGroups[universalGroup], endpointName)
 	}
 
 	return

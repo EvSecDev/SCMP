@@ -10,9 +10,9 @@ import (
 func TestCheckForOverride(t *testing.T) {
 	// Mock globals
 	config = Config{
-		AllUniversalGroups: map[string]struct{}{
-			"universalGroup1": {},
-			"universalGroup2": {},
+		AllUniversalGroups: map[string][]string{
+			"universalGroup1": {"host9"},
+			"universalGroup2": {"host11"},
 		},
 		HostInfo: map[string]EndpointInfo{
 			"host1": {
@@ -74,9 +74,9 @@ func TestMapFilesByHostOrUniversal(t *testing.T) {
 	config = Config{
 		OSPathSeparator:    "/",
 		UniversalDirectory: "universal",
-		AllUniversalGroups: map[string]struct{}{
-			"universalGroup1": {},
-			"universalGroup2": {},
+		AllUniversalGroups: map[string][]string{
+			"universalGroup1": {"host9"},
+			"universalGroup2": {"host11"},
 		},
 	}
 
@@ -372,8 +372,8 @@ func TestValidateRepoFile(t *testing.T) {
 	config.HostInfo["validHost2"] = EndpointInfo{EndpointName: "validHost2"}
 	config.IgnoreDirectories = []string{"ignoreDir", "ignoreDir2"}
 	config.UniversalDirectory = "UniversalConfs"
-	config.AllUniversalGroups = map[string]struct{}{
-		"UniversalConfs_Group1": {},
+	config.AllUniversalGroups = map[string][]string{
+		"UniversalConfs_Group1": {"host14"},
 	}
 
 	tests := []struct {

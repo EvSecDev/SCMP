@@ -41,10 +41,13 @@ If you like what this program can do or want to expand functionality yourself, f
 - Deployments
   - Deploy changed configurations automatically via git post-commit hook or manually via specifying a commit hash
   - Deploy all (or a subset of) tracked files
-  - Deploy individual/lists of files to individual/lists of hosts
+  - Deploy individual/lists/groups of files to individual/lists/groups of hosts
   - Deployment test run using single host (use `--max-conns 1 -r HOST`)
-  - Run a linear series of commands prior to any deployment actions
-  - Run a linear series of commands to enable/reload/start services associated with files
+  - Exclude hosts from deployments (use config option `DeploymentState offline`)
+  - Ad-hoc override host exclusion from deployments (use `--ignore-deployment-state`)
+  - Run a linear series of commands prior to any deployment actions (part of JSON file metadata header)
+  - Run a linear series of commands to enable/reload/start services associated with files (part of JSON file metadata header)
+  - Run a linear series of commands to install services associated with files (part of JSON file metadata header)
   - Easy retry of deployment failures with a single argument
   - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
 - File/Directory Management
@@ -72,7 +75,6 @@ If you like what this program can do or want to expand functionality yourself, f
 
 - File/Directory Management
   - Handle some special files (device, pipes, sockets, ect.)
-  - Removing files or directories not previously in repository
   - Manage binary files (executables or shared objects)
 - SSH
   - 2FA (TOTP) logins
@@ -127,6 +129,8 @@ Options:
                                                  Only applies to '--deploy-changes' argument (dry-run will not work)
       --allow-deletions                          Allows deletions (remote files or vault entires)
                                                  Only applies to '--deploy-changes' or '--modify-vault-password'
+      --install                                  Runs installation commands in config files metadata JSON header
+	                                             Commands are run at the end of all deployments for a given host
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file

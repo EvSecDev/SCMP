@@ -120,6 +120,29 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			// targetFilePath   should be the file path as expected on the remote system
 			// commitFilePath   should be the local file path within the commit repository - is REQUIRED to reference keys in the big config information maps (commitFileData, commitFileActions, ect.)
 
+			// Run installation commands first if requested
+			if commitFileInfo[commitFilePath].InstallOptional && config.RunInstallCommands {
+				var InstallFailed bool
+				for _, command := range commitFileInfo[commitFilePath].Install {
+					printMessage(VerbosityData, "Host %s:   Running install command '%s'\n", endpointName, command)
+
+					_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, Password, 90)
+					if err != nil {
+						// Record this failed command - first failure always stops file deployment
+						recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during installation command %s: %v", command, err))
+						InstallFailed = true
+						break
+					}
+				}
+
+				// Skip to next file if install failed
+				if InstallFailed {
+					// Failures in installation for any single file in a reload group means reloads should not occur
+					dontRunReloads = true
+					continue
+				}
+			}
+
 			// Run Check commands before beginning deployment of this file
 			if commitFileInfo[commitFilePath].ChecksRequired {
 				var CheckFailed bool
@@ -270,6 +293,27 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 		// What to do - Create/Delete/symlink the config
 		targetFileAction := commitFileInfo[commitFilePath].Action
+
+		// Run installation commands first if requested
+		if commitFileInfo[commitFilePath].InstallOptional && config.RunInstallCommands {
+			var InstallFailed bool
+			for _, command := range commitFileInfo[commitFilePath].Install {
+				printMessage(VerbosityData, "Host %s:   Running install command '%s'\n", endpointName, command)
+
+				_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, Password, 90)
+				if err != nil {
+					// Record this failed command - first failure always stops file deployment
+					recordDeploymentFailure(endpointName, commitFilePaths, commitIndex, fmt.Errorf("failed SSH Command on host during installation command %s: %v", command, err))
+					InstallFailed = true
+					break
+				}
+			}
+
+			// Skip to next file if install failed
+			if InstallFailed {
+				continue
+			}
+		}
 
 		// Run Check commands before beginning deployment of this file
 		if commitFileInfo[commitFilePath].ChecksRequired {
