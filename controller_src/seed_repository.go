@@ -433,7 +433,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	hostFilePath := strings.ReplaceAll(targetFilePath, "/", config.OSPathSeparator)
 
 	// Use target file path and hosts name for repo file location
-	configFilePath := endpointName + hostFilePath
+	filePath := endpointName + hostFilePath
 
 	// Convert permissions string to number format
 	numberPermissions := permissionsSymbolicToNumeric(fileInfo[0])
@@ -446,7 +446,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	printMessage(VerbosityProgress, "  File '%s': Retrieving reload command information from user\n", targetFilePath)
 
 	// Ask user for confirmation to use reloads
-	reloadWanted, err := promptUser("Does file '%s' need reload commands? [y/N]: ", configFilePath)
+	reloadWanted, err := promptUser("Does file '%s' need reload commands? [y/N]: ", filePath)
 	if err != nil {
 		return
 	}
@@ -532,32 +532,85 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		metadataHeader.ReloadCommands = reloadCmds
 	}
 
-	printMessage(VerbosityProgress, "Adding JSON metadata header to file '%s'\n", configFilePath)
+	// Check what type of data is in retrieve file
+	fileIsPlainText := isText(fileContents)
+
+	// Make file depending on if plain text or binary
+	if !fileIsPlainText {
+		var userResponse string
+		printMessage(VerbosityStandard, "  File is not plain text, it should probably be stored outside of git\n")
+		fmt.Print("  Specify a directory path where the actual file should be stored or enter nothing to store file directly in repository\n")
+		fmt.Print("Path to External Directory: ")
+		fmt.Scanln(&userResponse)
+
+		// Add user specified directory to artifact path header field
+		if userResponse != "" {
+			// Combine remote file name with user supplied local path
+			artifactFilePath := filepath.Join(userResponse, filepath.Base(filePath))
+
+			// Clean up user supplied path
+			artifactFilePath, err = filepath.Abs(artifactFilePath)
+			if err != nil {
+				return
+			}
+
+			// Store real file path in git-tracked file (set URI prefix)
+			metadataHeader.ExternalContentLocation = fileURIPrefix + artifactFilePath
+
+			// Ensure all parent directories exist for the file
+			err = os.MkdirAll(filepath.Dir(artifactFilePath), 0750)
+			if err != nil {
+				return
+			}
+
+			// Create/Truncate artifact file
+			var artifactFile *os.File
+			artifactFile, err = os.OpenFile(artifactFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+			if err != nil {
+				return
+			}
+			defer artifactFile.Close()
+
+			// Write artifact file contents to the file
+			_, err = artifactFile.WriteString(fileContents)
+			if err != nil {
+				return
+			}
+
+			// Correct file name of pointer to be stored in repo
+			filePath = filePath + artifactPointerFileExtension
+
+			// Ensure fileContents are not written into repository
+			fileContents = ""
+		}
+	}
+
+	printMessage(VerbosityProgress, "Adding JSON metadata header to file '%s'\n", filePath)
 
 	// Marshal metadata JSON
 	metadata, errNoFatal := json.MarshalIndent(metadataHeader, "", "  ")
 	if errNoFatal != nil {
-		printMessage(VerbosityStandard, "Failed to marshal metadata header into JSON format for file %s: %v\n", configFilePath, errNoFatal)
+		printMessage(VerbosityStandard, "Failed to marshal metadata header into JSON format for file %s: %v\n", filePath, errNoFatal)
 		return
 	}
 
 	// Add header to file contents
-	configFile := Delimiter + "\n" + string(metadata) + "\n" + Delimiter + "\n" + fileContents
+	file := Delimiter + "\n" + string(metadata) + "\n" + Delimiter + "\n" + fileContents
 
-	printMessage(VerbosityProgress, "Writing file '%s' to repository\n", configFilePath)
+	printMessage(VerbosityProgress, "Writing file '%s' to repository\n", filePath)
 
 	// Create any missing directories in repository
-	configParentDirs := filepath.Dir(configFilePath)
+	configParentDirs := filepath.Dir(filePath)
 	errNoFatal = os.MkdirAll(configParentDirs, 0700)
 	if errNoFatal != nil {
-		printMessage(VerbosityStandard, "Failed to create missing directories in local repository for file '%s': %v\n", configFilePath, errNoFatal)
+		printMessage(VerbosityStandard, "Failed to create missing directories in local repository for file '%s': %v\n", filePath, errNoFatal)
 		return
 	}
 
 	// Write config to file in repository
-	errNoFatal = os.WriteFile(configFilePath, []byte(configFile), 0600)
+	errNoFatal = os.WriteFile(filePath, []byte(file), 0600)
 	if errNoFatal != nil {
-		printMessage(VerbosityStandard, "Failed to write file '%s' to local repository: %v\n", configFilePath, errNoFatal)
+		printMessage(VerbosityStandard, "Failed to write file '%s' to local repository: %v\n", filePath, errNoFatal)
 		return
 	}
 
@@ -593,5 +646,27 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		}
 	}
 
+	return
+}
+
+// isText checks if a string is likely plain text or binary data based on the first 500 bytes
+func isText(inputString string) (isPlainText bool) {
+
+	// Check for non-printable characters in the first 500 bytes
+	nonPrintableCount := 0
+	for _, r := range inputString {
+		// Check for control characters or characters outside the printable ASCII range
+		if r < 32 || r > 126 {
+			nonPrintableCount++
+		}
+	}
+
+	// Consider the string as plain text if less than 30% are non-printable characters
+	// Adjust the threshold as needed
+	if float64(nonPrintableCount)/float64(len(inputString)) < 0.3 {
+		isPlainText = true
+		return
+	}
+	isPlainText = false
 	return
 }

@@ -2,16 +2,11 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
 	"strings"
-
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
 // Does a couple things
@@ -42,139 +37,6 @@ func localSystemChecks() (err error) {
 	}
 	if noActiveNetInterface {
 		err = fmt.Errorf("no active network interfaces found, will not attempt network connections")
-		return
-	}
-
-	return
-}
-
-// Commit changes in git repository
-func commitChanges() (err error) {
-	// If automatic commit is not desired, return early
-	if !config.AutoCommit {
-		return
-	}
-
-	// Check if working tree is clean
-	repo, err := git.PlainOpen(config.RepositoryPath)
-	if err != nil {
-		return
-	}
-
-	// Get working tree
-	worktree, err := repo.Worktree()
-	if err != nil {
-		return
-	}
-
-	// Check current status
-	status, err := worktree.Status()
-	if err != nil {
-		return
-	}
-
-	// If repository changes are all committed, return early
-	if status.IsClean() {
-		return
-	}
-
-	// Add all files to worktree
-	err = worktree.AddGlob(".")
-	if err != nil {
-		return
-	}
-
-	// Prompt user for commit message
-	printMessage(VerbosityStandard, "Automatic Commit Requested. All unstaged files will be committed.\n")
-	printMessage(VerbosityStandard, "  If a changelog file is desired, use 'file://' to specify the path.\n")
-	scanner := bufio.NewScanner(os.Stdin)
-	printMessage(VerbosityStandard, "Commit Message: ")
-	scanner.Scan()
-	commitMessage := scanner.Text()
-	err = scanner.Err()
-	if err != nil {
-		return
-	}
-
-	// Retrieve commit message from user supplied file
-	if strings.HasPrefix(commitMessage, "file://") {
-		// Not adhering to actual URI standards -- I just want file paths
-		pathToCommitMessage := strings.TrimPrefix(commitMessage, "file://")
-
-		// Check for ~/ and expand if required
-		pathToCommitMessage = expandHomeDirectory(pathToCommitMessage)
-
-		// Retrieve the file contents
-		var fileBytes []byte
-		fileBytes, err = os.ReadFile(pathToCommitMessage)
-		if err != nil {
-			return
-		}
-
-		// Convert file to string
-		commitMessage = string(fileBytes)
-	}
-
-	// Commit changes
-	_, err = worktree.Commit(commitMessage, &git.CommitOptions{
-		Author: &object.Signature{
-			Name:  autoCommitUserName,
-			Email: autoCommitUserEmail,
-		},
-	})
-	if err != nil {
-		return
-	}
-
-	return
-}
-
-// Opens repository and retrieves details about given commit
-// If commitID is empty, will default to using HEAD commit
-func getCommit(commitID *string) (tree *object.Tree, commit *object.Commit, err error) {
-	printMessage(VerbosityProgress, "Retrieving commit and tree from git repository\n")
-
-	// Open the repository
-	repo, err := git.PlainOpen(config.RepositoryPath)
-	if err != nil {
-		err = fmt.Errorf("unable to open repository: %v", err)
-		return
-	}
-
-	// If no commitID, assume they want to use the HEAD commit
-	if *commitID == "" {
-		// Get the pointer to the HEAD commit
-		var ref *plumbing.Reference
-		ref, err = repo.Head()
-		if err != nil {
-			err = fmt.Errorf("unable to get HEAD reference: %v", err)
-			return
-		}
-
-		// Set HEAD commitID
-		*commitID = ref.Hash().String()
-	}
-
-	// Verify commit ID string content
-	if !SHA1RegEx.MatchString(*commitID) {
-		err = fmt.Errorf("invalid commit ID: hash is not 40 characters and/or is not hexadecimal")
-		return
-	}
-
-	// Set hash
-	commitHash := plumbing.NewHash(*commitID)
-
-	// Get the commit
-	commit, err = repo.CommitObject(commitHash)
-	if err != nil {
-		err = fmt.Errorf("unabke to get commit object: %v", err)
-		return
-	}
-
-	// Get the tree from the commit
-	tree, err = commit.Tree()
-	if err != nil {
-		err = fmt.Errorf("unable to get commit tree: %v", err)
 		return
 	}
 
@@ -216,7 +78,7 @@ func recordDeploymentError(commitID string) (err error) {
 
 		// Print failed file in local path format
 		if len(failures.Files) > 0 {
-			printMessage(VerbosityStandard, "Files: %v\n", failures.Files)
+			printMessage(VerbosityStandard, "Local Files: %v\n", failures.Files)
 		}
 
 		// Print all the errors in a cascading format to show root cause
@@ -270,7 +132,7 @@ func recordDeploymentError(commitID string) (err error) {
 }
 
 // Print out deployment information in dry run mode
-func printDeploymentInformation(commitFileInfo map[string]CommitFileInfo, allDeploymentHosts []string) {
+func printDeploymentInformation(commitFileInfo map[string]FileInfo, allDeploymentHosts []string) {
 	// Notify user that program is in dry run mode
 	printMessage(VerbosityStandard, "Requested dry-run, aborting deployment\n")
 	if globalVerbosityLevel < 2 {
@@ -287,28 +149,38 @@ func printDeploymentInformation(commitFileInfo map[string]CommitFileInfo, allDep
 
 		// Identify maximum indent file name prints will need to be
 		var maxFileNameLength int
+		var maxActionLength int
 		for _, filePath := range hostInfo.DeploymentFiles {
 			// Format to remote path type
-			_, targetFile := separateHostDirFromPath(filePath)
+			_, targetFile := translateLocalPathtoRemotePath(filePath)
 
 			nameLength := len(targetFile)
 			if nameLength > maxFileNameLength {
 				maxFileNameLength = nameLength
 			}
+
+			actionLength := len(commitFileInfo[filePath].Action)
+			if actionLength > maxActionLength {
+				maxActionLength = actionLength
+			}
 		}
-		// Increment indent so longest file name has at least one space after it
+		// Increment indent so longest name has at least some space after it
 		maxFileNameLength += 1
+		maxActionLength += 9
 
 		// Print out files for this specific host
 		for _, file := range hostInfo.DeploymentFiles {
 			// Format to remote path type
-			_, targetFile := separateHostDirFromPath(file)
+			_, targetFile := translateLocalPathtoRemotePath(file)
 
 			// Determine how many spaces to add after file name
-			indentSpaces := maxFileNameLength - len(targetFile)
+			fileIndentSpaces := maxFileNameLength - len(targetFile)
+
+			// Determine how many spaces to add after action name
+			actionIndentSpaces := maxActionLength - len(commitFileInfo[file].Action)
 
 			// Print what we are going to do, the local file path, and remote file path
-			printMessage(VerbosityProgress, "       %s:           %s%s# %s\n", commitFileInfo[file].Action, targetFile, strings.Repeat(" ", indentSpaces), file)
+			printMessage(VerbosityProgress, "       %s:%s%s%s# %s\n", commitFileInfo[file].Action, strings.Repeat(" ", actionIndentSpaces), targetFile, strings.Repeat(" ", fileIndentSpaces), file)
 		}
 	}
 }

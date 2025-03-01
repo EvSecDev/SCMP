@@ -338,10 +338,14 @@ do
 	    updatepackages='true'
 	    ;;
 	  'g')
-            generate_github_release "$architecture" "$os"
-            exit 0
-            ;;
+        generate_github_release "$architecture" "$os"
+        exit 0
+        ;;
 	  'h')
+	    usage
+	    exit 0
+ 	    ;;
+	  *)
 	    usage
 	    exit 0
  	    ;;

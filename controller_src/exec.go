@@ -65,7 +65,7 @@ func executeCommand(hostInfo EndpointInfo, command string) {
 // Run a script on host(s)
 func runScript(scriptFile string, hosts string, remoteFilePath string) {
 	// Not adhering to actual URI standards -- I just want file paths
-	localScriptFilePath := strings.TrimPrefix(scriptFile, "file://")
+	localScriptFilePath := strings.TrimPrefix(scriptFile, fileURIPrefix)
 
 	// Check for ~/ and expand if required
 	localScriptFilePath = expandHomeDirectory(localScriptFilePath)

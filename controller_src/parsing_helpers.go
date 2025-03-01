@@ -22,7 +22,7 @@ import (
 // Loads file in and separates based on newlines or commas and returns a string csv
 func retrieveURIFile(input string) (csv string, err error) {
 	// Return early if not a file URI scheme
-	if !strings.HasPrefix(input, "file:") {
+	if !strings.HasPrefix(input, fileURIPrefix) {
 		csv = input
 		return
 	}
@@ -30,7 +30,7 @@ func retrieveURIFile(input string) (csv string, err error) {
 	printMessage(VerbosityData, "Received File URI '%s'\n", input)
 
 	// Not adhering to actual URI standards -- I just want file paths
-	path := strings.TrimPrefix(input, "file://")
+	path := strings.TrimPrefix(input, fileURIPrefix)
 
 	printMessage(VerbosityFullData, "Preprocessed File URI Path '%s'\n", path)
 
@@ -429,7 +429,13 @@ func ResolveLinkToTarget(filePath string) (targetPath string, err error) {
 // Returned targetFilePath will contain a leading slash
 // Path separators are linux ("/")
 // Function does not return errors, but unexpected input will return nil outputs
-func separateHostDirFromPath(localRepoPath string) (hostDir string, targetFilePath string) {
+func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targetFilePath string) {
+	// Remove .remote-artifact extension if applicable
+	localRepoPath = strings.TrimSuffix(localRepoPath, artifactPointerFileExtension)
+
+	// Format commitFilePath with the expected host path separators
+	localRepoPath = strings.ReplaceAll(localRepoPath, config.OSPathSeparator, "/")
+
 	// Bad - not a path, just a name
 	if !strings.Contains(localRepoPath, "/") {
 		return

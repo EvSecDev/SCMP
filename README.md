@@ -12,31 +12,34 @@ The configuration for the controller utilizes a semi-standard `~/.ssh/config` th
 The 'semi-standard' part of this is the inclusion of some advanced configuration options to better integrate with git and deployment activities.
 Fear not, you can use your `~/.ssh/config` with the controller and a regular SSH client at the same time.
 
-For sudo passwords, this program utilizes a simple password vault file stored where ever you specify. 
+For sudo passwords, this program utilizes a simple password vault file stored where ever you specify.
 This vault stores the password per host and is manipulated through controller (add/change/remove).
 This is intended to facilitate deployments to a large number of hosts with potentially different passwords. With the vault, your provide the master password only once.
 The vault is protected by an AEAD cipher (chacha20poly1305) and derives the key via Argon2 from your master password.
 
 Using the Go x/crypto/ssh package, this program will SSH into the hosts defined in the configuration file and write the relevant configurations as well as handle the reloading of the associated service/program if required.
   The deployment method is currently only SSH by key authentication using password sudo for remote commands (password login authentication is currently not supported).
- - In deploy changes mode, you can choose a specific commit ID (or specify none and use the latest commit) from your repository and deploy the changed files in that specific commit to their designated remote hosts.
- - In deploy failure mode, the program will read the last failure json (if present) and extract the commitid, hosts, and files that failed and attempt to redeploy.
- - In deploy all mode, with a comma separated list of hosts, you can deploy every relevant file in the repo to the chosen hosts for a given commit (usually, the head commit). 
+
+- In deploy changes mode, you can choose a specific commit ID (or specify none and use the latest commit) from your repository and deploy the changed files in that specific commit to their designated remote hosts.
+- In deploy failure mode, the program will read the last failure json (if present) and extract the commitid, hosts, and files that failed and attempt to redeploy.
+- In deploy all mode, with a comma separated list of hosts, you can deploy every relevant file in the repo to the chosen hosts for a given commit (usually, the head commit).
 
 Although this program does need permissions on remote systems for writing system-wide configuration files and potentially restarting services, it does NOT need to SSH as root.
 In general, it is recommended to use some or all of these below security precautions.
-  - Sudo access that requires a password.
-  - Only allowing your user sudo access for the standard commands (listed below in dependencies section) and your reload commands.
-  - Using network level host IP authentication (such as IPsec AH)
-  - Using the supplied apparmor profile for the controller.
-  - Regular encrypted backups of git repository
+
+- Sudo access that requires a password.
+- Only allowing your user sudo access for the standard commands (listed below in dependencies section) and your reload commands.
+- Using network level host IP authentication (such as IPsec AH)
+- Using the supplied apparmor profile for the controller.
+- Regular encrypted backups of git repository
+
 Below you can find the recommended setup for the remote servers, and how to configure the remote host to have the least privileges possible to fulfill the functions of this program.
 
 If you like what this program can do or want to expand functionality yourself, feel free to submit a pull request or fork.
 
 ## Capabilities Overview
 
-### What it can do:
+### What it can do
 
 - Deployments
   - Deploy changed configurations automatically via git post-commit hook or manually via specifying a commit hash
@@ -71,7 +74,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Collect configurations from existing systems to bootstrap the local repository
   - Use file input to any of the host/file arguments using a file URI scheme (like `file:///absolute/path/file`, `file://relative/path/file`)
 
-### What it can NOT do:
+### What it can NOT do
 
 - File/Directory Management
   - Handle some special files (device, pipes, sockets, ect.)
@@ -81,7 +84,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Use Control Sockets
   - Use any form of client forwarding (tunnels, x11, agents)
 
-### Dependencies:
+### Dependencies
 
 - Remote Host Requirements:
   - OpenSSH Server
@@ -91,7 +94,7 @@ If you like what this program can do or want to expand functionality yourself, f
 
 ### Controller Help Menu
 
-```
+```bash
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
@@ -99,6 +102,12 @@ const usage = `Secure Configuration Management Program (SCMP)
 Options:
   -c, --config </path/to/ssh/config>             Path to the configuration file
                                                  [default: ~/.ssh/config]
+      --git-add <dir|file>                       Add files/directories/globs to git worktree
+                                                 Required for artifact tracking feature
+      --git-status                               Check current worktree status
+                                                 Prints out file paths that differ from clean worktree
+      --git-commit <'message'|file:///>          Commit changes to git repository with message
+                                                 File contents will be read and used as message
   -d, --deploy-changes                           Deploy changed files in the specified commit
                                                  [commit default: head]
   -a, --deploy-all                               Deploy all files in specified commit
@@ -130,15 +139,11 @@ Options:
       --allow-deletions                          Allows deletions (remote files or vault entires)
                                                  Only applies to '--deploy-changes' or '--modify-vault-password'
       --install                                  Runs installation commands in config files metadata JSON header
-	                                             Commands are run at the end of all deployments for a given host
+                                                 Commands are run before file deployments (before checks)
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file
                                                  For example, will deploy to a host marked as offline
-  -g, --disable-git-hook                         Disables the automatic deployment git
-                                                 post-commit hook for the current repository
-  -G, --enable-git-hook                          Enables the automatic deployment git
-                                                 post-commit hook for the current repository
   -t, --test-config                              Test controller configuration syntax
                                                  and configuration option validity
   -v, --verbose <0...5>                          Increase details and frequency of progress messages
@@ -193,7 +198,8 @@ This feature requires that you have installed controller and configured the SSH 
 It also requires that the remote host is setup as described in the SSH config (port is open, user is allowed, ect.)
 
 The interface you will be using for this feature is extremely barebones. It looks like this:
-```
+
+```bash
 ==== Secure Configuration Management Repository Seeding ====
 ============================================================
 1 bin        7  initrd.img.old 13 opt/   19 sys/
@@ -205,20 +211,20 @@ The interface you will be using for this feature is extremely barebones. It look
 ============================================================
          Select File    Change Dir ^v  Exit
         [ # # ## ### ]  [ c0 ] [ c# ]  [ ! ]
-  hostname:/# Type your selections: _
+hostname:/# Type your selections: _
 ```
 
 If you wanted to change directories to `/etc/`, you'd type this and press enter:
 
-`  hostname:/# Type your selections: c4`
+`hostname:/# Type your selections: c4`
 
 If you wanted to select files `vmlinuz`, `initrd.img.old`, `initrd.img`, and then exit you'd type this and press enter:
 
-`  hostname:/# Type your selections: 23 7 6 !`
+`hostname:/# Type your selections: 23 7 6 !`
 
 If you were in `/etc/` and wanted to move up one directory, you'd type this and press enter:
 
-`  hostname:/# Type your selections: c0`
+`hostname:/# Type your selections: c0`
 
 The shortcuts will be listed below every directory so you won't need to remember them.
 You can type as many or as little options as you wish in any order, they will all be added.
@@ -228,7 +234,8 @@ Once you have selected all your files and typed `!`, you will be asked (file by 
 The controller will then take all the files and write them to their respective host directories in the local repository copying the remote host file path.
 
 The structure of the local repository is supposed to be a replica of the remote server filesystem, to facilitate editing and organizing files as you normally would on the remote system.
-```
+
+```sh
 -----------------------------
 -> RepositoryDirectory
   -> UniversalConfs
@@ -284,7 +291,7 @@ You can specify the directory name and the hosts that should use the directory i
 
 ### Directory Management
 
-The version control and deployment of directory and directory metadata is split in two. 
+The version control and deployment of directory and directory metadata is split in two.
 The existence of a directory/directory structure will imply the creation of the same structure on the remote host.
 Removal of managed directories in the repository will only remove the remote directory if the remote directory is empty.
 
@@ -292,7 +299,8 @@ Metadata of directories is handled through a special JSON file that lives direct
 The file name is static and will always need to be `.directory_metadata_information.json`
 
 The JSON is the same as the metadata header in files with no reload section:
-```
+
+```json
 {
   "FileOwnerGroup": "www-data:www-data",
   "FilePermissions": 755
@@ -305,8 +313,34 @@ This metadata file should only be used where custom permissions are absolutely r
 
 ### File transfers
 
-File transfers for this program are done using SCP and are limited to 90 seconds per file. 
+File transfers for this program are done using SCP and are limited to 90 seconds per file.
 Something to keep in mind, your end to end bandwidth for a deployment will determine how large of a file can be transferred in that time.
+
+### Artifact Files (External Git Content)
+
+Binary files and other non-text files (artifacts) are not great at being tracked by git.
+Due to this, there is a workaround to "version control" binary files while still being tied into SCMP deployments.
+
+This feature requires three things:
+
+- The file in the SCMP git repository needs an extra field in the metadata header JSON: `ExternalContentLocation`:
+  - Example: `"ExternalContentLocation":"file:///absolute/path/to/actual/binary/file"`
+- The file in the SCMP git repository can be named whatever it needs to be, but requires `.remote-artifact` file extension.
+  - The extension is just for local identification, the extension is removed prior to deployment.
+- Use the built-in controller git add argument `--git-add`
+  - This is how the artifact files are tracked by git.
+
+Any content past the metadata header in the `.remote-artifact` file is used to store the hash of the artifact file content.
+This hash is updated before every commit to ensure updates remotely are tracked in git without tracking the binary's actual content
+
+You might be asking, how does the git repository know when your binary file has changed?
+Since the binary file is not tracked directly in git, any `.remote-artifact` files will be flagged for inspection when using controller's `--git-add` argument.
+The controller will follow the file path you give in the `ExternalContentLocation` and hash the current artifact file.
+Once the artifact pointer file is flagged as changed by git, the normal deployment process takes place (with the caveat that content loading is done using the `ExternalContentLocation`)
+
+Due to this system, binary files do take up extra processing power and memory space since changes are tracked at runtime.
+
+Only `file://` (local) URIs are supported for the `ExternalContentLocation` field currently.
 
 ### Check/Reload commands
 
@@ -327,8 +361,8 @@ In order to get auto-completion of the controller's arguments, SSH hosts, and gi
 
 If your controller binary is named something else, rename both `_controller` and `controller` to your name (keeping the underscore prefix)
 
-```
-# Auto completion for SCMP Controller arugments
+```bash
+# Auto completion for SCMP Controller arguments
 _controller() {
     local cur prev opts
 
@@ -461,7 +495,8 @@ This is intentional to ensure that the HEAD commit is the most accurate represen
 
 One thing to note however, the controller does not perform garbage collection on the git repository.
 Therefore it is recommended to run the following commands on a regular schedule or occasionally to reduce disk space usage (if the default git garbage collection schedule is too slow for you).
-```
+
+```bash
 git reflog expire --expire-unreachable=now --all
 git gc --prune=now
 ```

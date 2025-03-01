@@ -8,8 +8,6 @@ import (
 	"strings"
 
 	"github.com/coreos/go-systemd/journal"
-	"github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
 )
 
 // ###################################
@@ -31,56 +29,15 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 	}
 
 	// Print the error
-	fmt.Printf("\n%s: %v\n", errorDescription, errorMessage)
+	fmt.Printf("%s: %v\n", errorDescription, errorMessage)
 
 	// Only roll back commit if the program was started by a hook and if the commit rollback is requested
 	// Reset commit because the current commit should reflect what is deployed in the network
 	// Conceptually, the rough equivalent of this command: git reset --soft HEAD~1
 	if CalledByGitHook && CleanupNeeded {
-		// Warn user
-		fmt.Printf("WARNING: Removing current repository commit due to processing error.\n")
-		fmt.Printf("         Working directory is **NOT** affected.\n")
-
-		// Open the repo
-		repo, err := git.PlainOpen(config.RepositoryPath)
+		err = gitRollBackOneCommit()
 		if err != nil {
-			fmt.Printf("Error rolling back commit. Failed to open repository: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Get the current branch reference
-		currentBranchReference, err := repo.Reference(plumbing.ReferenceName("HEAD"), true)
-		if err != nil {
-			fmt.Printf("Error rolling back commit. Failed to get branch name from HEAD commit: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Get the branch HEAD commit
-		currentBranchHeadCommit, err := repo.CommitObject(currentBranchReference.Hash())
-		if err != nil {
-			fmt.Printf("Error rolling back commit. Failed to get HEAD commit: %v\n", err)
-			os.Exit(1)
-		}
-
-		// Ensure a previous commit exists before retrieve the hash
-		if len(currentBranchHeadCommit.ParentHashes) == 0 {
-			fmt.Printf("Error rolling back commit. HEAD does not have a previous commit\n")
-			os.Exit(1)
-		}
-
-		// Get the previous commit hash
-		previousCommitHash := currentBranchHeadCommit.ParentHashes[0]
-
-		// Get the branch short name
-		currentBranchNameString := currentBranchReference.Name()
-
-		// Create new reference with the current branch and previous commit hash
-		newBranchReference := plumbing.NewHashReference(plumbing.ReferenceName(currentBranchNameString), previousCommitHash)
-
-		// Reset HEAD of current branch to previous commit
-		err = repo.Storer.SetReference(newBranchReference)
-		if err != nil {
-			fmt.Printf("Failed to roll back current commit to previous commit: %v\n", err)
+			fmt.Printf("Error rolling back commit. %v\n", err)
 			os.Exit(1)
 		}
 
@@ -88,7 +45,6 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 		fmt.Printf("Please fix the above error then `git add` and `git commit` to restart deployment process.\n")
 	}
 
-	fmt.Printf("================================================\n")
 	os.Exit(1)
 }
 

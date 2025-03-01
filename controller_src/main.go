@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-git/go-git/v5"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -69,18 +70,18 @@ type Credential struct {
 
 // Struct for metadata json in config files
 type MetaHeader struct {
-	TargetFileOwnerGroup  string   `json:"FileOwnerGroup"`
-	TargetFilePermissions int      `json:"FilePermissions"`
-	InstallCommands       []string `json:"Install,omitempty"`
-	CheckCommands         []string `json:"Checks,omitempty"`
-	ReloadCommands        []string `json:"Reload,omitempty"`
+	TargetFileOwnerGroup    string   `json:"FileOwnerGroup"`
+	TargetFilePermissions   int      `json:"FilePermissions"`
+	ExternalContentLocation string   `json:"ExternalContentLocation,omitempty"`
+	InstallCommands         []string `json:"Install,omitempty"`
+	CheckCommands           []string `json:"Checks,omitempty"`
+	ReloadCommands          []string `json:"Reload,omitempty"`
 }
 
 const Delimiter string = "#|^^^|#"
 
 // Struct for all deployment info for a file
-type CommitFileInfo struct {
-	Data            string
+type FileInfo struct {
 	Hash            string
 	Action          string
 	FileOwnerGroup  string
@@ -132,8 +133,11 @@ const defaultConfigPath string = "~/.ssh/config"
 const directoryMetadataFileName string = ".directory_metadata_information.json"
 const autoCommitUserName string = "SCMPController"
 const autoCommitUserEmail string = "scmpc@localhost"
+const fileURIPrefix string = "file://"
 const environmentUnknownSSHHostKey string = "UnknownSSHHostKeyAction"
-const maxDirectoryLoopCount int = 1000 // Maximum recursion for any loop over directories
+const maxDirectoryLoopCount int = 1000                         // Maximum recursion for any loop over directories
+const artifactPointerFileExtension string = ".remote-artifact" // file extension to identify 'pointer' files for artifact files
+const hashingBufferSize int = 64 * 1024                        // 64KB Buffer for stream hashing
 
 // #### Written to in other functions - use mutex
 
@@ -154,7 +158,7 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v3.8.0"
+const progVersion string = "v4.0.0"
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
@@ -162,6 +166,12 @@ const usage = `Secure Configuration Management Program (SCMP)
 Options:
   -c, --config </path/to/ssh/config>             Path to the configuration file
                                                  [default: ~/.ssh/config]
+      --git-add <dir|file>                       Add files/directories/globs to git worktree
+                                                 Required for artifact tracking feature
+      --git-status                               Check current worktree status
+                                                 Prints out file paths that differ from clean worktree
+      --git-commit <'message'|file:///>          Commit changes to git repository with message
+                                                 File contents will be read and used as message
   -d, --deploy-changes                           Deploy changed files in the specified commit
                                                  [commit default: head]
   -a, --deploy-all                               Deploy all files in specified commit
@@ -193,15 +203,11 @@ Options:
       --allow-deletions                          Allows deletions (remote files or vault entires)
                                                  Only applies to '--deploy-changes' or '--modify-vault-password'
       --install                                  Runs installation commands in config files metadata JSON header
-	                                             Commands are run before file deployments (before checks)
+                                                 Commands are run before file deployments (before checks)
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file
                                                  For example, will deploy to a host marked as offline
-  -g, --disable-git-hook                         Disables the automatic deployment git
-                                                 post-commit hook for the current repository
-  -G, --enable-git-hook                          Enables the automatic deployment git
-                                                 post-commit hook for the current repository
   -t, --test-config                              Test controller configuration syntax
                                                  and configuration option validity
   -v, --verbose <0...5>                          Increase details and frequency of progress messages
@@ -233,12 +239,13 @@ func main() {
 	var testConfig bool
 	var createNewRepo string
 	var seedRepoFiles bool
-	var disableGitHook bool
-	var enableGitHook bool
 	var installAAProf bool
 	var installDefaultConfig bool
 	var versionInfoRequested bool
 	var versionRequested bool
+	var gitAddRequested string
+	var gitStatusRequested bool
+	var gitCommitRequested string
 
 	// Read Program Arguments - allowing both short and long args
 	flag.StringVar(&config.FilePath, "c", defaultConfigPath, "")
@@ -276,18 +283,16 @@ func main() {
 	flag.BoolVar(&config.RunInstallCommands, "install", false, "")
 	flag.BoolVar(&config.DisableSudo, "disable-privilege-escalation", false, "")
 	flag.BoolVar(&config.IgnoreDeploymentState, "ignore-deployment-state", false, "")
-	flag.BoolVar(&disableGitHook, "g", false, "")
-	flag.BoolVar(&disableGitHook, "disable-git-hook", false, "")
-	flag.BoolVar(&enableGitHook, "G", false, "")
-	flag.BoolVar(&enableGitHook, "enable-git-hook", false, "")
 	flag.BoolVar(&versionInfoRequested, "V", false, "")
 	flag.BoolVar(&versionInfoRequested, "version", false, "")
 	flag.BoolVar(&versionRequested, "versionid", false, "")
 	flag.IntVar(&globalVerbosityLevel, "v", 1, "")
 	flag.IntVar(&globalVerbosityLevel, "verbosity", 1, "")
+	flag.StringVar(&gitAddRequested, "git-add", "", "")
+	flag.BoolVar(&gitStatusRequested, "git-status", false, "")
+	flag.StringVar(&gitCommitRequested, "git-commit", "", "")
 
 	// Undocumented internal use only
-	flag.BoolVar(&CalledByGitHook, "git-hook-mode", false, "")               // Differentiate between user using deploy-changes and the git hook using deploy-changes
 	flag.BoolVar(&installDefaultConfig, "install-default-config", false, "") // Install the sample config file if it doesn't exist
 	flag.BoolVar(&installAAProf, "install-apparmor-profile", false, "")      // Install the profile if system supports it
 
@@ -307,6 +312,10 @@ func main() {
 		return
 	}
 
+	// Global regex
+	SHA256RegEx = regexp.MustCompile(`^[a-fA-F0-9]{64}`)
+	SHA1RegEx = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+
 	// Quick attempt at installing apparmor profile - failures are not printed under normal verbosity
 	if installAAProf {
 		installAAProfile()
@@ -320,6 +329,59 @@ func main() {
 	// New repository creation if requested
 	if createNewRepo != "" {
 		createNewRepository(createNewRepo)
+		return
+	}
+
+	// If user specified any git action, parse then exit
+	if gitAddRequested != "" || gitStatusRequested || gitCommitRequested != "" {
+		// Check working dir for git repo
+		err := retrieveGitRepoPath()
+		logError("Repository Error", err, false)
+
+		// Only track artifacts when running add
+		if gitAddRequested != "" {
+			// Check for artifacts and update pointers if required
+			gitArtifactTracking()
+		}
+
+		// Open repository
+		repo, err := git.PlainOpen(config.RepositoryPath)
+		logError("Failed to open repository", err, false)
+
+		// Get working tree
+		worktree, err := repo.Worktree()
+		logError("Failed to get git worktree", err, false)
+
+		// Check current status
+		status, err := worktree.Status()
+		logError("Failed to get current worktree status", err, false)
+
+		if gitAddRequested != "" && !status.IsClean() {
+			printMessage(VerbosityFullData, "Raw add option: '%s'\n", gitAddRequested)
+
+			// Exit if dry-run requested
+			if dryRunRequested {
+				printMessage(VerbosityStandard, "Dry-run requested, not altering worktree\n")
+				return
+			}
+
+			// Add all files to worktree
+			err = worktree.AddGlob(gitAddRequested)
+			if err != nil {
+				return
+			}
+		} else if gitCommitRequested != "" && !status.IsClean() {
+			err = gitCommit(gitCommitRequested, worktree)
+			logError("Failed to commit changes", err, false)
+		} else if gitStatusRequested && !status.IsClean() {
+			currentStatus, err := worktree.Status()
+			logError("Failed to retrieve worktree status", err, false)
+			printMessage(VerbosityStandard, "%s", currentStatus.String())
+		} else if status.IsClean() {
+			printMessage(VerbosityStandard, "nothing to commit, working tree clean\n")
+		} else if !status.IsClean() {
+			printMessage(VerbosityStandard, "Untracked files present, please deal with them\n")
+		}
 		return
 	}
 
@@ -343,10 +405,6 @@ func main() {
 	} else if modifyVaultHost != "" {
 		err = modifyVault(modifyVaultHost)
 		logError("Error modifying vault", err, false)
-	} else if disableGitHook {
-		toggleGitHook("disable")
-	} else if enableGitHook {
-		toggleGitHook("enable")
 	} else if deployChangesRequested {
 		preDeployment("deployChanges", commitID, hostOverride, localFileOverride)
 	} else if deployAllRequested {

@@ -187,24 +187,6 @@ func createNewRepository(newRepoInfo string) {
 		},
 	})
 	logError("Failed to create first commit", err, false)
-
-	printMessage(VerbosityProgress, "Adding a (disabled) git post-commit hook to call controller on commits\n")
-
-	// Post commit path and contents
-	// TTY exec required to connect keyboard input to program prompts when called by git
-	postCommitFilePath := absoluteRepoPath + "/.git/hooks/post-commit.disabled"
-	postCommit := fmt.Sprintf(`#!/bin/bash
-	exec < /dev/tty
-	%s --git-hook-mode --deploy-changes --config %s`, os.Args[0], config.FilePath)
-
-	// Open post-commit file path
-	file, err := os.OpenFile(postCommitFilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0750)
-	logError("Error opening post-commit file", err, false)
-	defer file.Close()
-
-	// Write the post-commit to the hook file
-	_, err = file.WriteString(postCommit)
-	logError("Error writing to post-commit file", err, false)
 }
 
 func installDefaultSSHConfig() {

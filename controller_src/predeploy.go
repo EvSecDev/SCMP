@@ -24,12 +24,6 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		logError("Failed to extract commitID/failures from failtracker file", err, false)
 	}
 
-	// Ensure repository has all changes committed if desired
-	if deployMode == "deployChanges" {
-		err = commitChanges()
-		logError("Error committing repository changes", err, true)
-	}
-
 	// Open repo and get details - using HEAD commit if commitID is empty
 	// Pass by reference to ensure commitID can be used later if user did not specify one
 	tree, commit, err := getCommit(&commitID)
@@ -82,7 +76,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	}
 
 	// Load the files for deployment
-	commitFileInfo, err := loadFiles(allDeploymentFiles, tree)
+	allFileInfo, allFileData, err := loadFiles(allDeploymentFiles, tree)
 	logError("Error loading files", err, true)
 
 	// Ensure local system is in a state that is able to deploy
@@ -90,7 +84,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	logError("Error in local system checks", err, true)
 
 	// Show progress to user
-	printMessage(VerbosityStandard, "Beginning deployment of %d configuration(s) to %d host(s)\n", len(commitFileInfo), len(allDeploymentHosts))
+	printMessage(VerbosityStandard, "Beginning deployment of %d configuration(s) to %d host(s)\n", len(allFileInfo), len(allDeploymentHosts))
 
 	// Semaphore to limit concurrency of host deployment go routines as specified in main config
 	semaphore := make(chan struct{}, config.MaxSSHConcurrency)
@@ -106,9 +100,9 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
 		if config.MaxSSHConcurrency > 1 {
-			go deployConfigs(&wg, semaphore, config.HostInfo[endpointName], commitFileInfo)
+			go deployConfigs(&wg, semaphore, config.HostInfo[endpointName], allFileInfo, allFileData)
 		} else {
-			deployConfigs(&wg, semaphore, config.HostInfo[endpointName], commitFileInfo)
+			deployConfigs(&wg, semaphore, config.HostInfo[endpointName], allFileInfo, allFileData)
 			if len(FailTracker) > 0 {
 				// Deployment error occured, don't continue with deployments
 				break
@@ -122,7 +116,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 	// If user requested dry run - print collected information
 	if dryRunRequested {
-		printDeploymentInformation(commitFileInfo, allDeploymentHosts)
+		printDeploymentInformation(allFileInfo, allDeploymentHosts)
 		printMessage(VerbosityStandard, "================================================\n")
 		return
 	}

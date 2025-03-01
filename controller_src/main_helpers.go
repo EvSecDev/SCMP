@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -39,8 +38,6 @@ func printMessage(requiredVerbosityLevel int, message string, vars ...interface{
 func parseConfig() (err error) {
 	// Config agnostic configuration options
 	config.OSPathSeparator = string(os.PathSeparator)
-	SHA256RegEx = regexp.MustCompile(`^[a-fA-F0-9]{64}`)
-	SHA1RegEx = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 	config.UserHomeDirectory, err = os.UserHomeDir()
 	if err != nil {
 		err = fmt.Errorf("unable to find home directory: %v", err)
@@ -269,66 +266,6 @@ func filterHostGroups(endpointName string, universalGroupsCSV string, ignoreUniv
 	}
 
 	return
-}
-
-func retrieveGitRepoPath() (err error) {
-	printMessage(VerbosityProgress, "Retrieving repository file path\n")
-
-	// Get current dir (expected to be root of git repo)
-	currentWorkingDir, err := os.Getwd()
-	if err != nil {
-		return
-	}
-	expectedDotGitPath := filepath.Join(currentWorkingDir, ".git")
-
-	// Error if .git directory is not present in current directory
-	_, err = os.Stat(expectedDotGitPath)
-	if os.IsNotExist(err) {
-		err = fmt.Errorf("not in a git repository, unable to continue")
-		return
-	} else if err != nil {
-		return
-	}
-
-	// Current dir is absolute git repo path
-	config.RepositoryPath = currentWorkingDir
-	return
-}
-
-// Enables or disables git post-commit hook by moving the post-commit file
-// Takes 'enable' or 'disable' as toggle action
-func toggleGitHook(toggleAction string) {
-	// Path to enabled/disabled git hook files
-	enabledGitHookFile := filepath.Join(config.RepositoryPath, ".git", "hooks", "post-commit")
-	disabledGitHookFile := enabledGitHookFile + ".disabled"
-
-	// Determine how to move file
-	var srcFile, dstFile string
-	if toggleAction == "enable" {
-		srcFile = disabledGitHookFile
-		dstFile = enabledGitHookFile
-	} else if toggleAction == "disable" {
-		srcFile = enabledGitHookFile
-		dstFile = disabledGitHookFile
-	} else {
-		// Refuse to do anything without correct toggle action
-		return
-	}
-
-	// Check presence of destination file
-	_, err := os.Stat(dstFile)
-
-	// Move src to dst only if dst isn't present
-	if os.IsNotExist(err) {
-		err = os.Rename(srcFile, dstFile)
-	}
-
-	// Show progress to user depending on error presence
-	if err != nil {
-		logError(fmt.Sprintf("Failed to %s git post-commit hook", toggleAction), err, false)
-	} else {
-		printMessage(VerbosityStandard, "Git post-commit hook %sd.\n", toggleAction)
-	}
 }
 
 // Ensures variables that contains paths do not have '~/' and is replaced with absolute path

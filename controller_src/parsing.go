@@ -275,9 +275,6 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 			HostAndPath := strings.SplitN(commitFile, config.OSPathSeparator, 2)
 			commitHost := HostAndPath[0]
 
-			// Format a commitFilePath with the expected remote host path separators
-			filePath := strings.ReplaceAll(commitFile, config.OSPathSeparator, "/")
-
 			// Skip files not relevant to this host (either file is local to host, in global universal dir, or in host group universal)
 			_, hostIsInFilesUniversalGroup := hostInfo.UniversalGroups[commitHost]
 			if commitHost != endpointName && !hostIsInFilesUniversalGroup {
@@ -295,8 +292,8 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 			printMessage(VerbosityData, "        Selected\n")
 
 			// Add file to the host-specific file list and the global deployment file map
-			allDeploymentFiles[filePath] = commitFileAction
-			filteredCommitFiles = append(filteredCommitFiles, filePath)
+			allDeploymentFiles[commitFile] = commitFileAction
+			filteredCommitFiles = append(filteredCommitFiles, commitFile)
 		}
 
 		// Skip this host if no files to deploy
@@ -350,36 +347,33 @@ func retrieveHostSecrets(endpointName string) (err error) {
 
 // Retrieves all file content for this deployment
 // Return vales provide the content keyed on local file path for the file data, metadata, hashes, and actions
-func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitFileInfo map[string]CommitFileInfo, err error) {
+func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFileInfo map[string]FileInfo, allFileData map[string]string, err error) {
 	// Show progress to user
 	printMessage(VerbosityStandard, "Loading files for deployment... \n")
 
-	// Initialize map of all local file paths and their associated info (content, metadata, hashes, and actions)
-	commitFileInfo = make(map[string]CommitFileInfo)
+	// Initialize map of all local file paths and their associated info (metadata, hashes, and actions)
+	allFileInfo = make(map[string]FileInfo)
+
+	// Initialize map of all local file content mapped by their hash
+	allFileData = make(map[string]string)
 
 	// Load file contents, metadata, hashes, and actions into their own maps
 	for commitFilePath, commitFileAction := range allDeploymentFiles {
 		printMessage(VerbosityData, "  Loading repository file %s\n", commitFilePath)
-
-		// Ensure paths for deployment have correct separate for linux
-		filePath := strings.ReplaceAll(commitFilePath, config.OSPathSeparator, "/")
-		// As a reminder
-		// filePath		should be identical to the full path of files in the repo except hard coded to forward slash path separators
-		// commitFilePath	should be identical to the full path of files in the repo (meaning following the build OS file path separators)
 
 		printMessage(VerbosityData, "    Marked as 'to be %s'\n", commitFileAction)
 
 		// Skip loading if file will be deleted
 		if commitFileAction == "delete" {
 			// But, add it to the deploy target files so it can be deleted during ssh
-			commitFileInfo[filePath] = CommitFileInfo{Action: commitFileAction}
+			allFileInfo[commitFilePath] = FileInfo{Action: commitFileAction}
 			continue
 		}
 
 		// Skip loading if file is sym link
 		if strings.Contains(commitFileAction, "symlinkcreate") {
 			// But, add it to the deploy target files so it can be ln'd during ssh
-			commitFileInfo[filePath] = CommitFileInfo{Action: commitFileAction}
+			allFileInfo[commitFilePath] = FileInfo{Action: commitFileAction}
 			continue
 		}
 
@@ -431,29 +425,24 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 			}
 
 			// Save Directory metadata to map
-			var info CommitFileInfo
+			var info FileInfo
 			info.FileOwnerGroup = jsonDirMetadata.TargetFileOwnerGroup
 			info.FilePermissions = jsonDirMetadata.TargetFilePermissions
 			info.ReloadRequired = false
 			info.Action = commitFileAction
-			commitFileInfo[commitFilePath] = info
+			allFileInfo[commitFilePath] = info
 
 			// Skip to next file
 			continue
 		}
 
 		// Grab metadata out of contents
-		var metadata, configContent string
-		metadata, configContent, err = extractMetadata(string(content))
+		var metadata, fileContent string
+		metadata, fileContent, err = extractMetadata(string(content))
 		if err != nil {
 			err = fmt.Errorf("failed to extract metadata header from '%s': %v", commitFilePath, err)
 			return
 		}
-
-		printMessage(VerbosityData, "    Hashing file content\n")
-
-		// SHA256 Hash the metadata-less contents
-		contentHash := SHA256Sum(configContent)
 
 		printMessage(VerbosityData, "    Parsing metadata header JSON\n")
 
@@ -465,8 +454,47 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 			return
 		}
 
+		// If file is an artifact pointer, retrieve real file contents, else hash content itself
+		var contentHash string
+		if len(jsonMetadata.ExternalContentLocation) > 0 {
+			// Only allow file URIs for now
+			if !strings.HasPrefix(jsonMetadata.ExternalContentLocation, fileURIPrefix) {
+				err = fmt.Errorf("remote-artifact file '%s': must use '%s' before file paths in 'ExternalContentLocationput' field", commitFilePath, fileURIPrefix)
+				return
+			}
+
+			// Use hash already in pointer file as hash of actual artifact file contents
+			contentHash = SHA256RegEx.FindString(fileContent)
+
+			// Retrieve artifact file data if not already loaded
+			_, artifactDataAlreadyLoaded := allFileData[contentHash]
+			if !artifactDataAlreadyLoaded {
+				// Not adhering to actual URI standards -- I just want file paths
+				artifactFileName := strings.TrimPrefix(jsonMetadata.ExternalContentLocation, fileURIPrefix)
+
+				// Check for ~/ and expand if required
+				artifactFileName = expandHomeDirectory(artifactFileName)
+
+				// Retrieve artifact file contents
+				var artifactFileContents []byte
+				artifactFileContents, err = os.ReadFile(artifactFileName)
+				if err != nil {
+					err = fmt.Errorf("failed to load artifact file data: %v", err)
+					return
+				}
+
+				// Overwrite pointer file contents with actual file data
+				fileContent = string(artifactFileContents)
+			}
+		} else {
+			printMessage(VerbosityData, "    Hashing file content\n")
+
+			// SHA256 Hash the metadata-less contents
+			contentHash = SHA256Sum(fileContent)
+		}
+
 		// Put all information gathered into struct
-		var info CommitFileInfo
+		var info FileInfo
 		info.FileOwnerGroup = jsonMetadata.TargetFileOwnerGroup
 		info.FilePermissions = jsonMetadata.TargetFilePermissions
 		info.Reload = jsonMetadata.ReloadCommands
@@ -494,11 +522,16 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 			info.InstallOptional = false
 		}
 		info.Hash = contentHash
-		info.Data = configContent
 		info.Action = commitFileAction
 
 		// Save info struct into map for this file
-		commitFileInfo[filePath] = info
+		allFileInfo[commitFilePath] = info
+
+		// Save data into map
+		_, fileContentAlreadyStored := allFileData[contentHash]
+		if !fileContentAlreadyStored {
+			allFileData[contentHash] = fileContent
+		}
 
 		// Print verbose file metadata information
 		printMessage(VerbosityFullData, "      Owner and Group:  %s\n", info.FileOwnerGroup)
@@ -519,7 +552,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (commitF
 	}
 
 	// Guard against empty return value
-	if len(commitFileInfo) == 0 {
+	if len(allFileInfo) == 0 {
 		err = fmt.Errorf("something went wrong, no files available to load")
 		return
 	}

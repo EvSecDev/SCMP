@@ -444,7 +444,10 @@ func TestDetermineFileType(t *testing.T) {
 	}
 }
 
-func TestSeparateHostDirFromPath(t *testing.T) {
+func TestTranslateLocalPathtoRemotePath(t *testing.T) {
+	// Mock windows paths- shouldn't affect tests with unix paths
+	config.OSPathSeparator = "\\"
+
 	tests := []struct {
 		localRepoPath    string
 		expectedHostDir  string
@@ -452,15 +455,17 @@ func TestSeparateHostDirFromPath(t *testing.T) {
 	}{
 		{"host/dir/file.txt", "host", "/dir/file.txt"},
 		{"host2/dir/subdir/file.txt", "host2", "/dir/subdir/file.txt"},
+		{"868_host_region1\\etc\\serv\\file1.conf", "868_host_region1", "/etc/serv/file1.conf"},
 		{"file1.txt", "", ""},
 		{"", "", ""},
+		{"host3/dir/pic.jpeg.remote-artifact", "host3", "/dir/pic.jpeg"},
 		{"/home/user/repo/host1/file", "", "/home/user/repo/host1/file"},
 		{"!@#$%^&*()_+/etc/file", "!@#$%^&*()_+", "/etc/file"},
 	}
 
 	for _, test := range tests {
 		t.Run(test.localRepoPath, func(t *testing.T) {
-			hostDir, targetFilePath := separateHostDirFromPath(test.localRepoPath)
+			hostDir, targetFilePath := translateLocalPathtoRemotePath(test.localRepoPath)
 			if hostDir != test.expectedHostDir {
 				t.Errorf("expected hostDir '%s', got '%s'", test.expectedHostDir, hostDir)
 			}
