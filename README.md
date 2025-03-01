@@ -59,6 +59,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Removing 'managed' files and directories
   - Group files together to apply to multiple hosts
   - Options to ignore specific directories in the repository
+  - Track binary/artifact files (executables, images, videos, documents)
 - Host Management
   - Use standard SSH client config to management endpoints
   - Ability to mark individual hosts as offline to prevent deployments to that host
@@ -78,7 +79,6 @@ If you like what this program can do or want to expand functionality yourself, f
 
 - File/Directory Management
   - Handle some special files (device, pipes, sockets, ect.)
-  - Manage binary files (executables or shared objects)
 - SSH
   - 2FA (TOTP) logins
   - Use Control Sockets
