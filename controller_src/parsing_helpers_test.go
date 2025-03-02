@@ -39,26 +39,33 @@ func TestCheckForOverride(t *testing.T) {
 		override     string
 		current      string
 		expectedSkip bool
+		useRegex     bool
 	}{
-		{"", "host1", false},
-		{"host1", "host1", false},
-		{"host1,host2", "host1", false},
-		{"host1,host2", "host3", true},
-		{"host1, host2", "host3", true},
-		{"host1, host2, host3, host4, host5, host6", "host3", true},
-		{"file1.txt,file2.txt", "file1.txt", false},
-		{"file1.txt,file2.txt", "file3.txt", true},
-		{"file!@%$^&*(4.txt,file6.txt", "file6.txt", false},
-		{"file!@%$^&*(4.txt,file6.txt", "file!@%$^&*(4.txt", false},
-		{"universalconfs/*", "universalconfs/etc/hosts", false},
-		{"universalconfs/etc/*", "universalconfs/var/log/file.txt", true},
-		{"universalconfs/*", "universalconfs_ssh/etc/ssh/sshd_config", true},
-		{"host0*", "host0436", false},
-		{"UniversalConfs_Service1", "host2", false},
-		{"UniversalConfs_Service1", "host3", true},
+		{"", "host1", false, false},
+		{"host1", "host1", false, false},
+		{"host1,host2", "host1", false, false},
+		{"host1,host2", "host3", true, false},
+		{"host1, host2", "host3", true, false},
+		{"host1, host2, host3, host4, host5, host6", "host3", true, false},
+		{"file1.txt,file2.txt", "file1.txt", false, false},
+		{"file1.txt,file2.txt", "file3.txt", true, false},
+		{"file!@%$^&*(4.txt,file6.txt", "file6.txt", false, false},
+		{"file!@%$^&*(4.txt,file6.txt", "file!@%$^&*(4.txt", false, false},
+		{"universalconfs/.*", "universalconfs/etc/hosts", false, true},
+		{"universalconfs/etc/", "universalconfs/var/log/file.txt", true, true},
+		{"universalconfs/.*", "universalconfs_ssh/etc/ssh/sshd_config", true, true},
+		{"dc0[0-9].*etc/network/interfaces", "region1_dc02_host321/etc/network/interfaces", false, true},
+		{"(?=\\d{3}-\\d{2}-\\d{4})\\d{3}-\\d{2}-\\d{4}", "123-45-6789", false, true},
+		{"(\\d+)\\s+", "1234abc", true, true},
+		{"host0*", "host0436", false, true},
+		{"UniversalConfs_Service1", "host2", false, false},
+		{"UniversalConfs_Service1", "host3", true, false},
 	}
 
 	for _, test := range tests {
+		// Mock global for this test
+		config.RegexEnabled = test.useRegex
+
 		testTitle := fmt.Sprintf("Available Items:'%s'-Current Item:'%s'", test.override, test.current)
 		t.Run(testTitle, func(t *testing.T) {
 			skip := checkForOverride(test.override, test.current)
@@ -356,7 +363,7 @@ file content file content file content`,
 				if metadata != test.expectedMetadata {
 					t.Errorf("expected metadata '%v', got '%v'", test.expectedMetadata, metadata)
 				}
-				if remaining != test.expectedRemainingContent {
+				if string(remaining) != test.expectedRemainingContent {
 					t.Errorf("expected remaining content '%v', got '%v'", test.expectedRemainingContent, remaining)
 				}
 			}
@@ -575,6 +582,49 @@ func TestExtractMetadataFromLS(t *testing.T) {
 			}
 			if Name != test.expectedName {
 				t.Errorf("extractMetadataFromLS() Name = %v, want %v", Name, test.expectedName)
+			}
+		})
+	}
+}
+
+func TestFormatBytes(t *testing.T) {
+	tests := []struct {
+		input    int
+		expected string
+	}{
+		// Edge case: 0 bytes
+		{0, "0 Bytes"},
+
+		// Small number of bytes
+		{500, "500.00 Bytes"},
+
+		// Kilobyte values
+		{1024, "1.00 KiB"},
+		{2048, "2.00 KiB"},
+		{5000, "4.88 KiB"},
+
+		// Megabyte values
+		{1048576, "1.00 MiB"},
+		{2097152, "2.00 MiB"},
+		{5000000, "4.77 MiB"},
+
+		// Gigabyte values
+		{1073741824, "1.00 GiB"},
+		{2147483648, "2.00 GiB"},
+		{5000000000, "4.66 GiB"},
+
+		// Handling the highest unit in the list
+		{9223372036854775807, "8192.00 PiB"}, // A very large number
+
+		// Testing the upper bound of the units
+		{1099511627776, "1.00 TiB"}, // This should return 1 TiB as the value
+	}
+
+	for _, test := range tests {
+		t.Run(test.expected, func(t *testing.T) {
+			result := FormatBytes(test.input)
+			if result != test.expected {
+				t.Errorf("For input %d, expected %s but got %s", test.input, test.expected, result)
 			}
 		})
 	}

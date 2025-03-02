@@ -130,7 +130,7 @@ func retrieveArtifactFileNames(wg *sync.WaitGroup, artifactPointerFileName strin
 	}
 
 	// Get old hash from pointer file
-	oldArtifactFileHash := SHA256RegEx.FindString(artifactPointerFileContent)
+	oldArtifactFileHash := SHA256RegEx.FindString(string(artifactPointerFileContent))
 
 	// Safely write pointer file name to map
 	tracker.PointerMetaMapMutex.Lock()

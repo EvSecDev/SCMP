@@ -19,7 +19,7 @@ func TestSHA256Sum(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
-			hash := SHA256Sum(test.input)
+			hash := SHA256Sum([]byte(test.input))
 			if hash != test.expected {
 				t.Errorf("SHA256Sum(%s) = %s, want %s", test.input, hash, test.expected)
 			}

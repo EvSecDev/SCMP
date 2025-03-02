@@ -35,11 +35,12 @@ type Config struct {
 	IgnoreDirectories     []string                // Directories to ignore inside the git repository
 	MaxSSHConcurrency     int                     // Maximum threads for ssh sessions
 	DisableSudo           bool                    // Disable using sudo for remote commands
-	AutoCommit            bool                    // When running with deploy-changes automatically commit any unstaged changes
 	AllowDeletions        bool                    // Allow deletions in local repo to delete files on remote hosts or vault entries
+	DisableReloads        bool                    // Disables all deployment reload commands for this deployment
 	RunInstallCommands    bool                    // Run the install command section of all relevant files metadata header section (within the given deployment)
 	RunUninstallCommands  bool                    // Run the uninstall command section of all relevant files metadata header section (within the given deployment)
 	IgnoreDeploymentState bool                    // Ignore any deployment state for a host in the config
+	RegexEnabled          bool                    // Globally enable the use of regex for matching hosts/files
 	UserHomeDirectory     string                  // Absolute path to users home directory (to expand '~/' in paths)
 	VaultFilePath         string                  // Path to password vault file
 	Vault                 map[string]Credential   // Password vault
@@ -86,6 +87,7 @@ type FileInfo struct {
 	Action          string
 	FileOwnerGroup  string
 	FilePermissions int
+	FileSize        int
 	InstallOptional bool
 	Install         []string
 	ChecksRequired  bool
@@ -146,9 +148,15 @@ var addAllUnknownHosts bool
 var KnownHostMutex sync.Mutex
 
 // Used for metrics - counting post deployment
-var postDeployedConfigs int
-var postDeploymentHosts int
-var MetricCountMutex sync.Mutex
+type PostDeploymentMetrics struct {
+	files           int
+	filesMutex      sync.Mutex
+	hosts           int
+	hostsMutex      sync.Mutex
+	bytes           int
+	bytesMutex      sync.Mutex
+	sizeTransferred string
+}
 
 // Global to track failed go routines' hosts, files, and errors to be able to retry deployment on user request
 const FailTrackerFile string = ".scmp-failtracker.json"
@@ -158,7 +166,7 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v4.0.0"
+const progVersion string = "v4.1.0"
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
@@ -166,12 +174,6 @@ const usage = `Secure Configuration Management Program (SCMP)
 Options:
   -c, --config </path/to/ssh/config>             Path to the configuration file
                                                  [default: ~/.ssh/config]
-      --git-add <dir|file>                       Add files/directories/globs to git worktree
-                                                 Required for artifact tracking feature
-      --git-status                               Check current worktree status
-                                                 Prints out file paths that differ from clean worktree
-      --git-commit <'message'|file:///>          Commit changes to git repository with message
-                                                 File contents will be read and used as message
   -d, --deploy-changes                           Deploy changed files in the specified commit
                                                  [commit default: head]
   -a, --deploy-all                               Deploy all files in specified commit
@@ -180,11 +182,11 @@ Options:
                                                  failtracker file from last failed deployment
   -e, --execute <"command"|file:///>             Run adhoc single command or upload and
                                                  execute the script on remote hosts
-  -r, --remote-hosts <host1,host*,...|file:///>  Override hosts to connect to for deployment
+  -r, --remote-hosts <host1,host2,...|file:///>  Override hosts to connect to for deployment
                                                  or adhoc command/script execution
-  -R, --remote-files <file1,file0*,...|file:///> Override file(s) to retrieve using seed-repository
+  -R, --remote-files <file1,file2,...|file:///>  Override file(s) to retrieve using seed-repository
                                                  Also override default remote path for script execution
-  -l, --local-files <file1,file0*,...|file:///>  Override file(s) for deployment
+  -l, --local-files <file1,file2,...|file:///>   Override file(s) for deployment
                                                  Must be relative file paths from inside the repository
   -C, --commitid <hash>                          Commit ID (hash) of the commit to
                                                  deploy configurations from
@@ -198,16 +200,24 @@ Options:
                                                  with the given initial branch name
   -s, --seed-repo                                Retrieve existing files from remote hosts to
                                                  seed the local repository (Requires '--remote-hosts')
-      --commit-changes                           Automatically commit any unstaged changes to the repository
-                                                 Only applies to '--deploy-changes' argument (dry-run will not work)
+      --git-add <dir|file>                       Add files/directories/globs to git worktree
+                                                 Required for artifact tracking feature
+      --git-status                               Check current worktree status
+                                                 Prints out file paths that differ from clean worktree
+      --git-commit <'message'|file:///>          Commit changes to git repository with message
+                                                 File contents will be read and used as message
       --allow-deletions                          Allows deletions (remote files or vault entires)
                                                  Only applies to '--deploy-changes' or '--modify-vault-password'
       --install                                  Runs installation commands in config files metadata JSON header
                                                  Commands are run before file deployments (before checks)
+      --disable-reloads                          Disables execution of reload commands for this deployment
+                                                 Useful to write configs that normally need reloads without running them
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file
                                                  For example, will deploy to a host marked as offline
+      --regex                                    Enables regular expression parsing for specific arguments
+                                                 Supported arguments: '-r', '-R', '-l'
   -t, --test-config                              Test controller configuration syntax
                                                  and configuration option validity
   -v, --verbose <0...5>                          Increase details and frequency of progress messages
@@ -278,11 +288,12 @@ func main() {
 	flag.StringVar(&createNewRepo, "new-repo", "", "")
 	flag.BoolVar(&seedRepoFiles, "s", false, "")
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
-	flag.BoolVar(&config.AutoCommit, "commit-changes", false, "")
 	flag.BoolVar(&config.AllowDeletions, "allow-deletions", false, "")
 	flag.BoolVar(&config.RunInstallCommands, "install", false, "")
+	flag.BoolVar(&config.DisableReloads, "disable-reloads", false, "")
 	flag.BoolVar(&config.DisableSudo, "disable-privilege-escalation", false, "")
 	flag.BoolVar(&config.IgnoreDeploymentState, "ignore-deployment-state", false, "")
+	flag.BoolVar(&config.RegexEnabled, "regex", false, "")
 	flag.BoolVar(&versionInfoRequested, "V", false, "")
 	flag.BoolVar(&versionInfoRequested, "version", false, "")
 	flag.BoolVar(&versionRequested, "versionid", false, "")
@@ -305,7 +316,7 @@ func main() {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
 		fmt.Print("License GPLv3+: GNU GPL version 3 or later <https://gnu.org/licenses/gpl.html>\n")
-		fmt.Print("Direct Package Imports: runtime encoding/hex strings golang.org/x/term strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 golang.org/x/crypto/ssh/knownhosts encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal github.com/bramvdbogaerde/go-scp context sort fmt time golang.org/x/crypto/argon2 golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 os/exec github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 golang.org/x/crypto/chacha20poly1305 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
+		fmt.Print("Direct Package Imports: runtime encoding/hex strings math golang.org/x/term strconv github.com/go-git/go-git/v5/plumbing/object io bufio crypto/sha1 golang.org/x/crypto/ssh/knownhosts encoding/json encoding/base64 flag github.com/coreos/go-systemd/journal github.com/bramvdbogaerde/go-scp context sort fmt time golang.org/x/crypto/argon2 golang.org/x/crypto/ssh crypto/rand github.com/go-git/go-git/v5 os/exec github.com/kevinburke/ssh_config net github.com/go-git/go-git/v5/plumbing crypto/hmac golang.org/x/crypto/ssh/agent regexp os bytes crypto/sha256 golang.org/x/crypto/chacha20poly1305 sync path/filepath github.com/go-git/go-git/v5/plumbing/format/diff testing\n")
 		return
 	} else if versionRequested {
 		fmt.Println(progVersion)
@@ -370,6 +381,8 @@ func main() {
 			if err != nil {
 				return
 			}
+
+			return
 		} else if gitCommitRequested != "" && !status.IsClean() {
 			err = gitCommit(gitCommitRequested, worktree)
 			logError("Failed to commit changes", err, false)
@@ -377,12 +390,14 @@ func main() {
 			currentStatus, err := worktree.Status()
 			logError("Failed to retrieve worktree status", err, false)
 			printMessage(VerbosityStandard, "%s", currentStatus.String())
+			return
 		} else if status.IsClean() {
 			printMessage(VerbosityStandard, "nothing to commit, working tree clean\n")
+			return
 		} else if !status.IsClean() {
 			printMessage(VerbosityStandard, "Untracked files present, please deal with them\n")
+			return
 		}
-		return
 	}
 
 	// Retrieve configuration options - file path is global
@@ -417,8 +432,8 @@ func main() {
 		runScript(executeCommands, hostOverride, remoteFileOverride)
 	} else if executeCommands != "" {
 		runCmd(executeCommands, hostOverride)
-	} else {
-		// No valid arguments or valid combination of arguments
+	} else if gitCommitRequested == "" {
+		// No valid arguments or valid combination of arguments (and not committing - so this doesn't print when committing with other args or no args)
 		printMessage(VerbosityStandard, "No arguments specified or incorrect argument combination. Use '-h' or '--help' to guide your way.\n")
 	}
 }

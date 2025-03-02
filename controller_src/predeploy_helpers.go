@@ -46,11 +46,11 @@ func localSystemChecks() (err error) {
 // Post-deployment if an error occured
 // Takes global failure tracker and current commit id and writes it to the fail tracker file in the root of the repository
 // Also prints custom stdout to user to show the errors and how to initiate redeploy when fixed
-func recordDeploymentError(commitID string) (err error) {
+func recordDeploymentError(commitID string, postDeployMetrics *PostDeploymentMetrics) (err error) {
 	// Tell user about error and how to redeploy, writing fails to file in repo
 	PathToExe := os.Args[0]
 
-	printMessage(VerbosityStandard, "\nPARTIAL COMPLETE: %d configuration(s) deployed to %d host(s)\n", postDeployedConfigs, postDeploymentHosts)
+	printMessage(VerbosityStandard, "PARTIAL COMPLETE: %d files(s) deployed to %d host(s) - (%s transferred)\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.sizeTransferred)
 	printMessage(VerbosityStandard, "Failure(s) in deployment (commit: %s):\n\n", commitID)
 
 	// Create decoder for raw failtracker JSON
@@ -108,7 +108,7 @@ func recordDeploymentError(commitID string) (err error) {
 	// Add FailTracker string to repo working directory fail file
 	FailTrackerFile, err := os.Create(config.FailTrackerFilePath)
 	if err != nil {
-		printMessage(VerbosityStandard, "\nWarning: Failed to create failtracker file. Manual redeploy using '--use-failtracker-only' will not work.\n")
+		printMessage(VerbosityStandard, "Warning: Failed to create failtracker file. Manual redeploy using '--use-failtracker-only' will not work.\n")
 		printMessage(VerbosityStandard, "  Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A)\n")
 		return
 	}
@@ -120,12 +120,12 @@ func recordDeploymentError(commitID string) (err error) {
 	// Write string to file (overwrite old contents)
 	_, err = FailTrackerFile.WriteString(FailTrackerAndCommit)
 	if err != nil {
-		printMessage(VerbosityStandard, "\nWarning: Failed to create failtracker file. Manual redeploy using '--use-failtracker-only' will not work.\n")
+		printMessage(VerbosityStandard, "Warning: Failed to create failtracker file. Manual redeploy using '--use-failtracker-only' will not work.\n")
 		printMessage(VerbosityStandard, "  Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A)\n")
 		return
 	}
 
-	printMessage(VerbosityStandard, "\nPlease fix the errors, then run the following command to redeploy OR create new commit if file corrections are needed:\n")
+	printMessage(VerbosityStandard, "Please fix the errors, then run the following command to redeploy OR create new commit if file corrections are needed:\n")
 	printMessage(VerbosityStandard, "%s -c %s --deploy-failures\n", PathToExe, config.FilePath)
 	printMessage(VerbosityStandard, "================================================\n")
 	return

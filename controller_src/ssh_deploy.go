@@ -14,7 +14,7 @@ import (
 // ###################################
 
 // SSH's into a remote host to deploy files and run reload commands
-func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo EndpointInfo, allFileInfo map[string]FileInfo, allFileData map[string]string) {
+func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo EndpointInfo, allFileInfo map[string]FileInfo, allFileData map[string][]byte, postDeployMetrics *PostDeploymentMetrics) {
 	// Grab endpoint name
 	endpointName := endpointInfo.EndpointName
 
@@ -81,7 +81,9 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 	tmpBackupPath := endpointInfo.RemoteBackupDir
 
 	// Need local metric in order to determine what number of configs for this specific host succeeded (to increment global host metric counter)
-	var postDeployedConfigsLocal int
+	var postDeployedFilesLocal int
+	// Local metric for transferred bytes
+	var postDeployedBytesTransferred int
 
 	printMessage(VerbosityProgress, "Host %s: Preparing remote config backup directory\n", endpointName)
 
@@ -104,6 +106,9 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 		// For metrics - get length of this groups file array
 		filesRequiringReload := len(commitFilePaths)
+
+		// For metrics - track file size transferred (only for successful reload groups)
+		var bytesTransferredLocal int
 
 		// Deploy all files for this specific reload command set
 		backupFileHashes := make(map[string]string)
@@ -218,6 +223,9 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 					continue
 				}
 
+				// Metrics for total bytes transferred for this reload group
+				bytesTransferredLocal += allFileInfo[commitFilePath].FileSize
+
 				// Record backup file hashes to map in case reload fails and restoration needs to occur
 				backupFileHashes[targetFilePath] = oldRemoteFileHash
 			}
@@ -242,7 +250,13 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 		// Run all the commands required by this config file group
 		var ReloadFailed bool
 		for _, command := range commandReloadArray {
-			printMessage(VerbosityData, "Host %s:   Running reload command '%s'\n", endpointName, command)
+			// Skip reloads if globally disabled
+			if config.DisableReloads {
+				printMessage(VerbosityProgress, "Host %s:   Skipping reload command '%s'\n", endpointName, command)
+				continue
+			}
+
+			printMessage(VerbosityProgress, "Host %s:   Running reload command '%s'\n", endpointName, command)
 
 			_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, Password, 90)
 			if err != nil {
@@ -280,7 +294,8 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 		}
 
 		// Increment local metric for configs by number of files that required reloads
-		postDeployedConfigsLocal += filesRequiringReload
+		postDeployedBytesTransferred += bytesTransferredLocal
+		postDeployedFilesLocal += filesRequiringReload
 	}
 
 	printMessage(VerbosityProgress, "Host %s: Starting deployment for configs without reload commands\n", endpointName)
@@ -360,7 +375,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			}
 
 			// Done deleting (or recording error) - Next deployment file
-			postDeployedConfigsLocal++
+			postDeployedFilesLocal++
 			continue
 		}
 
@@ -375,7 +390,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			}
 
 			// Done creating link (or recording error) - Next deployment file
-			postDeployedConfigsLocal++
+			postDeployedFilesLocal++
 			continue
 		}
 
@@ -413,7 +428,7 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			if DirModified {
 				printMessage(VerbosityData, "Host %s:   Modified Directory %s\n", endpointName, targetFilePath)
 				// Done modifying directory (or recording error) - Next deployment file
-				postDeployedConfigsLocal++
+				postDeployedFilesLocal++
 			}
 			continue
 		}
@@ -466,8 +481,9 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 			}
 		}
 
-		// Increment local metric for config
-		postDeployedConfigsLocal++
+		// Increment local metric for file
+		postDeployedBytesTransferred += allFileInfo[commitFilePath].FileSize
+		postDeployedFilesLocal++
 	}
 
 	printMessage(VerbosityProgress, "Host %s: Cleaning up remote temporary directories\n", endpointName)
@@ -485,15 +501,20 @@ func deployConfigs(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo End
 
 	printMessage(VerbosityProgress, "Host %s: Writing to global metric counters\n", endpointName)
 
+	// Lock and write to metric var - increment total transferred bytes
+	postDeployMetrics.bytesMutex.Lock()
+	postDeployMetrics.bytes += postDeployedBytesTransferred
+	postDeployMetrics.bytesMutex.Unlock()
+
 	// Lock and write to metric var - increment success configs by local file counter
-	MetricCountMutex.Lock()
-	postDeployedConfigs += postDeployedConfigsLocal
-	MetricCountMutex.Unlock()
+	postDeployMetrics.filesMutex.Lock()
+	postDeployMetrics.files += postDeployedFilesLocal
+	postDeployMetrics.filesMutex.Unlock()
 
 	// Lock and write to metric var - increment success hosts by 1 (only if any config was deployed)
-	if postDeployedConfigsLocal > 0 {
-		MetricCountMutex.Lock()
-		postDeploymentHosts++
-		MetricCountMutex.Unlock()
+	if postDeployedFilesLocal > 0 {
+		postDeployMetrics.hostsMutex.Lock()
+		postDeployMetrics.hosts++
+		postDeployMetrics.hostsMutex.Unlock()
 	}
 }

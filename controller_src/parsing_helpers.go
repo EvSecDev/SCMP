@@ -4,6 +4,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -98,18 +99,24 @@ func checkForOverride(override string, current string) (skip bool) {
 	}
 
 	// Split choices on comma
-	userHostChoices := strings.Split(override, ",")
+	userHostChoices := strings.SplitSeq(override, ",")
 
 	// Check each override specified against current
-	for _, userChoice := range userHostChoices {
-		// Users choice ends with wildcard, search based on prefix only
-		if strings.HasSuffix(userChoice, "*") {
-			userChoicePrefix := strings.Replace(userChoice, "*", "", -1)
+	for userChoice := range userHostChoices {
+		// Only assume override choice is regex if user requested it
+		if config.RegexEnabled {
+			// Prepare user choice as regex
+			userRegex, err := regexp.Compile(userChoice)
+			if err != nil {
+				// Invalid regex, always skip (but print high verbosity what happened)
+				printMessage(VerbosityData, "WARNING: Invalid regular expression: %v", err)
+				return
+			}
 
-			// Don't skip current if user choice prefix matches
-			if strings.HasPrefix(current, userChoicePrefix) {
+			// Check if user regex matches current item, if so return
+			if userRegex.MatchString(current) {
 				skip = false
-				continue
+				return
 			}
 		}
 
@@ -227,7 +234,7 @@ func mapDeniedUniversalFiles(allHostsFiles map[string]map[string]struct{}, unive
 }
 
 // Function to extract and validate metadata JSON from file contents
-func extractMetadata(fileContents string) (metadataSection string, remainingContent string, err error) {
+func extractMetadata(fileContents string) (metadataSection string, contentSection []byte, err error) {
 	// Add newline so file content doesnt have empty line at the top
 	EndDelimiter := Delimiter + "\n"
 
@@ -253,7 +260,8 @@ func extractMetadata(fileContents string) (metadataSection string, remainingCont
 
 	// Extract the metadata section and remaining content into their own vars
 	metadataSection = fileContents[startIndex:endIndex]
-	remainingContent = fileContents[:startIndex-len(Delimiter)] + fileContents[endIndex+len(EndDelimiter):]
+	remainingContent := fileContents[:startIndex-len(Delimiter)] + fileContents[endIndex+len(EndDelimiter):]
+	contentSection = []byte(remainingContent)
 
 	return
 }
@@ -511,5 +519,26 @@ func extractMetadataFromLS(lsOutput string) (Type string, Permissions string, Ow
 		Size = 0
 	}
 	Name = fileInfo[8]
+	return
+}
+
+// FormatBytes takes a raw byte integer and converts it to a human-readable format with appropriate units
+func FormatBytes(bytes int) (bytesWithUnits string) {
+	units := []string{"Bytes", "KiB", "MiB", "GiB", "TiB", "PiB"}
+	if bytes == 0 {
+		return fmt.Sprintf("0 %s", units[0])
+	}
+
+	// Determine the appropriate unit
+	unitIndex := int(math.Floor(math.Log(float64(bytes)) / math.Log(1024)))
+	if unitIndex >= len(units) {
+		unitIndex = len(units) - 1
+	}
+
+	// Calculate the value in the appropriate unit
+	value := float64(bytes) / math.Pow(1024, float64(unitIndex))
+
+	// Return the formatted string
+	bytesWithUnits = fmt.Sprintf("%.2f %s", value, units[unitIndex])
 	return
 }

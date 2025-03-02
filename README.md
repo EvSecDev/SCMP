@@ -50,6 +50,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Ad-hoc override host exclusion from deployments (use `--ignore-deployment-state`)
   - Run a linear series of commands prior to any deployment actions (part of JSON file metadata header)
   - Run a linear series of commands to enable/reload/start services associated with files (part of JSON file metadata header)
+    - Option to temporarily disable globally for a deployment
   - Run a linear series of commands to install services associated with files (part of JSON file metadata header)
   - Easy retry of deployment failures with a single argument
   - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
@@ -102,12 +103,6 @@ const usage = `Secure Configuration Management Program (SCMP)
 Options:
   -c, --config </path/to/ssh/config>             Path to the configuration file
                                                  [default: ~/.ssh/config]
-      --git-add <dir|file>                       Add files/directories/globs to git worktree
-                                                 Required for artifact tracking feature
-      --git-status                               Check current worktree status
-                                                 Prints out file paths that differ from clean worktree
-      --git-commit <'message'|file:///>          Commit changes to git repository with message
-                                                 File contents will be read and used as message
   -d, --deploy-changes                           Deploy changed files in the specified commit
                                                  [commit default: head]
   -a, --deploy-all                               Deploy all files in specified commit
@@ -116,11 +111,11 @@ Options:
                                                  failtracker file from last failed deployment
   -e, --execute <"command"|file:///>             Run adhoc single command or upload and
                                                  execute the script on remote hosts
-  -r, --remote-hosts <host1,host*,...|file:///>  Override hosts to connect to for deployment
+  -r, --remote-hosts <host1,host2,...|file:///>  Override hosts to connect to for deployment
                                                  or adhoc command/script execution
-  -R, --remote-files <file1,file0*,...|file:///> Override file(s) to retrieve using seed-repository
+  -R, --remote-files <file1,file2,...|file:///>  Override file(s) to retrieve using seed-repository
                                                  Also override default remote path for script execution
-  -l, --local-files <file1,file0*,...|file:///>  Override file(s) for deployment
+  -l, --local-files <file1,file2,...|file:///>   Override file(s) for deployment
                                                  Must be relative file paths from inside the repository
   -C, --commitid <hash>                          Commit ID (hash) of the commit to
                                                  deploy configurations from
@@ -134,16 +129,24 @@ Options:
                                                  with the given initial branch name
   -s, --seed-repo                                Retrieve existing files from remote hosts to
                                                  seed the local repository (Requires '--remote-hosts')
-      --commit-changes                           Automatically commit any unstaged changes to the repository
-                                                 Only applies to '--deploy-changes' argument (dry-run will not work)
+      --git-add <dir|file>                       Add files/directories/globs to git worktree
+                                                 Required for artifact tracking feature
+      --git-status                               Check current worktree status
+                                                 Prints out file paths that differ from clean worktree
+      --git-commit <'message'|file:///>          Commit changes to git repository with message
+                                                 File contents will be read and used as message
       --allow-deletions                          Allows deletions (remote files or vault entires)
                                                  Only applies to '--deploy-changes' or '--modify-vault-password'
       --install                                  Runs installation commands in config files metadata JSON header
                                                  Commands are run before file deployments (before checks)
+      --disable-reloads                          Disables execution of reload commands for this deployment
+                                                 Useful to write configs that normally need reloads without running them
       --disable-privilege-escalation             Disables use of sudo when executing commands remotely
                                                  All commands will be run as the login user
       --ignore-deployment-state                  Ignores the current deployment state in the configuration file
                                                  For example, will deploy to a host marked as offline
+      --regex                                    Enables regular expression parsing for specific arguments
+                                                 Supported arguments: '-r', '-R', '-l'
   -t, --test-config                              Test controller configuration syntax
                                                  and configuration option validity
   -v, --verbose <0...5>                          Increase details and frequency of progress messages

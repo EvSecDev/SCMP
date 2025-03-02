@@ -16,7 +16,7 @@ import (
 // ###########################################
 
 // Run full deployment of a new file to remote host
-func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath string, tmpRemoteFilePath string, fileContents string, fileContentHash string, fileOwnerGroup string, filePermissions int) (err error) {
+func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath string, tmpRemoteFilePath string, fileContents []byte, fileContentHash string, fileOwnerGroup string, filePermissions int) (err error) {
 	// Transfer local file to remote
 	err = TransferFile(sshClient, fileContents, targetFilePath, SudoPassword, tmpRemoteFilePath, fileOwnerGroup, filePermissions)
 	if err != nil {
@@ -164,7 +164,7 @@ func CheckRemoteFileDirExistence(sshClient *ssh.Client, remotePath string, SudoP
 
 // Transfers file content in variable to remote temp buffer, then moves into remote file path location
 // Uses global var for remote temp buffer file path location
-func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath string, SudoPassword string, tmpRemoteFilePath string, fileOwnerGroup string, filePermissions int) (err error) {
+func TransferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath string, SudoPassword string, tmpRemoteFilePath string, fileOwnerGroup string, filePermissions int) (err error) {
 	var command string
 
 	// Check if remote dir exists, if not create
@@ -184,7 +184,7 @@ func TransferFile(sshClient *ssh.Client, localFileContent string, remoteFilePath
 	}
 
 	// SFTP to temp file
-	err = SCPUpload(sshClient, []byte(localFileContent), tmpRemoteFilePath)
+	err = SCPUpload(sshClient, localFileContent, tmpRemoteFilePath)
 	if err != nil {
 		return
 	}

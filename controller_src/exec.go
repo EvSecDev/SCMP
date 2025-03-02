@@ -95,7 +95,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 	}
 
 	// Hash local script contents
-	scriptHash := SHA256Sum(scriptFileStr)
+	scriptHash := SHA256Sum(scriptFileBytes)
 
 	printMessage(VerbosityFullData, "Local Script Hash '%s'\n", scriptHash)
 

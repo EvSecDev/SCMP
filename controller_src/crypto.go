@@ -194,15 +194,12 @@ func unlockVault(endpointName string) (hostPassword string, err error) {
 
 // SHA256 Content Hashing
 // Takes a string input, and returns a SHA256 hexadecimal hash string
-func SHA256Sum(input string) (hash string) {
-	// Convert input string to byte array
-	inputBytes := []byte(input)
-
+func SHA256Sum(input []byte) (hash string) {
 	// Create new hashing function
 	hasher := sha256.New()
 
 	// Write input bytes into hasher
-	hasher.Write(inputBytes)
+	hasher.Write(input)
 
 	// Retrieve the raw hash
 	rawHash := hasher.Sum(nil)

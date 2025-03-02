@@ -347,7 +347,7 @@ func retrieveHostSecrets(endpointName string) (err error) {
 
 // Retrieves all file content for this deployment
 // Return vales provide the content keyed on local file path for the file data, metadata, hashes, and actions
-func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFileInfo map[string]FileInfo, allFileData map[string]string, err error) {
+func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFileInfo map[string]FileInfo, allFileData map[string][]byte, err error) {
 	// Show progress to user
 	printMessage(VerbosityStandard, "Loading files for deployment... \n")
 
@@ -355,7 +355,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 	allFileInfo = make(map[string]FileInfo)
 
 	// Initialize map of all local file content mapped by their hash
-	allFileData = make(map[string]string)
+	allFileData = make(map[string][]byte)
 
 	// Load file contents, metadata, hashes, and actions into their own maps
 	for commitFilePath, commitFileAction := range allDeploymentFiles {
@@ -437,7 +437,8 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		}
 
 		// Grab metadata out of contents
-		var metadata, fileContent string
+		var metadata string
+		var fileContent []byte
 		metadata, fileContent, err = extractMetadata(string(content))
 		if err != nil {
 			err = fmt.Errorf("failed to extract metadata header from '%s': %v", commitFilePath, err)
@@ -464,7 +465,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 			}
 
 			// Use hash already in pointer file as hash of actual artifact file contents
-			contentHash = SHA256RegEx.FindString(fileContent)
+			contentHash = SHA256RegEx.FindString(string(fileContent))
 
 			// Retrieve artifact file data if not already loaded
 			_, artifactDataAlreadyLoaded := allFileData[contentHash]
@@ -484,7 +485,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 				}
 
 				// Overwrite pointer file contents with actual file data
-				fileContent = string(artifactFileContents)
+				fileContent = artifactFileContents
 			}
 		} else {
 			printMessage(VerbosityData, "    Hashing file content\n")
@@ -497,6 +498,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		var info FileInfo
 		info.FileOwnerGroup = jsonMetadata.TargetFileOwnerGroup
 		info.FilePermissions = jsonMetadata.TargetFilePermissions
+		info.FileSize = len(fileContent)
 		info.Reload = jsonMetadata.ReloadCommands
 		if len(info.Reload) > 0 {
 			// Reload commands are present, set bool to true
