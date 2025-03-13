@@ -96,6 +96,15 @@ type FileInfo struct {
 	Reload          []string
 }
 
+// Store deployment host metadata to easily pass between SSH functions
+type HostMeta struct {
+	name               string
+	password           string
+	sshClient          *ssh.Client
+	transferBufferFile string
+	backupPath         string
+}
+
 // Fail tracker json line format
 type ErrorInfo struct {
 	EndpointName string   `json:"endpointName"`
@@ -166,7 +175,7 @@ var FailTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v4.1.0"
+const progVersion string = "v4.2.0"
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH

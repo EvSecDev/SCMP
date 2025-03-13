@@ -15,17 +15,106 @@ import (
 //      DEPLOYMENT HANDLING FUNCTIONS
 // ###########################################
 
+func GroupFilesByReloads(allFileInfo map[string]FileInfo, commitFilePaths []string) (commitFileByCommand map[string][]string, commitFilesNoReload []string) {
+	commitFileByCommand = make(map[string][]string)
+	for _, commitFilePath := range commitFilePaths {
+		// New files with reload commands
+		if allFileInfo[commitFilePath].ReloadRequired {
+			// Create an ID based on the command array to uniquely identify the group that files will belong to
+			// The data represented in cmdArrayID does not matter and it is not used outside this loop, it only needs to be unique
+			reloadCommands := fmt.Sprintf("%v", allFileInfo[commitFilePath].Reload)
+			cmdArrayID := base64.StdEncoding.EncodeToString([]byte(reloadCommands))
+
+			// Add file to array based on its unique set of reload commands
+			commitFileByCommand[cmdArrayID] = append(commitFileByCommand[cmdArrayID], commitFilePath)
+		} else {
+			// All other files - no reloads
+			commitFilesNoReload = append(commitFilesNoReload, commitFilePath)
+		}
+	}
+	return
+}
+
+func UpdateMetricCounters(hostName string, deployedFiles int, deployedBytes int, postDeployMetrics *PostDeploymentMetrics) {
+	printMessage(VerbosityProgress, "Host %s: Writing to global metric counters\n", hostName)
+
+	// Lock and write to metric var - increment total transferred bytes
+	postDeployMetrics.bytesMutex.Lock()
+	postDeployMetrics.bytes += deployedBytes
+	postDeployMetrics.bytesMutex.Unlock()
+
+	// Lock and write to metric var - increment success configs by local file counter
+	postDeployMetrics.filesMutex.Lock()
+	postDeployMetrics.files += deployedFiles
+	postDeployMetrics.filesMutex.Unlock()
+
+	// Lock and write to metric var - increment success hosts by 1 (only if any config was deployed)
+	if deployedFiles > 0 {
+		postDeployMetrics.hostsMutex.Lock()
+		postDeployMetrics.hosts++
+		postDeployMetrics.hostsMutex.Unlock()
+	}
+}
+
+// #################################
+//      REMOTE ACTION HANDLING
+// #################################
+
+func InitBackupDirectory(host HostMeta) (err error) {
+	printMessage(VerbosityProgress, "Host %s: Preparing remote config backup directory\n", host.name)
+
+	// Create backup directory
+	command := "mkdir " + host.backupPath
+	_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 10)
+	if err != nil {
+		// Since we blindly try to create the directory, ignore errors about it already existing
+		if !strings.Contains(err.Error(), "File exists") {
+			return
+		}
+	}
+	return
+}
+
+func RunCheckCommands(host HostMeta, allFileInfo map[string]FileInfo, commitFilePath string) (err error) {
+	if allFileInfo[commitFilePath].ChecksRequired {
+		for _, command := range allFileInfo[commitFilePath].Checks {
+			printMessage(VerbosityData, "Host %s:   Running check command '%s'\n", host.name, command)
+
+			_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 90)
+			if err != nil {
+				return
+			}
+		}
+	}
+	return
+}
+
+func RunInstallationCommands(host HostMeta, allFileInfo map[string]FileInfo, commitFilePath string) (err error) {
+	if allFileInfo[commitFilePath].InstallOptional && config.RunInstallCommands {
+		for _, command := range allFileInfo[commitFilePath].Install {
+			printMessage(VerbosityData, "Host %s:   Running install command '%s'\n", host.name, command)
+
+			_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 180)
+			if err != nil {
+				return
+			}
+		}
+	}
+
+	return
+}
+
 // Run full deployment of a new file to remote host
-func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath string, tmpRemoteFilePath string, fileContents []byte, fileContentHash string, fileOwnerGroup string, filePermissions int) (err error) {
+func createFile(host HostMeta, targetFilePath string, fileContents []byte, fileContentHash string, fileOwnerGroup string, filePermissions int) (err error) {
 	// Transfer local file to remote
-	err = TransferFile(sshClient, fileContents, targetFilePath, SudoPassword, tmpRemoteFilePath, fileOwnerGroup, filePermissions)
+	err = TransferFile(host.sshClient, fileContents, targetFilePath, host.password, host.transferBufferFile, fileOwnerGroup, filePermissions)
 	if err != nil {
 		err = fmt.Errorf("failed SFTP config file transfer to remote host: %v", err)
 		return
 	}
 
 	// Check if deployed file is present on disk
-	NewFileExists, _, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, SudoPassword, false)
+	NewFileExists, _, err := CheckRemoteFileDirExistence(host.sshClient, targetFilePath, host.password, false)
 	if err != nil {
 		err = fmt.Errorf("error checking deployed file presence on remote host: %v", err)
 		return
@@ -38,7 +127,7 @@ func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 
 	// Get Hash of new deployed conf file
 	command := "sha256sum " + targetFilePath
-	CommandOutput, err := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
+	CommandOutput, err := RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during hash of deployed file: %v", err)
 		return
@@ -58,9 +147,9 @@ func createFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 
 // Create a copy of an existing config file into the temporary backup file path (only if targetFilePath exists)
 // Also returns the hash of the file before being touched for verification of restore if needed
-func backupOldConfig(sshClient *ssh.Client, SudoPassword string, targetFilePath string, tmpBackupPath string) (oldRemoteFileHash string, oldRemoteFileMeta string, err error) {
+func backupOldConfig(host HostMeta, targetFilePath string) (oldRemoteFileHash string, oldRemoteFileMeta string, err error) {
 	// Find if target file exists on remote
-	oldFileExists, oldRemoteFileMeta, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, SudoPassword, false)
+	oldFileExists, oldRemoteFileMeta, err := CheckRemoteFileDirExistence(host.sshClient, targetFilePath, host.password, false)
 	if err != nil {
 		err = fmt.Errorf("failed checking file presence on remote host: %v", err)
 		return
@@ -73,7 +162,7 @@ func backupOldConfig(sshClient *ssh.Client, SudoPassword string, targetFilePath 
 
 	// Get the SHA256 hash of the remote old conf file
 	command := "sha256sum " + targetFilePath
-	CommandOutput, err := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
+	CommandOutput, err := RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err)
 		return
@@ -86,11 +175,11 @@ func backupOldConfig(sshClient *ssh.Client, SudoPassword string, targetFilePath 
 	backupFileName := base64.StdEncoding.EncodeToString([]byte(targetFilePath))
 
 	// Absolute path to backup file
-	tmpBackupFilePath := tmpBackupPath + "/" + backupFileName
+	tmpBackupFilePath := host.backupPath + "/" + backupFileName
 
 	// Backup old config
 	command = "cp -p " + targetFilePath + " " + tmpBackupFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
+	_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("error making backup of old config file: %v", err)
 		return
@@ -102,7 +191,7 @@ func backupOldConfig(sshClient *ssh.Client, SudoPassword string, targetFilePath 
 // Moves backup config file into original location after file deployment failure
 // Assumes backup file is located in the directory at backupFilePath
 // Ensures restoration worked by hashing and comparing to pre-deployment file hash
-func restoreOldConfig(sshClient *ssh.Client, targetFilePath string, tmpBackupPath string, oldRemoteFileHash string, SudoPassword string) (err error) {
+func restoreOldConfig(host HostMeta, targetFilePath string, oldRemoteFileHash string) (err error) {
 	// Empty oldRemoteFileHash indicates there was nothing to backup, therefore restore should not occur
 	if oldRemoteFileHash == "" {
 		return
@@ -110,11 +199,11 @@ func restoreOldConfig(sshClient *ssh.Client, targetFilePath string, tmpBackupPat
 
 	// Get the unique id for the backup for the given targetFilePath
 	backupFileName := base64.StdEncoding.EncodeToString([]byte(targetFilePath))
-	backupFilePath := tmpBackupPath + "/" + backupFileName
+	backupFilePath := host.backupPath + "/" + backupFileName
 
 	// Move backup conf into place
 	command := "mv " + backupFilePath + " " + targetFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
+	_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
 		return
@@ -122,7 +211,7 @@ func restoreOldConfig(sshClient *ssh.Client, targetFilePath string, tmpBackupPat
 
 	// Check to make sure restore worked with hash
 	command = "sha256sum " + targetFilePath
-	CommandOutput, err := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
+	CommandOutput, err := RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err)
 		return
@@ -216,13 +305,13 @@ func TransferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath
 }
 
 // Deletes given file from remote and parent directory if empty
-func deleteFile(sshClient *ssh.Client, SudoPassword string, targetFilePath string) (err error) {
+func deleteFile(host HostMeta, targetFilePath string) (err error) {
 	// Note: technically inefficient; if a file is moved within same directory, this will delete the file and parent dir(maybe)
 	//                                then when deploying the moved file, it will recreate folder that was just deleted.
 
 	// Attempt remove file
 	command := "rm " + targetFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 30)
+	_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 30)
 	if err != nil {
 		// Real errors only if file was present to begin with
 		if !strings.Contains(strings.ToLower(err.Error()), "no such file or directory") {
@@ -239,13 +328,13 @@ func deleteFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 	for i := 0; i < maxDirectoryLoopCount; i++ {
 		// Check for presence of anything in dir
 		command = "ls -A " + targetPath
-		CommandOutput, _ := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+		CommandOutput, _ := RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 10)
 
 		// Empty stdout means empty dir
 		if CommandOutput == "" {
 			// Safe remove directory
 			command = "rmdir " + targetPath
-			_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 30)
+			_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 30)
 			if err != nil {
 				// Error breaks loop
 				err = fmt.Errorf("failed to remove empty parent directory '%s' for file '%s': %v", targetPath, targetFilePath, err)
@@ -265,9 +354,9 @@ func deleteFile(sshClient *ssh.Client, SudoPassword string, targetFilePath strin
 }
 
 // Create symbolic link to specific target file (as present in file action string)
-func createSymLink(sshClient *ssh.Client, SudoPassword string, targetFilePath string, targetFileAction string) (err error) {
+func createSymLink(host HostMeta, targetFilePath string, targetFileAction string) (err error) {
 	// Check if a file is already there - if so, error
-	OldSymLinkExists, _, err := CheckRemoteFileDirExistence(sshClient, targetFilePath, SudoPassword, false)
+	OldSymLinkExists, _, err := CheckRemoteFileDirExistence(host.sshClient, targetFilePath, host.password, false)
 	if err != nil {
 		err = fmt.Errorf("failed checking file existence before creating symbolic link: %v", err)
 		return
@@ -284,7 +373,7 @@ func createSymLink(sshClient *ssh.Client, SudoPassword string, targetFilePath st
 
 	// Create symbolic link
 	command := "ln -s " + symLinkTarget + " " + targetFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+	_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("failed to create symbolic link: %v", err)
 		return
@@ -294,7 +383,7 @@ func createSymLink(sshClient *ssh.Client, SudoPassword string, targetFilePath st
 }
 
 // Modifies metadata if supplied remote file/dir metadata does not match supplied metadata
-func modifyMetadata(sshClient *ssh.Client, SudoPassword string, targetName string, lsOutput string, ExpectedOwnerGroup string, ExpectedPermissions int) (Modified bool, err error) {
+func modifyMetadata(host HostMeta, targetName string, lsOutput string, ExpectedOwnerGroup string, ExpectedPermissions int) (Modified bool, err error) {
 	// Extract ls information
 	Type, permissionsSymbolic, owner, group, _, _, err := extractMetadataFromLS(lsOutput)
 	if err != nil {
@@ -311,7 +400,7 @@ func modifyMetadata(sshClient *ssh.Client, SudoPassword string, targetName strin
 	// Check if remote permissions match expected
 	if RemotePermissions != ExpectedPermissions {
 		command := "chmod " + strconv.Itoa(RemotePermissions) + " " + targetName
-		_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+		_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
 			return
@@ -327,7 +416,7 @@ func modifyMetadata(sshClient *ssh.Client, SudoPassword string, targetName strin
 	RemoteOwnerGroup := owner + ":" + group
 	if RemoteOwnerGroup != ExpectedOwnerGroup {
 		command := "chown " + ExpectedOwnerGroup + " " + targetName
-		_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+		_, err = RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
 			return
@@ -340,4 +429,21 @@ func modifyMetadata(sshClient *ssh.Client, SudoPassword string, targetName strin
 	}
 
 	return
+}
+
+// Cleans up any temporarily items on the remote host
+// Errors are non-fatal, but will be printed to the user
+func CleanupRemote(host HostMeta) {
+	printMessage(VerbosityProgress, "Host %s: Cleaning up remote temporary directories\n", host.name)
+
+	// Cleanup temporary files
+	command := "rm -r " + host.transferBufferFile + " " + host.backupPath
+	_, err := RunSSHCommand(host.sshClient, command, "root", config.DisableSudo, host.password, 30)
+	if err != nil {
+		// Only print error if there was a file to remove in the first place
+		if !strings.Contains(err.Error(), "No such file or directory") {
+			// Failures to remove the tmp files are not critical, but notify the user regardless
+			printMessage(VerbosityStandard, " Warning! Failed to cleanup temporary buffer files: %v\n", err)
+		}
+	}
 }

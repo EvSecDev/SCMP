@@ -68,7 +68,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 
 		// Connect to the SSH server
-		client, err := connectToSSH(hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
+		client, err := connectToSSH(hostInfo.EndpointName, hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
 		logError("Failed connect to SSH server", err, false)
 		defer client.Close()
 
@@ -336,7 +336,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		"/etc/crontab":         {"crontab -n /etc/crontab"},
 		"/etc/network/":        {"ifup -n -a", "systemctl restart networking.service", "systemctl is-active networking.service"},
 		"/etc/nftables":        {"nft -f /etc/nftables.conf -c", "systemctl restart nftables.service", "systemctl is-active nftables.service"},
-		"/etc/nginx":           {"nginx -t", "systemctl restart nginx.service", "systemctl is-active nginx.service"},
+		"/etc/nginx":           {"nginx -s reload"},
 		"/etc/rsyslog":         {"rsyslogd -N1 -f /etc/rsyslog.conf", "systemctl restart rsyslog.service", "systemctl is-active rsyslog.service"},
 		"/etc/ssh/sshd":        {"sshd -t", "systemctl restart ssh.service", "systemctl is-active ssh.service"},
 		"/etc/sysctl":          {"sysctl -p --dry-run", "sysctl -p"},

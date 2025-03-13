@@ -549,7 +549,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		}
 		printMessage(VerbosityFullData, "      Reload Required?  %t\n", info.ReloadRequired)
 		if info.ReloadRequired {
-			printMessage(VerbosityFullData, "      Reload Comamnds   %s\n", info.Reload)
+			printMessage(VerbosityFullData, "      Reload Commands   %s\n", info.Reload)
 		}
 	}
 

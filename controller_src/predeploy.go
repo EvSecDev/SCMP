@@ -103,9 +103,9 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
 		if config.MaxSSHConcurrency > 1 {
-			go deployConfigs(&wg, semaphore, config.HostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
+			go sshDeploy(&wg, semaphore, config.HostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
 		} else {
-			deployConfigs(&wg, semaphore, config.HostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
+			sshDeploy(&wg, semaphore, config.HostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
 			if len(FailTracker) > 0 {
 				// Deployment error occured, don't continue with deployments
 				break

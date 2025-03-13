@@ -50,7 +50,7 @@ func runCmd(command string, hosts string) {
 
 func executeCommand(hostInfo EndpointInfo, command string) {
 	// Connect to the SSH server
-	client, err := connectToSSH(hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
+	client, err := connectToSSH(hostInfo.EndpointName, hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
 	logError("Failed to connect to host", err, false)
 	defer client.Close()
 
@@ -59,7 +59,7 @@ func executeCommand(hostInfo EndpointInfo, command string) {
 	logError("Command Failed", err, false)
 
 	// Show command output
-	printMessage(VerbosityStandard, "  Host '%s' Command Output: %s\n", hostInfo.EndpointName, commandOutput)
+	printMessage(VerbosityStandard, "  Host '%s' Command Output:\n%s\n", hostInfo.EndpointName, commandOutput)
 }
 
 // Run a script on host(s)
@@ -167,7 +167,7 @@ func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo E
 	defer func() { <-semaphore }() // Release the token when the goroutine finishes
 
 	// Connect to the SSH server
-	client, err := connectToSSH(hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
+	client, err := connectToSSH(hostInfo.EndpointName, hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
 	if err != nil {
 		executionErrorsMutex.Lock()
 		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.EndpointName, err)

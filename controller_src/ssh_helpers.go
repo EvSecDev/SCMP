@@ -189,7 +189,9 @@ func ParseEndpointAddress(endpointIP string, Port string) (endpointSocket string
 
 // Handle building client config and connection to remote host
 // Attempts to automatically recover from some errors like no route to host by waiting a bit
-func connectToSSH(endpointSocket string, endpointUser string, LoginPassword string, PrivateKey ssh.Signer, keyAlgorithm string) (client *ssh.Client, err error) {
+func connectToSSH(endpointName string, endpointSocket string, endpointUser string, LoginPassword string, PrivateKey ssh.Signer, keyAlgorithm string) (client *ssh.Client, err error) {
+	printMessage(VerbosityProgress, "Host %s: Connecting to SSH server\n", endpointName)
+
 	// Setup config for client
 	SSHconfig := &ssh.ClientConfig{
 		User: endpointUser,
@@ -229,6 +231,7 @@ func connectToSSH(endpointSocket string, endpointUser string, LoginPassword stri
 			}
 		} else {
 			// Connection worked
+			printMessage(VerbosityProgress, "Host %s: Connected to SSH server\n", endpointName)
 			break
 		}
 	}
