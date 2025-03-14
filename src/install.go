@@ -41,16 +41,16 @@ func createNewRepository(newRepoInfo string) {
 	}
 
 	// Local os separator char
-	config.OSPathSeparator = string(os.PathSeparator)
+	config.osPathSeparator = string(os.PathSeparator)
 
 	// Only take absolute paths from user choice
 	absoluteRepoPath, err := filepath.Abs(repoPath)
 	logError("Failed to get absolute path to new repository", err, false)
 
-	printMessage(VerbosityProgress, "Creating new repository at %s\n", absoluteRepoPath)
+	printMessage(verbosityProgress, "Creating new repository at %s\n", absoluteRepoPath)
 
 	// Get individual dir names
-	pathDirs := strings.Split(absoluteRepoPath, config.OSPathSeparator)
+	pathDirs := strings.Split(absoluteRepoPath, config.osPathSeparator)
 
 	// Error if it already exists
 	_, err = os.Stat(absoluteRepoPath)
@@ -67,7 +67,7 @@ func createNewRepository(newRepoInfo string) {
 		}
 
 		// Save current dir to main path
-		repoPath = repoPath + config.OSPathSeparator + pathDir
+		repoPath = repoPath + config.osPathSeparator + pathDir
 
 		// Check existence
 		_, err := os.Stat(repoPath)
@@ -85,7 +85,7 @@ func createNewRepository(newRepoInfo string) {
 	err = os.Chdir(repoPath)
 	logError("Failed to change into new repository directory", err, false)
 
-	printMessage(VerbosityProgress, "Setting initial branch name to %s\n", initialBranchName)
+	printMessage(verbosityProgress, "Setting initial branch name to %s\n", initialBranchName)
 
 	// Format branch name
 	if initialBranchName != "refs/heads/"+initialBranchName {
@@ -104,7 +104,7 @@ func createNewRepository(newRepoInfo string) {
 		Bare:        false,
 	}
 
-	printMessage(VerbosityProgress, "Initializing git repository\n")
+	printMessage(verbosityProgress, "Initializing git repository\n")
 
 	// Create git repo
 	repo, err := git.PlainInitWithOptions(repoPath, plainInitOptions)
@@ -115,7 +115,7 @@ func createNewRepository(newRepoInfo string) {
 	gitConfigFileBytes, err := os.ReadFile(gitConfigPath)
 	logError("Failed to read git config file", err, false)
 
-	printMessage(VerbosityProgress, "Setting initial git repository configuration options\n")
+	printMessage(verbosityProgress, "Setting initial git repository configuration options\n")
 
 	// Write options to config file if no garbage collection section
 	if !strings.Contains(string(gitConfigFileBytes), "[gc]") {
@@ -138,7 +138,7 @@ func createNewRepository(newRepoInfo string) {
 		gitConfigFile.Close()
 	}
 
-	printMessage(VerbosityProgress, "Adding example config metadata header files\n")
+	printMessage(verbosityProgress, "Adding example config metadata header files\n")
 
 	// Create a working tree
 	worktree, err := repo.Worktree()
@@ -166,7 +166,7 @@ func createNewRepository(newRepoInfo string) {
 		logError("Failed to marshal example metadata JSON", err, false)
 
 		// Add full header to string
-		exampleHeader := Delimiter + "\n" + string(metadata) + "\n" + Delimiter + "\n"
+		exampleHeader := metaDelimiter + "\n" + string(metadata) + "\n" + metaDelimiter + "\n"
 
 		// Write example file to repo
 		err = os.WriteFile(exampleFile, []byte(exampleHeader), 0640)
@@ -177,7 +177,7 @@ func createNewRepository(newRepoInfo string) {
 		logError("Failed to add universal file", err, false)
 	}
 
-	printMessage(VerbosityProgress, "Creating an initial commit in repository\n")
+	printMessage(verbosityProgress, "Creating an initial commit in repository\n")
 
 	// Create initial commit
 	_, err = worktree.Commit("Initial commit", &git.CommitOptions{
@@ -268,17 +268,17 @@ Host *
 	// Check if config already exists
 	_, err := os.Stat(configPath)
 	if !os.IsNotExist(err) {
-		printMessage(VerbosityProgress, "SSH Config file already exists, not overwritting it. Please configure manually.\n")
+		printMessage(verbosityProgress, "SSH Config file already exists, not overwritting it. Please configure manually.\n")
 		return
 	} else if err != nil {
-		printMessage(VerbosityProgress, "Unable to check if SSH config file already exists: %v\n", err)
+		printMessage(verbosityProgress, "Unable to check if SSH config file already exists: %v\n", err)
 		return
 	}
 
 	// Write example config to default location
 	err = os.WriteFile(configPath, []byte(defaultConfig), 0640)
 	if err != nil {
-		printMessage(VerbosityProgress, "Failed to write sample SSH config: %v\n", err)
+		printMessage(verbosityProgress, "Failed to write sample SSH config: %v\n", err)
 		return
 	}
 }
@@ -328,7 +328,7 @@ profile SCMController @{exelocation} flags=(enforce) {
 
 	// Can't install apparmor profile without root/sudo
 	if os.Geteuid() > 0 {
-		printMessage(VerbosityStandard, "Need root permissions to install apparmor profile\n")
+		printMessage(verbosityStandard, "Need root permissions to install apparmor profile\n")
 		return
 	}
 
@@ -336,17 +336,17 @@ profile SCMController @{exelocation} flags=(enforce) {
 	systemAAPath := "/sys/kernel/security/apparmor/profiles"
 	_, err := os.Stat(systemAAPath)
 	if os.IsNotExist(err) {
-		printMessage(VerbosityProgress, "AppArmor not supported by this system\n")
+		printMessage(verbosityProgress, "AppArmor not supported by this system\n")
 		return
 	} else if err != nil {
-		printMessage(VerbosityProgress, "Unable to check if AppArmor is supported by this system: %v\n", err)
+		printMessage(verbosityProgress, "Unable to check if AppArmor is supported by this system: %v\n", err)
 		return
 	}
 
 	// Write Apparmor Profile to /etc
 	err = os.WriteFile(AppArmorProfilePath, []byte(AppArmorProfile), 0644)
 	if err != nil {
-		printMessage(VerbosityProgress, "Failed to write apparmor profile: %v\n", err)
+		printMessage(verbosityProgress, "Failed to write apparmor profile: %v\n", err)
 		return
 	}
 
@@ -354,9 +354,9 @@ profile SCMController @{exelocation} flags=(enforce) {
 	command := exec.Command("apparmor_parser", "-r", AppArmorProfilePath)
 	_, err = command.CombinedOutput()
 	if err != nil {
-		printMessage(VerbosityProgress, "Failed to reload apparmor profile: %v\n", err)
+		printMessage(verbosityProgress, "Failed to reload apparmor profile: %v\n", err)
 		return
 	}
 
-	printMessage(VerbosityStandard, "Successfully installed AppArmor Profile\n")
+	printMessage(verbosityStandard, "Successfully installed AppArmor Profile\n")
 }

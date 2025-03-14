@@ -10,7 +10,7 @@ import (
 // Parses and prepares deployment information
 func preDeployment(deployMode string, commitID string, hostOverride string, fileOverride string) {
 	// Show progress to user
-	printMessage(VerbosityStandard, "%s\n", progCLIHeader)
+	printMessage(verbosityStandard, "%s\n", progCLIHeader)
 	var err error
 
 	// Check working dir for git repo
@@ -52,8 +52,8 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	// Ensure files were actually retrieved - Non-error because this can happen under normal operations
 	// Usually when committing files outside of host directories
 	if len(commitFiles) == 0 {
-		printMessage(VerbosityStandard, "No files available for deployment.\n")
-		printMessage(VerbosityStandard, "================================================\n")
+		printMessage(verbosityStandard, "No files available for deployment.\n")
+		printMessage(verbosityStandard, "================================================\n")
 		return
 	}
 
@@ -70,8 +70,8 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	// Ensure files/hosts weren't all filtered out - Non-error because this can happen under normal operations
 	// Can happen if user specifies change deploy mode with a host that didn't have any changes in the specified commit
 	if len(allDeploymentFiles) == 0 || len(allDeploymentHosts) == 0 {
-		printMessage(VerbosityStandard, "No deployment files for available hosts.\n")
-		printMessage(VerbosityStandard, "================================================\n")
+		printMessage(verbosityStandard, "No deployment files for available hosts.\n")
+		printMessage(verbosityStandard, "================================================\n")
 		return
 	}
 
@@ -84,10 +84,10 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	logError("Error in local system checks", err, true)
 
 	// Show progress to user
-	printMessage(VerbosityStandard, "Beginning deployment of %d files(s) to %d host(s)\n", len(allFileInfo), len(allDeploymentHosts))
+	printMessage(verbosityStandard, "Beginning deployment of %d files(s) to %d host(s)\n", len(allFileInfo), len(allDeploymentHosts))
 
 	// Semaphore to limit concurrency of host deployment go routines as specified in main config
-	semaphore := make(chan struct{}, config.MaxSSHConcurrency)
+	semaphore := make(chan struct{}, config.maxSSHConcurrency)
 
 	// Post deployment metrics
 	postDeployMetrics := &PostDeploymentMetrics{}
@@ -102,11 +102,11 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		// If requesting multithreaded deployment, start go routine, otherwise run without concurrency
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		if config.MaxSSHConcurrency > 1 {
-			go sshDeploy(&wg, semaphore, config.HostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
+		if config.maxSSHConcurrency > 1 {
+			go sshDeploy(&wg, semaphore, config.hostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
 		} else {
-			sshDeploy(&wg, semaphore, config.HostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
-			if len(FailTracker) > 0 {
+			sshDeploy(&wg, semaphore, config.hostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
+			if len(failTracker) > 0 {
 				// Deployment error occured, don't continue with deployments
 				break
 			}
@@ -115,12 +115,12 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	wg.Wait()
 
 	// Remove vault cache
-	config.Vault = make(map[string]Credential)
+	config.vault = make(map[string]Credential)
 
 	// If user requested dry run - print collected information
 	if dryRunRequested {
 		printDeploymentInformation(allFileInfo, allDeploymentHosts)
-		printMessage(VerbosityStandard, "================================================\n")
+		printMessage(verbosityStandard, "================================================\n")
 		return
 	}
 
@@ -128,7 +128,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	postDeployMetrics.sizeTransferred = FormatBytes(postDeployMetrics.bytes)
 
 	// Save deployment errors to fail tracker
-	if FailTracker != "" {
+	if failTracker != "" {
 		err := recordDeploymentError(commitID, postDeployMetrics)
 		logError("Error in failure recording", err, false)
 		return
@@ -136,10 +136,10 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 	// Remove fail tracker file after successful redeployment - removal errors don't matter, this is just cleaning up.
 	if deployMode == "deployFailures" {
-		os.Remove(config.FailTrackerFilePath)
+		os.Remove(config.failTrackerFilePath)
 	}
 
 	// Show progress to user
-	printMessage(VerbosityStandard, "\nCOMPLETE: %d files(s) deployed to %d host(s) - (%s transferred)\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.sizeTransferred)
-	printMessage(VerbosityStandard, "================================================\n")
+	printMessage(verbosityStandard, "\nCOMPLETE: %d files(s) deployed to %d host(s) - (%s transferred)\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.sizeTransferred)
+	printMessage(verbosityStandard, "================================================\n")
 }

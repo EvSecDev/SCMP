@@ -17,10 +17,10 @@ import (
 
 func modifyVault(endpointName string) (err error) {
 	// Ensure vault file exists, if not create it
-	vaultFileMeta, err := os.Stat(config.VaultFilePath)
+	vaultFileMeta, err := os.Stat(config.vaultFilePath)
 	if os.IsNotExist(err) {
 		var vaultFile *os.File
-		vaultFile, err = os.Create(config.VaultFilePath)
+		vaultFile, err = os.Create(config.vaultFilePath)
 		if err != nil {
 			return
 		}
@@ -41,7 +41,7 @@ func modifyVault(endpointName string) (err error) {
 	if vaultFileSize > 28 {
 		// Read in encrypted vault file
 		var lockedVaultFile []byte
-		lockedVaultFile, err = os.ReadFile(config.VaultFilePath)
+		lockedVaultFile, err = os.ReadFile(config.vaultFilePath)
 		if err != nil {
 			err = fmt.Errorf("failed to retrieve vault file: %v", err)
 			return
@@ -55,14 +55,14 @@ func modifyVault(endpointName string) (err error) {
 		}
 
 		// Unmarshal vault JSON into global struct
-		err = json.Unmarshal([]byte(unlockedVault), &config.Vault)
+		err = json.Unmarshal([]byte(unlockedVault), &config.vault)
 		if err != nil {
 			return
 		}
 	}
 
 	// Get password from user for host
-	loginUserName := config.HostInfo[endpointName].EndpointUser
+	loginUserName := config.hostInfo[endpointName].endpointUser
 	hostPassword, err := promptUserForSecret("Enter '%s' password for host '%s' (leave empty to delete entry): ", loginUserName, endpointName)
 	if err != nil {
 		return
@@ -71,14 +71,14 @@ func modifyVault(endpointName string) (err error) {
 	// Remove password if user supplied empty password
 	if hostPassword == "" {
 		// Just return if host is not in vault
-		_, hostExistsinVault := config.Vault[endpointName]
+		_, hostExistsinVault := config.vault[endpointName]
 		if !hostExistsinVault {
 			return
 		}
 
 		// Confirm with user before deleting vault entry
 		var userResponse string
-		if config.AllowDeletions {
+		if config.allowDeletions {
 			userResponse = "y"
 		} else {
 			userResponse, err = promptUser("Please type 'y' to delete vault host '%s': ", endpointName)
@@ -90,7 +90,7 @@ func modifyVault(endpointName string) (err error) {
 		// Check if the user typed 'y' (always lower-case)
 		if userResponse == "y" {
 			// Remove vault entry for host
-			delete(config.Vault, endpointName)
+			delete(config.vault, endpointName)
 			return
 		} else {
 			fmt.Printf("Did not receive confirmation, exiting.\n")
@@ -113,7 +113,7 @@ func modifyVault(endpointName string) (err error) {
 	// Modify/Add host password
 	var credential Credential
 	credential.LoginUserPassword = hostPassword
-	config.Vault[endpointName] = credential
+	config.vault[endpointName] = credential
 
 	// Encrypt and write changes to vault file - return with or without error
 	err = lockVault(vaultPassword)
@@ -123,7 +123,7 @@ func modifyVault(endpointName string) (err error) {
 // Encrypts and writes current vault data back to vault file
 func lockVault(vaultPassword string) (err error) {
 	// Marshal vault into json
-	unlockedVault, err := json.Marshal(config.Vault)
+	unlockedVault, err := json.Marshal(config.vault)
 	if err != nil {
 		return
 	}
@@ -135,21 +135,21 @@ func lockVault(vaultPassword string) (err error) {
 	}
 
 	// Write encrypted vault back to disk - return with or without error
-	err = os.WriteFile(config.VaultFilePath, lockedVault, 0600)
+	err = os.WriteFile(config.vaultFilePath, lockedVault, 0600)
 	return
 }
 
 // Opens vault and retrieves password for remote host
 func unlockVault(endpointName string) (hostPassword string, err error) {
-	printMessage(VerbosityFullData, "      Host requires password, unlocking vault\n")
+	printMessage(verbosityFullData, "      Host requires password, unlocking vault\n")
 
 	// Open vault if not already open - should only happen once since vault is global
-	if len(config.Vault) == 0 {
-		printMessage(VerbosityFullData, "      Reading vault file\n")
+	if len(config.vault) == 0 {
+		printMessage(verbosityFullData, "      Reading vault file\n")
 
 		// Read in encrypted vault file
 		var lockedVaultFile []byte
-		lockedVaultFile, err = os.ReadFile(config.VaultFilePath)
+		lockedVaultFile, err = os.ReadFile(config.vaultFilePath)
 		if err != nil {
 			err = fmt.Errorf("failed to retrieve vault file: %v", err)
 			return
@@ -162,7 +162,7 @@ func unlockVault(endpointName string) (hostPassword string, err error) {
 			return
 		}
 
-		printMessage(VerbosityFullData, "      Decrypting vault\n")
+		printMessage(verbosityFullData, "      Decrypting vault\n")
 
 		// Decrypt Vault
 		var unlockedVault string
@@ -172,23 +172,23 @@ func unlockVault(endpointName string) (hostPassword string, err error) {
 		}
 
 		// Unmarshal vault JSON using global struct
-		err = json.Unmarshal([]byte(unlockedVault), &config.Vault)
+		err = json.Unmarshal([]byte(unlockedVault), &config.vault)
 		if err != nil {
 			return
 		}
 	}
 
-	printMessage(VerbosityFullData, "      Retrieving password from vault\n")
+	printMessage(verbosityFullData, "      Retrieving password from vault\n")
 
 	// Double check host is in vault
-	_, hostHasVaultEntry := config.Vault[endpointName]
+	_, hostHasVaultEntry := config.vault[endpointName]
 	if !hostHasVaultEntry {
 		err = fmt.Errorf("host does not have an entry in the vault")
 		return
 	}
 
 	// Retrieve password for this host
-	hostPassword = config.Vault[endpointName].LoginUserPassword
+	hostPassword = config.vault[endpointName].LoginUserPassword
 	return
 }
 
@@ -264,8 +264,8 @@ func deriveKey(password string, salt []byte) (derivedKey []byte) {
 
 // Encrypt a string using a password with chacha20poly1305 and return a byte array of cipher text with required salt and nonce
 func encrypt(plainTextBytes []byte, decryptPassword string) (cipherTextSaltNonce []byte, err error) {
-	printMessage(VerbosityDebug, "  Password to Encrypt: %s\n", decryptPassword)
-	printMessage(VerbosityDebug, "  PlainText: %v\n", string(plainTextBytes))
+	printMessage(verbosityDebug, "  Password to Encrypt: %s\n", decryptPassword)
+	printMessage(verbosityDebug, "  PlainText: %v\n", string(plainTextBytes))
 
 	// Generate a salt
 	salt := make([]byte, 16) // 16 bytes salt
@@ -288,33 +288,33 @@ func encrypt(plainTextBytes []byte, decryptPassword string) (cipherTextSaltNonce
 		return
 	}
 
-	printMessage(VerbosityDebug, "    Salt: %v\n", salt)
-	printMessage(VerbosityDebug, "    Nonce: %v\n", nonce)
-	printMessage(VerbosityDebug, "    Key: %v\n", key)
+	printMessage(verbosityDebug, "    Salt: %v\n", salt)
+	printMessage(verbosityDebug, "    Nonce: %v\n", nonce)
+	printMessage(verbosityDebug, "    Key: %v\n", key)
 
 	// Encrypt the plaintext
 	ciphertext := aead.Seal(plainTextBytes[:0], nonce, plainTextBytes, nil)
 
-	printMessage(VerbosityDebug, "    CipherText: %v\n", ciphertext)
+	printMessage(verbosityDebug, "    CipherText: %v\n", ciphertext)
 
 	// The final ciphertext will include the salt and nonce for later decryption
 	cipherTextSaltNonce = append(salt, append(nonce, ciphertext...)...)
 
-	printMessage(VerbosityDebug, "    CipherText with Salt and Nonce: %v\n", cipherTextSaltNonce)
+	printMessage(verbosityDebug, "    CipherText with Salt and Nonce: %v\n", cipherTextSaltNonce)
 
 	// Encode byte array to base64
 	encodedCipherText := base64.StdEncoding.EncodeToString(cipherTextSaltNonce)
 	cipherTextSaltNonce = []byte(encodedCipherText)
 
-	printMessage(VerbosityDebug, "    Encoded CipherText: %v\n", cipherTextSaltNonce)
+	printMessage(verbosityDebug, "    Encoded CipherText: %v\n", cipherTextSaltNonce)
 
 	return
 }
 
 // Decrypt a byte array using a password with chacha20poly1305 and return a string of plain text
 func decrypt(cipherTextSaltNonce []byte, encryptPassword string) (plainText string, err error) {
-	printMessage(VerbosityDebug, "  Password to Decrypt: %s\n", encryptPassword)
-	printMessage(VerbosityDebug, "  Encoded CipherText: %v\n", cipherTextSaltNonce)
+	printMessage(verbosityDebug, "  Password to Decrypt: %s\n", encryptPassword)
+	printMessage(verbosityDebug, "  Encoded CipherText: %v\n", cipherTextSaltNonce)
 
 	// Decode base64 to raw byte array
 	cipherTextSaltNonce, err = base64.StdEncoding.DecodeString(string(cipherTextSaltNonce))
@@ -323,7 +323,7 @@ func decrypt(cipherTextSaltNonce []byte, encryptPassword string) (plainText stri
 		return
 	}
 
-	printMessage(VerbosityDebug, "    CipherText with Salt and Nonce: %x\n", cipherTextSaltNonce)
+	printMessage(verbosityDebug, "    CipherText with Salt and Nonce: %x\n", cipherTextSaltNonce)
 
 	// Extract the salt (16 bytes) and nonce (12 bytes) from the ciphertext
 	salt := cipherTextSaltNonce[:16]
@@ -333,10 +333,10 @@ func decrypt(cipherTextSaltNonce []byte, encryptPassword string) (plainText stri
 	// Derive the decryption key using Argon2
 	key := deriveKey(encryptPassword, salt)
 
-	printMessage(VerbosityDebug, "    CipherText: %v\n", cipherTextBytes)
-	printMessage(VerbosityDebug, "    Key: %v\n", key)
-	printMessage(VerbosityDebug, "    Nonce: %v\n", nonce)
-	printMessage(VerbosityDebug, "    Salt: %v\n", salt)
+	printMessage(verbosityDebug, "    CipherText: %v\n", cipherTextBytes)
+	printMessage(verbosityDebug, "    Key: %v\n", key)
+	printMessage(verbosityDebug, "    Nonce: %v\n", nonce)
+	printMessage(verbosityDebug, "    Salt: %v\n", salt)
 
 	// Create a new ChaCha20-Poly1305 instance
 	aead, err := chacha20poly1305.New(key)
@@ -351,6 +351,6 @@ func decrypt(cipherTextSaltNonce []byte, encryptPassword string) (plainText stri
 	}
 
 	plainText = string(plainTextBytes)
-	printMessage(VerbosityDebug, "    PlainText: %s\n", plainText)
+	printMessage(verbosityDebug, "    PlainText: %s\n", plainText)
 	return
 }

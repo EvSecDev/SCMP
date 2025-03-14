@@ -28,7 +28,7 @@ import (
 
 // Given an identity file, determines if its a public or private key, and loads the private key (sometimes from the SSH agent)
 // Also retrieves key algorithm type for later ssh connect
-func SSHIdentityToKey(SSHIdentityFile string) (PrivateKey ssh.Signer, KeyAlgo string, err error) {
+func SSHIdentityToKey(SSHIdentityFile string) (privateKey ssh.Signer, keyAlgo string, err error) {
 	// Load SSH private key
 	// Parse out which is which here and if pub key use as id for agent keychain
 	var SSHKeyType string
@@ -69,15 +69,15 @@ func SSHIdentityToKey(SSHIdentityFile string) (PrivateKey ssh.Signer, KeyAlgo st
 		}
 
 		// Connect to agent socket
-		var AgentConn net.Conn
-		AgentConn, err = net.Dial("unix", agentSock)
+		var agentConn net.Conn
+		agentConn, err = net.Dial("unix", agentSock)
 		if err != nil {
 			err = fmt.Errorf("ssh agent: %v", err)
 			return
 		}
 
 		// Establish new client with agent
-		sshAgent := agent.NewClient(AgentConn)
+		sshAgent := agent.NewClient(agentConn)
 
 		// Get list of keys in agent
 		var sshAgentKeys []*agent.Key
@@ -94,15 +94,15 @@ func SSHIdentityToKey(SSHIdentityFile string) (PrivateKey ssh.Signer, KeyAlgo st
 		}
 
 		// Parse public key from identity
-		var PublicKey ssh.PublicKey
-		PublicKey, _, _, _, err = ssh.ParseAuthorizedKey(SSHIdentity)
+		var publicKey ssh.PublicKey
+		publicKey, _, _, _, err = ssh.ParseAuthorizedKey(SSHIdentity)
 		if err != nil {
 			err = fmt.Errorf("invalid public key in identity file: %v", err)
 			return
 		}
 
 		// Add key algorithm to return value for later connect
-		KeyAlgo = PublicKey.Type()
+		keyAlgo = publicKey.Type()
 
 		// Get signers from agent
 		var signers []ssh.Signer
@@ -118,21 +118,21 @@ func SSHIdentityToKey(SSHIdentityFile string) (PrivateKey ssh.Signer, KeyAlgo st
 			sshAgentPubKey := sshAgentKey.PublicKey()
 
 			// Break if public key of priv key in agent matches public key from identity
-			if bytes.Equal(sshAgentPubKey.Marshal(), PublicKey.Marshal()) {
-				PrivateKey = sshAgentKey
+			if bytes.Equal(sshAgentPubKey.Marshal(), publicKey.Marshal()) {
+				privateKey = sshAgentKey
 				break
 			}
 		}
 	} else if SSHKeyType == "private" {
 		// Parse the private key
-		PrivateKey, err = ssh.ParsePrivateKey(SSHIdentity)
+		privateKey, err = ssh.ParsePrivateKey(SSHIdentity)
 		if err != nil {
 			err = fmt.Errorf("invalid private key in identity file: %v", err)
 			return
 		}
 
 		// Add key algorithm to return value for later connect
-		KeyAlgo = PrivateKey.PublicKey().Type()
+		keyAlgo = privateKey.PublicKey().Type()
 	} else if SSHKeyType == "encrypted" {
 		// Ask user for key password
 		var passphrase string
@@ -142,14 +142,14 @@ func SSHIdentityToKey(SSHIdentityFile string) (PrivateKey ssh.Signer, KeyAlgo st
 		}
 
 		// Decrypt and parse private key with password
-		PrivateKey, err = ssh.ParsePrivateKeyWithPassphrase(SSHIdentity, []byte(passphrase))
+		privateKey, err = ssh.ParsePrivateKeyWithPassphrase(SSHIdentity, []byte(passphrase))
 		if err != nil {
 			err = fmt.Errorf("invalid encrypted private key in identity file: %v", err)
 			return
 		}
 
 		// Add key algorithm to return value for later connect
-		KeyAlgo = PrivateKey.PublicKey().Type()
+		keyAlgo = privateKey.PublicKey().Type()
 	} else {
 		err = fmt.Errorf("unknown identity file format")
 		return
@@ -159,7 +159,7 @@ func SSHIdentityToKey(SSHIdentityFile string) (PrivateKey ssh.Signer, KeyAlgo st
 }
 
 // Validates endpoint address and port, then combines both strings
-func ParseEndpointAddress(endpointIP string, Port string) (endpointSocket string, err error) {
+func parseEndpointAddress(endpointIP string, Port string) (endpointSocket string, err error) {
 	// Use regex for v4 match
 	IPv4RegEx := regexp.MustCompile(`^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$`)
 
@@ -189,15 +189,15 @@ func ParseEndpointAddress(endpointIP string, Port string) (endpointSocket string
 
 // Handle building client config and connection to remote host
 // Attempts to automatically recover from some errors like no route to host by waiting a bit
-func connectToSSH(endpointName string, endpointSocket string, endpointUser string, LoginPassword string, PrivateKey ssh.Signer, keyAlgorithm string) (client *ssh.Client, err error) {
-	printMessage(VerbosityProgress, "Host %s: Connecting to SSH server\n", endpointName)
+func connectToSSH(endpointName string, endpointSocket string, endpointUser string, loginPassword string, privateKey ssh.Signer, keyAlgorithm string) (client *ssh.Client, err error) {
+	printMessage(verbosityProgress, "Host %s: Connecting to SSH server\n", endpointName)
 
 	// Setup config for client
 	SSHconfig := &ssh.ClientConfig{
 		User: endpointUser,
 		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(PrivateKey),
-			ssh.Password(LoginPassword),
+			ssh.PublicKeys(privateKey),
+			ssh.Password(loginPassword),
 		},
 		// Some IPS rules flag on GO's ssh client string
 		ClientVersion: "SSH-2.0-OpenSSH_9.8p1",
@@ -213,7 +213,7 @@ func connectToSSH(endpointName string, endpointSocket string, endpointUser strin
 
 	// Loop so some network errors can recover and try again
 	for attempts := 0; attempts <= maxConnectionAttempts; attempts++ {
-		printMessage(VerbosityProgress, "Endpoint %s: Establishing connection to SSH server (%d/%d)\n", endpointSocket, attempts, maxConnectionAttempts)
+		printMessage(verbosityProgress, "Endpoint %s: Establishing connection to SSH server (%d/%d)\n", endpointSocket, attempts, maxConnectionAttempts)
 
 		// Connect to the SSH server direct
 		client, err = ssh.Dial("tcp", endpointSocket, SSHconfig)
@@ -221,7 +221,7 @@ func connectToSSH(endpointName string, endpointSocket string, endpointUser strin
 		// Determine if error is recoverable
 		if err != nil {
 			if strings.Contains(err.Error(), "no route to host") {
-				printMessage(VerbosityProgress, "Endpoint %s: No route to SSH server (%d/%d)\n", endpointSocket, attempts, maxConnectionAttempts)
+				printMessage(verbosityProgress, "Endpoint %s: No route to SSH server (%d/%d)\n", endpointSocket, attempts, maxConnectionAttempts)
 				// Re-attempt after waiting for network path
 				time.Sleep(200 * time.Millisecond)
 				continue
@@ -231,7 +231,7 @@ func connectToSSH(endpointName string, endpointSocket string, endpointUser strin
 			}
 		} else {
 			// Connection worked
-			printMessage(VerbosityProgress, "Host %s: Connected to SSH server\n", endpointName)
+			printMessage(verbosityProgress, "Host %s: Connected to SSH server\n", endpointName)
 			break
 		}
 	}
@@ -263,7 +263,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 	pubKeyType := PubKey.Type()
 
 	// Find an entry that matches the host we are handshaking with
-	for _, knownhostkey := range config.KnownHosts {
+	for _, knownhostkey := range config.knownHosts {
 		// Separate the public key section from the hashed host section
 		knownhostkey = strings.TrimPrefix(knownhostkey, "|")
 		knownhost := strings.SplitN(knownhostkey, " ", 2)
@@ -333,7 +333,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 	if envaddToKnownHosts != "" {
 		// Put environment answer into answer var - also show answered prompt
 		addToKnownHosts = envaddToKnownHosts
-		printMessage(VerbosityStandard, "Do you want to add this key to known_hosts? [y/N/all/skip]: %s\n", addToKnownHosts)
+		printMessage(verbosityStandard, "Do you want to add this key to known_hosts? [y/N/all/skip]: %s\n", addToKnownHosts)
 	} else {
 		addToKnownHosts, err = promptUser("Do you want to add this key to known_hosts? [y/N/all/skip]: ")
 		if err != nil {
@@ -370,7 +370,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 // Writes new public key for remote host to known_hosts file
 func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (err error) {
 	// Show progress to user
-	printMessage(VerbosityStandard, "Writing new host entry in known_hosts... ")
+	printMessage(verbosityStandard, "Writing new host entry in known_hosts... ")
 
 	// Get hashed host
 	hashSection := knownhosts.HashHostname(cleanHost)
@@ -379,11 +379,11 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	newKnownHost := hashSection + " " + pubKeyType + " " + remotePubKey
 
 	// Lock file for writing - unlock on func return
-	KnownHostMutex.Lock()
-	defer KnownHostMutex.Unlock()
+	knownHostMutex.Lock()
+	defer knownHostMutex.Unlock()
 
 	// Open the known_hosts file
-	knownHostsfile, err := os.OpenFile(config.KnownHostsFilePath, os.O_APPEND|os.O_WRONLY, 0644)
+	knownHostsfile, err := os.OpenFile(config.knownHostsFilePath, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		err = fmt.Errorf("failed to open known_hosts file: %v", err)
 		return
@@ -397,7 +397,7 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	}
 
 	// Show progress to user
-	printMessage(VerbosityStandard, "Success\n")
+	printMessage(verbosityStandard, "Success\n")
 	return
 }
 
@@ -460,7 +460,7 @@ func SCPDownload(client *ssh.Client, remoteFilePath string) (fileContent string,
 // disableSudo will determine if command runs with sudo or not (default, will always use sudo)
 // Empty sudoPassword will run without assuming the user account doesn't require any passwords
 // timeout is the max execution time in seconds for the given command
-func RunSSHCommand(client *ssh.Client, command string, runAs string, disableSudo bool, sudoPassword string, timeout int) (CommandOutput string, err error) {
+func runSSHCommand(client *ssh.Client, command string, runAs string, disableSudo bool, sudoPassword string, timeout int) (commandOutput string, err error) {
 	// Open new session (exec)
 	session, err := client.NewSession()
 	if err != nil {
@@ -509,7 +509,7 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, disableSudo
 	// Add prefix to command
 	command = cmdPrefix + command
 
-	printMessage(VerbosityDebug, "  Running command '%s'\n", command)
+	printMessage(verbosityDebug, "  Running command '%s'\n", command)
 
 	// Start the command
 	err = session.Start(command)
@@ -543,7 +543,7 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, disableSudo
 	defer cancel()
 
 	// Wait for the command to finish with timeout
-	var Commandstderr []byte
+	var commandstderr []byte
 	var exitStatusZero bool
 	errChannel := make(chan error)
 	go func() {
@@ -556,7 +556,7 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, disableSudo
 		if err != nil {
 			// Return both exit status and stderr (readall errors are ignored as exit status will still be present)
 			var errorsError error // Store local error
-			Commandstderr, errorsError = io.ReadAll(stderr)
+			commandstderr, errorsError = io.ReadAll(stderr)
 			if errorsError != nil {
 				// Return at any errors reading the command error
 				err = fmt.Errorf("error reading error from command '%s': %v", command, errorsError)
@@ -564,7 +564,7 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, disableSudo
 			}
 
 			// Return commands error
-			err = fmt.Errorf("error with command '%s': %v: %s", command, err, Commandstderr)
+			err = fmt.Errorf("error with command '%s': %v: %s", command, err, commandstderr)
 			return
 		} else {
 			// nil from session.Wait() means exit status zero from the command
@@ -579,31 +579,31 @@ func RunSSHCommand(client *ssh.Client, command string, runAs string, disableSudo
 	}
 
 	// Read commands output from session
-	Commandstdout, err := io.ReadAll(stdout)
+	commandstdout, err := io.ReadAll(stdout)
 	if err != nil {
 		err = fmt.Errorf("error reading from io.Reader: %v", err)
 		return
 	}
 
 	// Read commands error output from session
-	Commandstderr, err = io.ReadAll(stderr)
+	commandstderr, err = io.ReadAll(stderr)
 	if err != nil {
 		err = fmt.Errorf("error reading from io.Reader: %v", err)
 		return
 	}
 
 	// Convert bytes to string
-	CommandOutput = string(Commandstdout)
-	CommandError := string(Commandstderr)
+	commandOutput = string(commandstdout)
+	commandError := string(commandstderr)
 
 	// If the command had an error on the remote side and session indicated non-zero exit status
-	if CommandError != "" && !exitStatusZero {
+	if commandError != "" && !exitStatusZero {
 		// Only return valid errors
-		if strings.Contains(CommandError, "[sudo] password for") {
+		if strings.Contains(commandError, "[sudo] password for") {
 			// Sudo puts password prompts into stderr when running with '-S'
 			err = nil
 		} else {
-			err = fmt.Errorf("%s", CommandError)
+			err = fmt.Errorf("%s", commandError)
 			return
 		}
 	}
@@ -620,21 +620,21 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuf
 
 	// Move script into execution location
 	command := "mv " + remoteTransferBuffer + " " + remoteFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+	_, err = runSSHCommand(sshClient, command, "root", config.disableSudo, SudoPassword, 10)
 	if err != nil {
 		return
 	}
 
 	// Hash remote script file
 	command = "sha256sum " + remoteFilePath
-	remoteScriptHash, err := RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 90)
+	remoteScriptHash, err := runSSHCommand(sshClient, command, "root", config.disableSudo, SudoPassword, 90)
 	if err != nil {
 		return
 	}
 	// Parse hash command output to get just the hex
 	remoteScriptHash = SHA256RegEx.FindString(remoteScriptHash)
 
-	printMessage(VerbosityFullData, "Remote Script Hash '%s'\n", remoteScriptHash)
+	printMessage(verbosityFullData, "Remote Script Hash '%s'\n", remoteScriptHash)
 
 	// Ensure original hash is identical to remote hash
 	if remoteScriptHash != scriptHash {
@@ -644,21 +644,21 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuf
 
 	// Change permissions on remote file
 	command = "chmod 700 " + remoteFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+	_, err = runSSHCommand(sshClient, command, "root", config.disableSudo, SudoPassword, 10)
 	if err != nil {
 		return
 	}
 
 	// Execute script
 	command = scriptInterpreter + " " + remoteFilePath
-	out, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 900)
+	out, err = runSSHCommand(sshClient, command, "root", config.disableSudo, SudoPassword, 900)
 	if err != nil {
 		return
 	}
 
 	// Cleanup: Remove script
 	command = "rm " + remoteFilePath
-	_, err = RunSSHCommand(sshClient, command, "root", config.DisableSudo, SudoPassword, 10)
+	_, err = runSSHCommand(sshClient, command, "root", config.disableSudo, SudoPassword, 10)
 	if err != nil {
 		return
 	}

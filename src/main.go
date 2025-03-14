@@ -23,45 +23,44 @@ var config Config
 
 // Struct for global config
 type Config struct {
-	FilePath              string                  // Path to main config - ~/.ssh/config
-	FailTrackerFilePath   string                  // Path to failtracker file (within same directory as main config)
-	OSPathSeparator       string                  // Path separator for compiled OS filesystem
-	HostInfo              map[string]EndpointInfo // Hold some basic information about all the hosts
-	KnownHostsFilePath    string                  // Path to known server public keys - ~/.ssh/known_hosts
-	KnownHosts            []string                // Content of known server public keys - ~/.ssh/known_hosts
-	RepositoryPath        string                  // Absolute path to git repository (based on current working dir)
-	UniversalDirectory    string                  // Universal config directory inside git repo
-	AllUniversalGroups    map[string][]string     // Universal group config directory names and their respective hosts
-	IgnoreDirectories     []string                // Directories to ignore inside the git repository
-	MaxSSHConcurrency     int                     // Maximum threads for ssh sessions
-	DisableSudo           bool                    // Disable using sudo for remote commands
-	AllowDeletions        bool                    // Allow deletions in local repo to delete files on remote hosts or vault entries
-	DisableReloads        bool                    // Disables all deployment reload commands for this deployment
-	RunInstallCommands    bool                    // Run the install command section of all relevant files metadata header section (within the given deployment)
-	RunUninstallCommands  bool                    // Run the uninstall command section of all relevant files metadata header section (within the given deployment)
-	IgnoreDeploymentState bool                    // Ignore any deployment state for a host in the config
-	RegexEnabled          bool                    // Globally enable the use of regex for matching hosts/files
-	UserHomeDirectory     string                  // Absolute path to users home directory (to expand '~/' in paths)
-	VaultFilePath         string                  // Path to password vault file
-	Vault                 map[string]Credential   // Password vault
+	filePath              string                  // Path to main config - ~/.ssh/config
+	failTrackerFilePath   string                  // Path to failtracker file (within same directory as main config)
+	osPathSeparator       string                  // Path separator for compiled OS filesystem
+	hostInfo              map[string]EndpointInfo // Hold some basic information about all the hosts
+	knownHostsFilePath    string                  // Path to known server public keys - ~/.ssh/known_hosts
+	knownHosts            []string                // Content of known server public keys - ~/.ssh/known_hosts
+	repositoryPath        string                  // Absolute path to git repository (based on current working dir)
+	universalDirectory    string                  // Universal config directory inside git repo
+	allUniversalGroups    map[string][]string     // Universal group config directory names and their respective hosts
+	ignoreDirectories     []string                // Directories to ignore inside the git repository
+	maxSSHConcurrency     int                     // Maximum threads for ssh sessions
+	disableSudo           bool                    // Disable using sudo for remote commands
+	allowDeletions        bool                    // Allow deletions in local repo to delete files on remote hosts or vault entries
+	disableReloads        bool                    // Disables all deployment reload commands for this deployment
+	runInstallCommands    bool                    // Run the install command section of all relevant files metadata header section (within the given deployment)
+	ignoreDeploymentState bool                    // Ignore any deployment state for a host in the config
+	regexEnabled          bool                    // Globally enable the use of regex for matching hosts/files
+	userHomeDirectory     string                  // Absolute path to users home directory (to expand '~/' in paths)
+	vaultFilePath         string                  // Path to password vault file
+	vault                 map[string]Credential   // Password vault
 }
 
 // Struct for host-specific Information
 type EndpointInfo struct {
-	DeploymentState      string              // Avoids deploying anything to host - so user can prevent deployments to otherwise up and health hosts
-	IgnoreUniversal      bool                // Prevents deployments for this host to use anything from the primary Universal configs directory
-	RequiresVault        bool                // Direct match to the config option "PasswordRequired"
-	UniversalGroups      map[string]struct{} // Map to store the CSV for config option "GroupTags"
-	DeploymentFiles      []string            // Created during pre-deployment to track which config files will be deployed to this host
-	EndpointName         string              // Name of host as it appears in config and in git repo top-level directory names
-	Endpoint             string              // Address:port of the host
-	EndpointUser         string              // Login user name of the host
-	IdentityFile         string              // Key identity file path (private or public)
-	PrivateKey           ssh.Signer          // Actual private key contents
-	KeyAlgo              string              // Algorithm of the private key
-	Password             string              // Password for the EndpointUser
-	RemoteTransferBuffer string              // Temporary Buffer file that will be used to transfer local config to remote host prior to moving into place
-	RemoteBackupDir      string              // Temporary directory to store backups of existing remote configs while reloads are performed
+	deploymentState      string              // Avoids deploying anything to host - so user can prevent deployments to otherwise up and health hosts
+	ignoreUniversal      bool                // Prevents deployments for this host to use anything from the primary Universal configs directory
+	requiresVault        bool                // Direct match to the config option "PasswordRequired"
+	universalGroups      map[string]struct{} // Map to store the CSV for config option "GroupTags"
+	deploymentFiles      []string            // Created during pre-deployment to track which config files will be deployed to this host
+	endpointName         string              // Name of host as it appears in config and in git repo top-level directory names
+	endpoint             string              // Address:port of the host
+	endpointUser         string              // Login user name of the host
+	identityFile         string              // Key identity file path (private or public)
+	privateKey           ssh.Signer          // Actual private key contents
+	keyAlgo              string              // Algorithm of the private key
+	password             string              // Password for the EndpointUser
+	remoteTransferBuffer string              // Temporary Buffer file that will be used to transfer local config to remote host prior to moving into place
+	remoteBackupDir      string              // Temporary directory to store backups of existing remote configs while reloads are performed
 }
 
 // Struct for vault passwords
@@ -79,21 +78,21 @@ type MetaHeader struct {
 	ReloadCommands          []string `json:"Reload,omitempty"`
 }
 
-const Delimiter string = "#|^^^|#"
+const metaDelimiter string = "#|^^^|#"
 
 // Struct for all deployment info for a file
 type FileInfo struct {
-	Hash            string
-	Action          string
-	FileOwnerGroup  string
-	FilePermissions int
-	FileSize        int
-	InstallOptional bool
-	Install         []string
-	ChecksRequired  bool
-	Checks          []string
-	ReloadRequired  bool
-	Reload          []string
+	hash            string
+	action          string
+	fileOwnerGroup  string
+	filePermissions int
+	fileSize        int
+	installOptional bool
+	install         []string
+	checksRequired  bool
+	checks          []string
+	reloadRequired  bool
+	reload          []string
 }
 
 // Store deployment host metadata to easily pass between SSH functions
@@ -114,7 +113,7 @@ type ErrorInfo struct {
 
 // #### Written to only from main
 
-var CalledByGitHook bool       // for automatic rollback on parsing error
+var calledByGitHook bool       // for automatic rollback on parsing error
 var SHA256RegEx *regexp.Regexp // for validating hashes received from remote hosts
 var SHA1RegEx *regexp.Regexp   // for validating user supplied commit hashes
 var dryRunRequested bool       // for printing relevant information and bailing out before outbound remote connections are made
@@ -131,12 +130,12 @@ var globalVerbosityLevel int
 
 // Descriptive Names for available verbosity levels
 const (
-	VerbosityNone int = iota
-	VerbosityStandard
-	VerbosityProgress
-	VerbosityData
-	VerbosityFullData
-	VerbosityDebug
+	verbosityNone int = iota
+	verbosityStandard
+	verbosityProgress
+	verbosityData
+	verbosityFullData
+	verbosityDebug
 )
 
 // Program Constants
@@ -154,7 +153,7 @@ const hashingBufferSize int = 64 * 1024                        // 64KB Buffer fo
 
 // Global for checking remote hosts keys
 var addAllUnknownHosts bool
-var KnownHostMutex sync.Mutex
+var knownHostMutex sync.Mutex
 
 // Used for metrics - counting post deployment
 type PostDeploymentMetrics struct {
@@ -168,14 +167,14 @@ type PostDeploymentMetrics struct {
 }
 
 // Global to track failed go routines' hosts, files, and errors to be able to retry deployment on user request
-const FailTrackerFile string = ".scmp-failtracker.json"
+const failTrackerFile string = ".scmp-failtracker.json"
 
-var FailTracker string
-var FailTrackerMutex sync.Mutex
+var failTracker string
+var failTrackerMutex sync.Mutex
 
 // Program Meta Info
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v4.2.0"
+const progVersion string = "v4.3.0"
 const usage = `Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
@@ -267,8 +266,8 @@ func main() {
 	var gitCommitRequested string
 
 	// Read Program Arguments - allowing both short and long args
-	flag.StringVar(&config.FilePath, "c", defaultConfigPath, "")
-	flag.StringVar(&config.FilePath, "config", defaultConfigPath, "")
+	flag.StringVar(&config.filePath, "c", defaultConfigPath, "")
+	flag.StringVar(&config.filePath, "config", defaultConfigPath, "")
 	flag.BoolVar(&deployChangesRequested, "d", false, "")
 	flag.BoolVar(&deployChangesRequested, "deploy-changes", false, "")
 	flag.BoolVar(&deployAllRequested, "a", false, "")
@@ -289,20 +288,20 @@ func main() {
 	flag.BoolVar(&testConfig, "test-config", false, "")
 	flag.BoolVar(&dryRunRequested, "T", false, "")
 	flag.BoolVar(&dryRunRequested, "dry-run", false, "")
-	flag.IntVar(&config.MaxSSHConcurrency, "m", 10, "")
-	flag.IntVar(&config.MaxSSHConcurrency, "max-conns", 10, "")
+	flag.IntVar(&config.maxSSHConcurrency, "m", 10, "")
+	flag.IntVar(&config.maxSSHConcurrency, "max-conns", 10, "")
 	flag.StringVar(&modifyVaultHost, "p", "", "")
 	flag.StringVar(&modifyVaultHost, "modify-vault-password", "", "")
 	flag.StringVar(&createNewRepo, "n", "", "")
 	flag.StringVar(&createNewRepo, "new-repo", "", "")
 	flag.BoolVar(&seedRepoFiles, "s", false, "")
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
-	flag.BoolVar(&config.AllowDeletions, "allow-deletions", false, "")
-	flag.BoolVar(&config.RunInstallCommands, "install", false, "")
-	flag.BoolVar(&config.DisableReloads, "disable-reloads", false, "")
-	flag.BoolVar(&config.DisableSudo, "disable-privilege-escalation", false, "")
-	flag.BoolVar(&config.IgnoreDeploymentState, "ignore-deployment-state", false, "")
-	flag.BoolVar(&config.RegexEnabled, "regex", false, "")
+	flag.BoolVar(&config.allowDeletions, "allow-deletions", false, "")
+	flag.BoolVar(&config.runInstallCommands, "install", false, "")
+	flag.BoolVar(&config.disableReloads, "disable-reloads", false, "")
+	flag.BoolVar(&config.disableSudo, "disable-privilege-escalation", false, "")
+	flag.BoolVar(&config.ignoreDeploymentState, "ignore-deployment-state", false, "")
+	flag.BoolVar(&config.regexEnabled, "regex", false, "")
 	flag.BoolVar(&versionInfoRequested, "V", false, "")
 	flag.BoolVar(&versionInfoRequested, "version", false, "")
 	flag.BoolVar(&versionRequested, "versionid", false, "")
@@ -365,7 +364,7 @@ func main() {
 		}
 
 		// Open repository
-		repo, err := git.PlainOpen(config.RepositoryPath)
+		repo, err := git.PlainOpen(config.repositoryPath)
 		logError("Failed to open repository", err, false)
 
 		// Get working tree
@@ -377,11 +376,11 @@ func main() {
 		logError("Failed to get current worktree status", err, false)
 
 		if gitAddRequested != "" && !status.IsClean() {
-			printMessage(VerbosityFullData, "Raw add option: '%s'\n", gitAddRequested)
+			printMessage(verbosityFullData, "Raw add option: '%s'\n", gitAddRequested)
 
 			// Exit if dry-run requested
 			if dryRunRequested {
-				printMessage(VerbosityStandard, "Dry-run requested, not altering worktree\n")
+				printMessage(verbosityStandard, "Dry-run requested, not altering worktree\n")
 				return
 			}
 
@@ -395,16 +394,19 @@ func main() {
 		} else if gitCommitRequested != "" && !status.IsClean() {
 			err = gitCommit(gitCommitRequested, worktree)
 			logError("Failed to commit changes", err, false)
+
+			// Deployment might occur after
+			calledByGitHook = true
 		} else if gitStatusRequested && !status.IsClean() {
 			currentStatus, err := worktree.Status()
 			logError("Failed to retrieve worktree status", err, false)
-			printMessage(VerbosityStandard, "%s", currentStatus.String())
+			printMessage(verbosityStandard, "%s", currentStatus.String())
 			return
 		} else if status.IsClean() {
-			printMessage(VerbosityStandard, "nothing to commit, working tree clean\n")
+			printMessage(verbosityStandard, "nothing to commit, working tree clean\n")
 			return
 		} else if !status.IsClean() {
-			printMessage(VerbosityStandard, "Untracked files present, please deal with them\n")
+			printMessage(verbosityStandard, "Untracked files present, please deal with them\n")
 			return
 		}
 	}
@@ -425,7 +427,7 @@ func main() {
 	if testConfig {
 		// If user wants to test config, just exit once program gets to this point
 		// Any config errors will be discovered prior to this point and exit with whatever error happened
-		printMessage(VerbosityStandard, "controller: configuration file %s test is successful\n", config.FilePath)
+		printMessage(verbosityStandard, "controller: configuration file %s test is successful\n", config.filePath)
 	} else if modifyVaultHost != "" {
 		err = modifyVault(modifyVaultHost)
 		logError("Error modifying vault", err, false)
@@ -443,6 +445,6 @@ func main() {
 		runCmd(executeCommands, hostOverride)
 	} else if gitCommitRequested == "" {
 		// No valid arguments or valid combination of arguments (and not committing - so this doesn't print when committing with other args or no args)
-		printMessage(VerbosityStandard, "No arguments specified or incorrect argument combination. Use '-h' or '--help' to guide your way.\n")
+		printMessage(verbosityStandard, "No arguments specified or incorrect argument combination. Use '-h' or '--help' to guide your way.\n")
 	}
 }

@@ -12,47 +12,47 @@ func TestFilterHostsAndFiles(t *testing.T) {
 
 	// Mock global vars
 	config = Config{
-		OSPathSeparator: "/",
-		HostInfo: map[string]EndpointInfo{
+		osPathSeparator: "/",
+		hostInfo: map[string]EndpointInfo{
 			"host1": {
-				DeploymentState: "online",
-				IgnoreUniversal: false,
-				UniversalGroups: map[string]struct{}{"UniversalConfs_Service1": {}, "UniversalConfs": {}},
+				deploymentState: "online",
+				ignoreUniversal: false,
+				universalGroups: map[string]struct{}{"UniversalConfs_Service1": {}, "UniversalConfs": {}},
 
-				EndpointName: "host1",
+				endpointName: "host1",
 			},
 			"host2": {
-				DeploymentState: "",
-				IgnoreUniversal: false,
-				UniversalGroups: map[string]struct{}{"UniversalConfs_Service2": {}, "UniversalConfs": {}},
-				DeploymentFiles: []string{""},
-				EndpointName:    "host2",
+				deploymentState: "",
+				ignoreUniversal: false,
+				universalGroups: map[string]struct{}{"UniversalConfs_Service2": {}, "UniversalConfs": {}},
+				deploymentFiles: []string{""},
+				endpointName:    "host2",
 			},
 			"host3": {
-				DeploymentState: "go",
-				IgnoreUniversal: true,
-				UniversalGroups: map[string]struct{}{"": {}},
-				DeploymentFiles: []string{""},
-				EndpointName:    "host3",
+				deploymentState: "go",
+				ignoreUniversal: true,
+				universalGroups: map[string]struct{}{"": {}},
+				deploymentFiles: []string{""},
+				endpointName:    "host3",
 			},
 			"host4": {
-				DeploymentState: "",
-				IgnoreUniversal: false,
-				UniversalGroups: map[string]struct{}{"UniversalConfs": {}},
-				DeploymentFiles: []string{""},
-				EndpointName:    "host4",
+				deploymentState: "",
+				ignoreUniversal: false,
+				universalGroups: map[string]struct{}{"UniversalConfs": {}},
+				deploymentFiles: []string{""},
+				endpointName:    "host4",
 			},
 			"host5": {
-				DeploymentState: "offline",
-				IgnoreUniversal: false,
-				UniversalGroups: map[string]struct{}{"UniversalConfs": {}},
-				DeploymentFiles: []string{""},
-				EndpointName:    "host5",
+				deploymentState: "offline",
+				ignoreUniversal: false,
+				universalGroups: map[string]struct{}{"UniversalConfs": {}},
+				deploymentFiles: []string{""},
+				endpointName:    "host5",
 			},
 		},
-		UniversalDirectory:    "UniversalConfs",
-		AllUniversalGroups:    map[string][]string{"UniversalConfs_Service1": {"host"}},
-		IgnoreDeploymentState: false,
+		universalDirectory:    "UniversalConfs",
+		allUniversalGroups:    map[string][]string{"UniversalConfs_Service1": {"host"}},
+		ignoreDeploymentState: false,
 	}
 
 	// Test cases
@@ -209,7 +209,7 @@ func TestFilterHostsAndFiles(t *testing.T) {
 			// Validate files per host
 			for _, endpointName := range allDeploymentHosts {
 				expectedDeploymentFiles := test.expectedFilesByHost[endpointName]
-				deploymentFiles := config.HostInfo[endpointName].DeploymentFiles
+				deploymentFiles := config.hostInfo[endpointName].deploymentFiles
 
 				if !compareArrays(expectedDeploymentFiles, deploymentFiles) {
 					t.Errorf("Host %s: expected files %v, but got %v", endpointName, expectedDeploymentFiles, deploymentFiles)

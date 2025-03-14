@@ -56,7 +56,7 @@ func TestParseEndpointAddress(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.endpointIP+"_"+test.port, func(t *testing.T) {
-			result, err := ParseEndpointAddress(test.endpointIP, test.port)
+			result, err := parseEndpointAddress(test.endpointIP, test.port)
 
 			if test.expectError {
 				if err == nil {

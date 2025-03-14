@@ -28,17 +28,17 @@ func retrieveURIFile(input string) (csv string, err error) {
 		return
 	}
 
-	printMessage(VerbosityData, "Received File URI '%s'\n", input)
+	printMessage(verbosityData, "Received File URI '%s'\n", input)
 
 	// Not adhering to actual URI standards -- I just want file paths
 	path := strings.TrimPrefix(input, fileURIPrefix)
 
-	printMessage(VerbosityFullData, "Preprocessed File URI Path '%s'\n", path)
+	printMessage(verbosityFullData, "Preprocessed File URI Path '%s'\n", path)
 
 	// Check for ~/ and expand if required
 	path = expandHomeDirectory(path)
 
-	printMessage(VerbosityData, "File URI contains path '%s'\n", path)
+	printMessage(verbosityData, "File URI contains path '%s'\n", path)
 
 	// Retrieve the file contents
 	fileBytes, err := os.ReadFile(path)
@@ -58,7 +58,7 @@ func retrieveURIFile(input string) (csv string, err error) {
 	// If file is multi-line, convert into CSV
 	if len(lines) > 1 {
 		csv = strings.Join(lines, ",")
-		printMessage(VerbosityFullData, "Extracted Override List from File: %v\n", csv)
+		printMessage(verbosityFullData, "Extracted Override List from File: %v\n", csv)
 		return
 	} else if len(lines) == 0 {
 		err = fmt.Errorf("file is empty")
@@ -71,7 +71,7 @@ func retrieveURIFile(input string) (csv string, err error) {
 	// Use the regular expression to split the string one first line
 	lineArray := separatorRegex.Split(lines[0], -1)
 	csv = strings.Join(lineArray, ",")
-	printMessage(VerbosityFullData, "Extracted Override List from File: %v\n", csv)
+	printMessage(verbosityFullData, "Extracted Override List from File: %v\n", csv)
 	return
 }
 
@@ -79,8 +79,8 @@ func retrieveURIFile(input string) (csv string, err error) {
 // Returns immediately if override is empty
 func checkForOverride(override string, current string) (skip bool) {
 	// If input is a host and state is offline and user did not request deployment state override, then skip
-	_, inputCheckIsAHost := config.HostInfo[current]
-	if inputCheckIsAHost && config.HostInfo[current].DeploymentState == "offline" && !config.IgnoreDeploymentState {
+	_, inputCheckIsAHost := config.hostInfo[current]
+	if inputCheckIsAHost && config.hostInfo[current].deploymentState == "offline" && !config.ignoreDeploymentState {
 		skip = true
 		return
 	}
@@ -92,7 +92,7 @@ func checkForOverride(override string, current string) (skip bool) {
 
 	// Allow current item if item is part of a group
 	// Only applies to host overrides, but shouldn't affect file overrides
-	_, currentItemIsPartofGroup := config.HostInfo[current].UniversalGroups[override]
+	_, currentItemIsPartofGroup := config.hostInfo[current].universalGroups[override]
 	if currentItemIsPartofGroup {
 		skip = false
 		return
@@ -104,12 +104,12 @@ func checkForOverride(override string, current string) (skip bool) {
 	// Check each override specified against current
 	for userChoice := range userHostChoices {
 		// Only assume override choice is regex if user requested it
-		if config.RegexEnabled {
+		if config.regexEnabled {
 			// Prepare user choice as regex
 			userRegex, err := regexp.Compile(userChoice)
 			if err != nil {
 				// Invalid regex, always skip (but print high verbosity what happened)
-				printMessage(VerbosityData, "WARNING: Invalid regular expression: %v", err)
+				printMessage(verbosityData, "WARNING: Invalid regular expression: %v", err)
 				return
 			}
 
@@ -166,7 +166,7 @@ func parseAllRepoFiles(tree *object.Tree) (allHostsFiles map[string]map[string]s
 // Modifies input maps to divide up repository files between host directories and universal directories
 func mapFilesByHostOrUniversal(repoFilePath string, allHostsFiles map[string]map[string]struct{}, allUniversalFiles map[string]map[string]struct{}) {
 	// Split host dir and target path
-	commitSplit := strings.SplitN(repoFilePath, config.OSPathSeparator, 2)
+	commitSplit := strings.SplitN(repoFilePath, config.osPathSeparator, 2)
 
 	// Skip repo files in root of repository
 	if len(commitSplit) <= 1 {
@@ -178,8 +178,8 @@ func mapFilesByHostOrUniversal(repoFilePath string, allHostsFiles map[string]map
 	tgtFilePath := commitSplit[1]
 
 	// Add files by universal group dirs to map for later deduping
-	_, fileIsInUniversalGroup := config.AllUniversalGroups[topLevelDirName]
-	if fileIsInUniversalGroup || topLevelDirName == config.UniversalDirectory {
+	_, fileIsInUniversalGroup := config.allUniversalGroups[topLevelDirName]
+	if fileIsInUniversalGroup || topLevelDirName == config.universalDirectory {
 		// Make map if inner map isn't initialized already
 		_, dirAlreadyExistsInMap := allUniversalFiles[topLevelDirName]
 		if !dirAlreadyExistsInMap {
@@ -205,15 +205,15 @@ func mapDeniedUniversalFiles(allHostsFiles map[string]map[string]struct{}, unive
 	deniedUniversalFiles = make(map[string]map[string]struct{})
 
 	// Created denied map for each host in config
-	for endpointName := range config.HostInfo {
+	for endpointName := range config.hostInfo {
 		// Initialize innner map
 		deniedUniversalFiles[endpointName] = make(map[string]struct{})
 
 		// Find overlaps between group files and host files - record overlapping group files in denied map
 		for groupName, groupFiles := range universalFiles {
 			// Skip groups not applicable to this host
-			_, hostIsInFilesUniversalGroup := config.HostInfo[endpointName].UniversalGroups[groupName]
-			if !hostIsInFilesUniversalGroup && groupName != config.UniversalDirectory {
+			_, hostIsInFilesUniversalGroup := config.hostInfo[endpointName].universalGroups[groupName]
+			if !hostIsInFilesUniversalGroup && groupName != config.universalDirectory {
 				continue
 			}
 
@@ -236,20 +236,20 @@ func mapDeniedUniversalFiles(allHostsFiles map[string]map[string]struct{}, unive
 // Function to extract and validate metadata JSON from file contents
 func extractMetadata(fileContents string) (metadataSection string, contentSection []byte, err error) {
 	// Add newline so file content doesnt have empty line at the top
-	EndDelimiter := Delimiter + "\n"
+	endDelimiter := metaDelimiter + "\n"
 
 	// Find the start and end of the metadata section
-	startIndex := strings.Index(fileContents, Delimiter)
+	startIndex := strings.Index(fileContents, metaDelimiter)
 	if startIndex == -1 {
 		err = fmt.Errorf("json start delimiter missing")
 		return
 	}
-	startIndex += len(Delimiter)
+	startIndex += len(metaDelimiter)
 
-	endIndex := strings.Index(fileContents[startIndex:], EndDelimiter)
+	endIndex := strings.Index(fileContents[startIndex:], endDelimiter)
 	if endIndex == -1 {
-		TestEndIndex := strings.Index(fileContents[startIndex:], Delimiter)
-		if TestEndIndex == -1 {
+		testEndIndex := strings.Index(fileContents[startIndex:], metaDelimiter)
+		if testEndIndex == -1 {
 			err = fmt.Errorf("json end delimiter missing")
 			return
 		}
@@ -260,7 +260,7 @@ func extractMetadata(fileContents string) (metadataSection string, contentSectio
 
 	// Extract the metadata section and remaining content into their own vars
 	metadataSection = fileContents[startIndex:endIndex]
-	remainingContent := fileContents[:startIndex-len(Delimiter)] + fileContents[endIndex+len(EndDelimiter):]
+	remainingContent := fileContents[:startIndex-len(metaDelimiter)] + fileContents[endIndex+len(endDelimiter):]
 	contentSection = []byte(remainingContent)
 
 	return
@@ -274,7 +274,7 @@ func extractMetadata(fileContents string) (metadataSection string, contentSectio
 //	any files in the root of the repository
 //	dirs present in global ignoredirectories array
 //	dirs that do not have a match in the controllers config
-func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string, FileType string, SkipFile bool, err error) {
+func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string, fileType string, skipFile bool, err error) {
 	// Nothing to validate
 	if rawFile == nil {
 		return
@@ -284,24 +284,24 @@ func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string
 	mode := fmt.Sprintf("%v", rawFile.Mode())
 
 	// Retrieve the type for this file
-	FileType = determineFileType(mode)
+	fileType = determineFileType(mode)
 
 	// Skip processing if file is unsupported
-	if FileType == "unsupported" {
-		SkipFile = true
+	if fileType == "unsupported" {
+		skipFile = true
 		return
 	}
 
 	// Get the path
 	path = rawFile.Path()
 
-	printMessage(VerbosityData, "  Validating committed file %s\n", path)
+	printMessage(verbosityData, "  Validating committed file %s\n", path)
 
 	// Skip file if not user requested file (if requested)
-	skipFile := checkForOverride(fileOverride, path)
+	skipFile = checkForOverride(fileOverride, path)
 	if skipFile {
-		printMessage(VerbosityFullData, "  File not desired\n")
-		SkipFile = true
+		printMessage(verbosityFullData, "  File not desired\n")
+		skipFile = true
 		return
 	}
 
@@ -313,11 +313,11 @@ func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string
 	// Ensure file is valid against config
 	if repoFileIsValid(path) {
 		// Not valid, skip
-		SkipFile = true
+		skipFile = true
 		return
 	}
 
-	printMessage(VerbosityData, "  Validated committed file %s\n", path)
+	printMessage(verbosityData, "  Validated committed file %s\n", path)
 
 	return
 }
@@ -330,46 +330,46 @@ func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string
 //  5. A file not inside any of the IgnoreDirectories
 func repoFileIsValid(path string) (fileIsValid bool) {
 	// Always ignore files in root of repository
-	if !strings.ContainsRune(path, []rune(config.OSPathSeparator)[0]) {
+	if !strings.ContainsRune(path, []rune(config.osPathSeparator)[0]) {
 		fileIsValid = true
-		printMessage(VerbosityData, "    File is in root of repo, skipping\n")
+		printMessage(verbosityData, "    File is in root of repo, skipping\n")
 		return
 	}
 
 	// Get top-level directory name
-	fileDirNames := strings.SplitN(path, config.OSPathSeparator, 2)
+	fileDirNames := strings.SplitN(path, config.osPathSeparator, 2)
 	topLevelDir := fileDirNames[0]
 
 	// fileIsValid if inside ignore directories array
-	if len(config.IgnoreDirectories) > 0 {
+	if len(config.ignoreDirectories) > 0 {
 		// When committed file directory is prefixed by an ignore directory, skip file
-		for _, ignoreDir := range config.IgnoreDirectories {
+		for _, ignoreDir := range config.ignoreDirectories {
 			if topLevelDir == ignoreDir {
 				fileIsValid = true
-				printMessage(VerbosityData, "    File is in an ignore directory, skipping\n")
+				printMessage(verbosityData, "    File is in an ignore directory, skipping\n")
 				return
 			}
 		}
 	}
 
 	// Ensure directory name is valid against config options
-	for configHost := range config.HostInfo {
+	for configHost := range config.hostInfo {
 		// file top-level dir is a valid host or the universal directory
-		if topLevelDir == configHost || topLevelDir == config.UniversalDirectory {
-			printMessage(VerbosityData, "    File is valid (Dir matches Hostname or is Universal Dir)\n")
+		if topLevelDir == configHost || topLevelDir == config.universalDirectory {
+			printMessage(verbosityData, "    File is valid (Dir matches Hostname or is Universal Dir)\n")
 			fileIsValid = false
 			return
 		}
 		fileIsValid = true
 	}
-	_, fileIsInUniversalGroup := config.AllUniversalGroups[topLevelDir]
+	_, fileIsInUniversalGroup := config.allUniversalGroups[topLevelDir]
 	if fileIsInUniversalGroup {
-		printMessage(VerbosityData, "    File is valid (Dir matches a Universal Group Dir)\n")
+		printMessage(verbosityData, "    File is valid (Dir matches a Universal Group Dir)\n")
 		fileIsValid = false
 		return
 	}
 
-	printMessage(VerbosityData, "    File is not under a valid host directory or a universal directory, skipping\n")
+	printMessage(verbosityData, "    File is not under a valid host directory or a universal directory, skipping\n")
 	fileIsValid = true
 	return
 }
@@ -417,8 +417,8 @@ func ResolveLinkToTarget(filePath string) (targetPath string, err error) {
 	}
 
 	// Get top level directory name for sym link and target
-	targetPathArray := strings.SplitN(linkTarget, config.OSPathSeparator, 2)
-	linkPathArray := strings.SplitN(filePath, config.OSPathSeparator, 2)
+	targetPathArray := strings.SplitN(linkTarget, config.osPathSeparator, 2)
+	linkPathArray := strings.SplitN(filePath, config.osPathSeparator, 2)
 
 	// Error if link top level directories are not the same (link is between host directories)
 	if targetPathArray[0] != linkPathArray[0] {
@@ -427,7 +427,7 @@ func ResolveLinkToTarget(filePath string) (targetPath string, err error) {
 	}
 
 	// Return target path without top level directory name (host dir name) (this is remote host format now)
-	convertedPath := strings.ReplaceAll(targetPathArray[1], config.OSPathSeparator, "/")
+	convertedPath := strings.ReplaceAll(targetPathArray[1], config.osPathSeparator, "/")
 	targetPath = "/" + convertedPath
 	return
 }
@@ -442,7 +442,7 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 	localRepoPath = strings.TrimSuffix(localRepoPath, artifactPointerFileExtension)
 
 	// Format commitFilePath with the expected host path separators
-	localRepoPath = strings.ReplaceAll(localRepoPath, config.OSPathSeparator, "/")
+	localRepoPath = strings.ReplaceAll(localRepoPath, config.osPathSeparator, "/")
 
 	// Bad - not a path, just a name
 	if !strings.Contains(localRepoPath, "/") {
@@ -498,7 +498,7 @@ func permissionsSymbolicToNumeric(permissions string) (perm int) {
 
 // Extracts all file information from ls -lA
 // Permissions(as 755), Ownership, type, size, name
-func extractMetadataFromLS(lsOutput string) (Type string, Permissions string, Owner string, Group string, Size int, Name string, err error) {
+func extractMetadataFromLS(lsOutput string) (fileType string, permissions string, owner string, group string, size int, name string, err error) {
 	// Split ls output into fields for this file
 	fileInfo := strings.Fields(lsOutput)
 
@@ -509,16 +509,16 @@ func extractMetadataFromLS(lsOutput string) (Type string, Permissions string, Ow
 	}
 
 	// Retrieve
-	Type = string(fileInfo[0][0])
-	Permissions = string(fileInfo[0][1:])
-	Owner = string(fileInfo[2])
-	Group = string(fileInfo[3])
-	Size, err = strconv.Atoi(fileInfo[4])
+	fileType = string(fileInfo[0][0])
+	permissions = string(fileInfo[0][1:])
+	owner = string(fileInfo[2])
+	group = string(fileInfo[3])
+	size, err = strconv.Atoi(fileInfo[4])
 	if err != nil {
 		err = fmt.Errorf("failed to parse size field")
-		Size = 0
+		size = 0
 	}
-	Name = fileInfo[8]
+	name = fileInfo[8]
 	return
 }
 

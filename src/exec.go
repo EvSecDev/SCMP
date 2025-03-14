@@ -20,13 +20,13 @@ func runCmd(command string, hosts string) {
 		logError("Argument error", fmt.Errorf("remote-hosts cannot be empty when running commands"), false)
 	}
 
-	printMessage(VerbosityStandard, "Executing command '%s' on hosts '%s'\n", command, hosts)
+	printMessage(verbosityStandard, "Executing command '%s' on hosts '%s'\n", command, hosts)
 
 	// Loop hosts chosen by user and prepare relevant host information for deployment
-	for endpointName := range config.HostInfo {
-		SkipHost := checkForOverride(hosts, endpointName)
-		if SkipHost {
-			printMessage(VerbosityProgress, "  Skipping host %s, not desired\n", endpointName)
+	for endpointName := range config.hostInfo {
+		skipHost := checkForOverride(hosts, endpointName)
+		if skipHost {
+			printMessage(verbosityProgress, "  Skipping host %s, not desired\n", endpointName)
 			continue
 		}
 
@@ -35,7 +35,7 @@ func runCmd(command string, hosts string) {
 		logError("Failed to retrieve host secrets", err, false)
 
 		// Retrieve most current global host config
-		hostInfo := config.HostInfo[endpointName]
+		hostInfo := config.hostInfo[endpointName]
 
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
@@ -50,16 +50,16 @@ func runCmd(command string, hosts string) {
 
 func executeCommand(hostInfo EndpointInfo, command string) {
 	// Connect to the SSH server
-	client, err := connectToSSH(hostInfo.EndpointName, hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
+	client, err := connectToSSH(hostInfo.endpointName, hostInfo.endpoint, hostInfo.endpointUser, hostInfo.password, hostInfo.privateKey, hostInfo.keyAlgo)
 	logError("Failed to connect to host", err, false)
 	defer client.Close()
 
 	// Execute user command
-	commandOutput, err := RunSSHCommand(client, command, "", config.DisableSudo, hostInfo.Password, 900)
+	commandOutput, err := runSSHCommand(client, command, "", config.disableSudo, hostInfo.password, 900)
 	logError("Command Failed", err, false)
 
 	// Show command output
-	printMessage(VerbosityStandard, "  Host '%s' Command Output:\n%s\n", hostInfo.EndpointName, commandOutput)
+	printMessage(verbosityStandard, "  Host '%s' Command Output:\n%s\n", hostInfo.endpointName, commandOutput)
 }
 
 // Run a script on host(s)
@@ -70,7 +70,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 	// Check for ~/ and expand if required
 	localScriptFilePath = expandHomeDirectory(localScriptFilePath)
 
-	printMessage(VerbosityFullData, "File URI Path '%s'\n", localScriptFilePath)
+	printMessage(verbosityFullData, "File URI Path '%s'\n", localScriptFilePath)
 
 	// Retrieve the file contents
 	scriptFileBytes, err := os.ReadFile(localScriptFilePath)
@@ -97,29 +97,29 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 	// Hash local script contents
 	scriptHash := SHA256Sum(scriptFileBytes)
 
-	printMessage(VerbosityFullData, "Local Script Hash '%s'\n", scriptHash)
+	printMessage(verbosityFullData, "Local Script Hash '%s'\n", scriptHash)
 
-	printMessage(VerbosityStandard, "Executing script '%s'\n", localScriptFilePath)
+	printMessage(verbosityStandard, "Executing script '%s'\n", localScriptFilePath)
 
 	// Semaphore to limit concurrency of host connections go routines as specified in main config
-	semaphore := make(chan struct{}, config.MaxSSHConcurrency)
+	semaphore := make(chan struct{}, config.maxSSHConcurrency)
 
 	if dryRunRequested {
 		// Notify user that program is in dry run mode
-		printMessage(VerbosityStandard, "Requested dry-run, aborting deployment\n")
+		printMessage(verbosityStandard, "Requested dry-run, aborting deployment\n")
 		if globalVerbosityLevel < 2 {
 			// If not running with higher verbosity, no need to collect deployment information
 			return
 		}
-		printMessage(VerbosityProgress, "Outputting information collected for deployment:\n")
+		printMessage(verbosityProgress, "Outputting information collected for deployment:\n")
 	}
 
 	// Run script per host
 	var wg sync.WaitGroup
-	for endpointName := range config.HostInfo {
+	for endpointName := range config.hostInfo {
 		// Only run against hosts specified
 		if checkForOverride(hosts, endpointName) {
-			printMessage(VerbosityProgress, "  Skipping host %s, not desired\n", endpointName)
+			printMessage(verbosityProgress, "  Skipping host %s, not desired\n", endpointName)
 			continue
 		}
 
@@ -128,7 +128,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 		logError("Failed to retrieve host secrets", err, false)
 
 		// Retrieve most current global host config
-		hostInfo := config.HostInfo[endpointName]
+		hostInfo := config.hostInfo[endpointName]
 
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
@@ -138,7 +138,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 
 		// Upload and execute the script - disable concurrency if maxconns is 1
 		wg.Add(1)
-		if config.MaxSSHConcurrency > 1 {
+		if config.maxSSHConcurrency > 1 {
 			go executeScriptOnHost(&wg, semaphore, hostInfo, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 		} else {
 			executeScriptOnHost(&wg, semaphore, hostInfo, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
@@ -152,7 +152,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 
 	// Print out any errors
 	if len(executionErrors) > 0 {
-		printMessage(VerbosityStandard, "Errors:\n  %v\n", executionErrors)
+		printMessage(verbosityStandard, "Errors:\n  %v\n", executionErrors)
 	}
 
 }
@@ -167,21 +167,21 @@ func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo E
 	defer func() { <-semaphore }() // Release the token when the goroutine finishes
 
 	// Connect to the SSH server
-	client, err := connectToSSH(hostInfo.EndpointName, hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
+	client, err := connectToSSH(hostInfo.endpointName, hostInfo.endpoint, hostInfo.endpointUser, hostInfo.password, hostInfo.privateKey, hostInfo.keyAlgo)
 	if err != nil {
 		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.EndpointName, err)
+		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.endpointName, err)
 		executionErrorsMutex.Unlock()
 	}
 	defer client.Close()
 
 	// Run the script remotely
-	scriptOutput, err := executeScript(client, hostInfo.Password, hostInfo.RemoteTransferBuffer, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+	scriptOutput, err := executeScript(client, hostInfo.password, hostInfo.remoteTransferBuffer, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 	if err != nil {
 		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.EndpointName, err)
+		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.endpointName, err)
 		executionErrorsMutex.Unlock()
 	}
 
-	printMessage(VerbosityStandard, "  Host '%s':\n%s\n", hostInfo.EndpointName, scriptOutput)
+	printMessage(verbosityStandard, "  Host '%s':\n%s\n", hostInfo.endpointName, scriptOutput)
 }

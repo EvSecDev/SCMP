@@ -70,7 +70,7 @@ func TestPrintMessage(t *testing.T) {
 // Unit Test
 func TestFilterHostGroups(t *testing.T) {
 	// Mock global
-	config.UniversalDirectory = "UniversalConfs"
+	config.universalDirectory = "UniversalConfs"
 
 	tests := []struct {
 		endpointName                 string
@@ -124,22 +124,22 @@ func TestFilterHostGroups(t *testing.T) {
 
 	for _, test := range tests {
 		// Reset global state for each test
-		config.AllUniversalGroups = make(map[string][]string)
+		config.allUniversalGroups = make(map[string][]string)
 
 		t.Run(test.endpointName, func(t *testing.T) {
 			// Run the function
-			HostIgnoresUniversal, HostUniversalGroups := filterHostGroups(test.endpointName, test.universalGroupsCSV, test.ignoreUniversalString)
+			hostIgnoresUniversal, hostUniversalGroups := filterHostGroups(test.endpointName, test.universalGroupsCSV, test.ignoreUniversalString)
 
 			// Check if the results match expectations
-			if HostIgnoresUniversal != test.expectedHostIgnoresUniversal {
-				t.Errorf("expected HostIgnoresUniversal to be %v, got %v", test.expectedHostIgnoresUniversal, HostIgnoresUniversal)
+			if hostIgnoresUniversal != test.expectedHostIgnoresUniversal {
+				t.Errorf("expected HostIgnoresUniversal to be %v, got %v", test.expectedHostIgnoresUniversal, hostIgnoresUniversal)
 			}
 
-			if len(HostUniversalGroups) != len(test.expectedHostUniversalGroups) {
-				t.Errorf("expected HostUniversalGroups length to be %d, got %d", len(test.expectedHostUniversalGroups), len(HostUniversalGroups))
+			if len(hostUniversalGroups) != len(test.expectedHostUniversalGroups) {
+				t.Errorf("expected HostUniversalGroups length to be %d, got %d", len(test.expectedHostUniversalGroups), len(hostUniversalGroups))
 			} else {
 				for group := range test.expectedHostUniversalGroups {
-					if _, exists := HostUniversalGroups[group]; !exists {
+					if _, exists := hostUniversalGroups[group]; !exists {
 						t.Errorf("expected HostUniversalGroups to contain group %s", group)
 					}
 				}
@@ -147,12 +147,12 @@ func TestFilterHostGroups(t *testing.T) {
 
 			// Check the global map AllUniversalGroups
 			for group, expectedHosts := range test.expectedAllUniversalGroups {
-				if len(config.AllUniversalGroups[group]) != len(expectedHosts) {
-					t.Errorf("expected %d hosts in group %s, got %d", len(expectedHosts), group, len(config.AllUniversalGroups[group]))
+				if len(config.allUniversalGroups[group]) != len(expectedHosts) {
+					t.Errorf("expected %d hosts in group %s, got %d", len(expectedHosts), group, len(config.allUniversalGroups[group]))
 				} else {
 					for _, expectedHost := range expectedHosts {
 						found := false
-						for _, host := range config.AllUniversalGroups[group] {
+						for _, host := range config.allUniversalGroups[group] {
 							if host == expectedHost {
 								found = true
 								break

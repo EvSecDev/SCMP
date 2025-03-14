@@ -15,7 +15,7 @@ command -v sha256sum >/dev/null
 
 # Vars
 repoRoot=$(pwd)
-controllerSRCdir="controller_src"
+SRCdir="src"
 
 function usage {
 	echo "Usage $0
@@ -34,7 +34,7 @@ Options:
 # Always update README with help menu from code
 function update_readme {
 	fileName="README.md"
-	helpMenuFromMain=$(cat $controllerSRCdir/main.go | sed -n '/const usage = `/,/`/{/^const usage = `$/d; /^`$/d; p;}')
+	helpMenuFromMain=$(cat $SRCdir/main.go | sed -n '/const usage = `/,/`/{/^const usage = `$/d; /^`$/d; p;}')
 
 	# Line number for start of md section
 	menuSectionStartLineNumber=$(grep -n "### Controller Help Menu" $fileName | cut -d":" -f1)
@@ -74,13 +74,13 @@ function check_for_dev_artifacts {
         lastReleaseCommitHash=$(cat $repoRoot/.last_release_commit)
 
 	# Retrieve the program version from the last release commit
-	lastReleaseVersionNumber=$(git show $lastReleaseCommitHash:$srcDir/main.go | grep "progVersion string" | cut -d" " -f5 | sed 's/"//g')
+	lastReleaseVersionNumber=$(git show $lastReleaseCommitHash:$srcDir/main.go 2>/dev/null | grep "progVersion string" | cut -d" " -f5 | sed 's/"//g')
 
 	# Get the current version number
 	currentVersionNumber=$(grep "progVersion string" $srcDir/main.go | cut -d" " -f5 | sed 's/"//g')
 
 	# Exit if version number hasn't been upped since last commit
-	if [[ $lastReleaseVersionNumber == $currentVersionNumber ]] && ! [[ $headCommitHash == $lastReleaseCommitHash ]]
+	if [[ $lastReleaseVersionNumber == $currentVersionNumber ]] && ! [[ $headCommitHash == $lastReleaseCommitHash ]] && ! [[ -z $lastReleaseVersionNumber ]]
 	then
 		echo "  [-] Version number in $srcDir/main.go has not been bumped since last commit, exiting build"
 		exit 1
@@ -93,7 +93,7 @@ function check_for_dev_artifacts {
         fi
 
 	# Quick staticcheck check - ignoring punctuation in error strings
-	cd $controllerSRCdir
+	cd $SRCdir
 	set +e
 	staticcheck *.go | egrep -v "error strings should not"
 	set -e
@@ -101,7 +101,7 @@ function check_for_dev_artifacts {
 }
 
 function fix_program_package_list_print {
-        searchDir="$repoRoot/$controllerSRCdir"
+        searchDir="$repoRoot/$SRCdir"
         mainFile=$(grep -il "func main() {" $searchDir/*.go | egrep -v "testing")
 
 	# Hold cumulative (duplicated) imports from all go source files
@@ -150,7 +150,7 @@ function controller_binary {
 	cd $repoRoot/
 
 	# Check for things not supposed to be in a release
-	check_for_dev_artifacts "$controllerSRCdir"
+	check_for_dev_artifacts "$SRCdir"
 
 	# Check for new packages that were imported but not included in version output
 	fix_program_package_list_print
@@ -159,7 +159,7 @@ function controller_binary {
 	update_readme
 
 	# Move into dir
-	cd $controllerSRCdir
+	cd $SRCdir
 
 	# Run tests
 	go test
@@ -198,7 +198,7 @@ function update_go_packages {
 	cd $repoRoot/
 
 	# Move into src dir
-	cd $controllerSRCdir
+	cd $SRCdir
 
 	# Run go updates
 	echo "==== Updating Controller Go packages ===="

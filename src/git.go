@@ -13,7 +13,7 @@ import (
 )
 
 func retrieveGitRepoPath() (err error) {
-	printMessage(VerbosityProgress, "Retrieving repository file path\n")
+	printMessage(verbosityProgress, "Retrieving repository file path\n")
 
 	// Get current dir (expected to be root of git repo)
 	currentWorkingDir, err := os.Getwd()
@@ -38,13 +38,13 @@ func retrieveGitRepoPath() (err error) {
 	}
 
 	// Current dir is absolute git repo path
-	config.RepositoryPath = currentWorkingDir
+	config.repositoryPath = currentWorkingDir
 	return
 }
 
 // Commit already added worktree items
 func gitCommit(gitCommitAction string, worktree *git.Worktree) (err error) {
-	printMessage(VerbosityFullData, "Raw commit option: '%s'\n", gitCommitAction)
+	printMessage(verbosityFullData, "Raw commit option: '%s'\n", gitCommitAction)
 
 	// Retrieve commit message from user supplied file
 	var commitMessage string
@@ -55,7 +55,7 @@ func gitCommit(gitCommitAction string, worktree *git.Worktree) (err error) {
 		// Check for ~/ and expand if required
 		pathToCommitMessage = expandHomeDirectory(pathToCommitMessage)
 
-		printMessage(VerbosityData, "Retrieving commit message from file: '%s'\n", pathToCommitMessage)
+		printMessage(verbosityData, "Retrieving commit message from file: '%s'\n", pathToCommitMessage)
 
 		// Retrieve the file contents
 		var fileBytes []byte
@@ -73,8 +73,8 @@ func gitCommit(gitCommitAction string, worktree *git.Worktree) (err error) {
 
 	// Return if dry-run requested
 	if dryRunRequested {
-		printMessage(VerbosityStandard, "Dry-run requested, not committing\n")
-		printMessage(VerbosityStandard, "Received commit message: '%s'\n", commitMessage)
+		printMessage(verbosityStandard, "Dry-run requested, not committing\n")
+		printMessage(verbosityStandard, "Received commit message: '%s'\n", commitMessage)
 		return
 	}
 
@@ -92,10 +92,10 @@ func gitCommit(gitCommitAction string, worktree *git.Worktree) (err error) {
 // Opens repository and retrieves details about given commit
 // If commitID is empty, will default to using HEAD commit
 func getCommit(commitID *string) (tree *object.Tree, commit *object.Commit, err error) {
-	printMessage(VerbosityProgress, "Retrieving commit and tree from git repository\n")
+	printMessage(verbosityProgress, "Retrieving commit and tree from git repository\n")
 
 	// Open the repository
-	repo, err := git.PlainOpen(config.RepositoryPath)
+	repo, err := git.PlainOpen(config.repositoryPath)
 	if err != nil {
 		err = fmt.Errorf("unable to open repository: %v", err)
 		return
@@ -147,7 +147,7 @@ func gitRollBackOneCommit() (err error) {
 	fmt.Printf("         Working directory is **NOT** affected.\n")
 
 	// Open the repo
-	repo, err := git.PlainOpen(config.RepositoryPath)
+	repo, err := git.PlainOpen(config.repositoryPath)
 	if err != nil {
 		err = fmt.Errorf("failed to open repository: %v", err)
 		return

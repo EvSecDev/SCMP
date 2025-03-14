@@ -17,7 +17,7 @@ import (
 // Logs non-nil errors to stdout and journal(if requested in conf)
 // If cleanup is needed, will roll the git repository back one commit
 // Rollbacks should only be requested when entire program is not concurrent (i.e. before deploy go routines)
-func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
+func logError(errorDescription string, errorMessage error, cleanupNeeded bool) {
 	// return early if no error to process
 	if errorMessage == nil {
 		return
@@ -34,7 +34,7 @@ func logError(errorDescription string, errorMessage error, CleanupNeeded bool) {
 	// Only roll back commit if the program was started by a hook and if the commit rollback is requested
 	// Reset commit because the current commit should reflect what is deployed in the network
 	// Conceptually, the rough equivalent of this command: git reset --soft HEAD~1
-	if CalledByGitHook && CleanupNeeded {
+	if calledByGitHook && cleanupNeeded {
 		err = gitRollBackOneCommit()
 		if err != nil {
 			fmt.Printf("Error rolling back commit. %v\n", err)
@@ -78,9 +78,9 @@ func CreateJournaldLog(errorMessage string, requestedPriority string) (err error
 // Always returns
 func recordDeploymentFailure(endpointName string, allFileArray []string, index int, errorMessage error) {
 	// Ensure multiline error messages dont make their way into json
-	Message := errorMessage.Error()
-	Message = strings.ReplaceAll(Message, "\n", " ")
-	Message = strings.ReplaceAll(Message, "\r", " ")
+	message := errorMessage.Error()
+	message = strings.ReplaceAll(message, "\n", " ")
+	message = strings.ReplaceAll(message, "\r", " ")
 
 	// Array to hold files that failed
 	var fileArray []string
@@ -101,25 +101,25 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 	info := ErrorInfo{
 		EndpointName: endpointName,
 		Files:        fileArray,
-		ErrorMessage: Message,
+		ErrorMessage: message,
 	}
 
 	// Marshal info string to a json format
-	FailedInfo, err := json.Marshal(info)
+	failedInfo, err := json.Marshal(info)
 	if err != nil {
-		printMessage(VerbosityStandard, "Failed to create Fail Tracker Entry for host %s file(s) %v\n", endpointName, fileArray)
-		printMessage(VerbosityStandard, "    Error: %s\n", Message)
+		printMessage(verbosityStandard, "Failed to create Fail Tracker Entry for host %s file(s) %v\n", endpointName, fileArray)
+		printMessage(verbosityStandard, "    Error: %s\n", message)
 		return
 	}
 
 	// Send error to journald
-	err = CreateJournaldLog(string(FailedInfo), "err")
+	err = CreateJournaldLog(string(failedInfo), "err")
 	if err != nil {
-		printMessage(VerbosityStandard, "Failed to create journald entry: %v\n", err)
+		printMessage(verbosityStandard, "Failed to create journald entry: %v\n", err)
 	}
 
 	// Write (append) fail info for this go routine to global failures - dont conflict with other host go routines
-	FailTrackerMutex.Lock()
-	FailTracker += string(FailedInfo) + "\n"
-	FailTrackerMutex.Unlock()
+	failTrackerMutex.Lock()
+	failTracker += string(failedInfo) + "\n"
+	failTrackerMutex.Unlock()
 }

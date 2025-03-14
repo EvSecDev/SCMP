@@ -10,28 +10,28 @@ import (
 func TestCheckForOverride(t *testing.T) {
 	// Mock globals
 	config = Config{
-		AllUniversalGroups: map[string][]string{
+		allUniversalGroups: map[string][]string{
 			"universalGroup1": {"host9"},
 			"universalGroup2": {"host11"},
 		},
-		HostInfo: map[string]EndpointInfo{
+		hostInfo: map[string]EndpointInfo{
 			"host1": {
-				UniversalGroups: map[string]struct{}{
+				universalGroups: map[string]struct{}{
 					"UniversalConfs_Service1": {},
 				},
 			},
 			"host2": {
-				UniversalGroups: map[string]struct{}{
+				universalGroups: map[string]struct{}{
 					"UniversalConfs_Service1": {},
 				},
 			},
 			"host3": {
-				UniversalGroups: map[string]struct{}{
+				universalGroups: map[string]struct{}{
 					"": {},
 				},
 			},
 		},
-		UniversalDirectory: "universalconfs",
+		universalDirectory: "universalconfs",
 	}
 
 	// Test cases
@@ -64,7 +64,7 @@ func TestCheckForOverride(t *testing.T) {
 
 	for _, test := range tests {
 		// Mock global for this test
-		config.RegexEnabled = test.useRegex
+		config.regexEnabled = test.useRegex
 
 		testTitle := fmt.Sprintf("Available Items:'%s'-Current Item:'%s'", test.override, test.current)
 		t.Run(testTitle, func(t *testing.T) {
@@ -79,9 +79,9 @@ func TestCheckForOverride(t *testing.T) {
 func TestMapFilesByHostOrUniversal(t *testing.T) {
 	// Initialize global config
 	config = Config{
-		OSPathSeparator:    "/",
-		UniversalDirectory: "universal",
-		AllUniversalGroups: map[string][]string{
+		osPathSeparator:    "/",
+		universalDirectory: "universal",
+		allUniversalGroups: map[string][]string{
 			"universalGroup1": {"host9"},
 			"universalGroup2": {"host11"},
 		},
@@ -189,24 +189,24 @@ func equalMaps(a, b map[string]map[string]struct{}) bool {
 func TestMapDeniedUniversalFiles(t *testing.T) {
 	// Mock Global
 	config = Config{
-		HostInfo: map[string]EndpointInfo{
+		hostInfo: map[string]EndpointInfo{
 			"host1": {
-				UniversalGroups: map[string]struct{}{
+				universalGroups: map[string]struct{}{
 					"UniversalConfs_Service1": {},
 				},
 			},
 			"host2": {
-				UniversalGroups: map[string]struct{}{
+				universalGroups: map[string]struct{}{
 					"UniversalConfs_OtherServers": {},
 				},
 			},
 			"host3": {
-				UniversalGroups: map[string]struct{}{
+				universalGroups: map[string]struct{}{
 					"": {},
 				},
 			},
 		},
-		UniversalDirectory: "UniversalConfs",
+		universalDirectory: "UniversalConfs",
 	}
 
 	// Test Data
@@ -373,13 +373,13 @@ file content file content file content`,
 
 func TestValidateRepoFile(t *testing.T) {
 	// Mock globals for the tests
-	config.OSPathSeparator = "/"
-	config.HostInfo = make(map[string]EndpointInfo)
-	config.HostInfo["validHost"] = EndpointInfo{EndpointName: "validHost"}
-	config.HostInfo["validHost2"] = EndpointInfo{EndpointName: "validHost2"}
-	config.IgnoreDirectories = []string{"ignoreDir", "ignoreDir2"}
-	config.UniversalDirectory = "UniversalConfs"
-	config.AllUniversalGroups = map[string][]string{
+	config.osPathSeparator = "/"
+	config.hostInfo = make(map[string]EndpointInfo)
+	config.hostInfo["validHost"] = EndpointInfo{endpointName: "validHost"}
+	config.hostInfo["validHost2"] = EndpointInfo{endpointName: "validHost2"}
+	config.ignoreDirectories = []string{"ignoreDir", "ignoreDir2"}
+	config.universalDirectory = "UniversalConfs"
+	config.allUniversalGroups = map[string][]string{
 		"UniversalConfs_Group1": {"host14"},
 	}
 
@@ -453,7 +453,7 @@ func TestDetermineFileType(t *testing.T) {
 
 func TestTranslateLocalPathtoRemotePath(t *testing.T) {
 	// Mock windows paths- shouldn't affect tests with unix paths
-	config.OSPathSeparator = "\\"
+	config.osPathSeparator = "\\"
 
 	tests := []struct {
 		localRepoPath    string
@@ -560,28 +560,28 @@ func TestExtractMetadataFromLS(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			Type, Permissions, Owner, Group, Size, Name, err := extractMetadataFromLS(test.lsOutput)
+			fileType, permissions, owner, group, size, name, err := extractMetadataFromLS(test.lsOutput)
 
 			if (err != nil) != test.expectedErr {
 				t.Errorf("extractMetadataFromLS() error = %v, wantErr %v", err, test.expectedErr)
 			}
-			if Type != test.expectedType {
-				t.Errorf("extractMetadataFromLS() Type = %v, want %v", Type, test.expectedType)
+			if fileType != test.expectedType {
+				t.Errorf("extractMetadataFromLS() Type = %v, want %v", fileType, test.expectedType)
 			}
-			if Permissions != test.expectedPerms {
-				t.Errorf("extractMetadataFromLS() Permissions = %v, want %v", Permissions, test.expectedPerms)
+			if permissions != test.expectedPerms {
+				t.Errorf("extractMetadataFromLS() Permissions = %v, want %v", permissions, test.expectedPerms)
 			}
-			if Owner != test.expectedOwner {
-				t.Errorf("extractMetadataFromLS() Owner = %v, want %v", Owner, test.expectedOwner)
+			if owner != test.expectedOwner {
+				t.Errorf("extractMetadataFromLS() Owner = %v, want %v", owner, test.expectedOwner)
 			}
-			if Group != test.expectedGroup {
-				t.Errorf("extractMetadataFromLS() Group = %v, want %v", Group, test.expectedGroup)
+			if group != test.expectedGroup {
+				t.Errorf("extractMetadataFromLS() Group = %v, want %v", group, test.expectedGroup)
 			}
-			if Size != test.expectedSize {
-				t.Errorf("extractMetadataFromLS() Size = %v, want %v", Size, test.expectedSize)
+			if size != test.expectedSize {
+				t.Errorf("extractMetadataFromLS() Size = %v, want %v", size, test.expectedSize)
 			}
-			if Name != test.expectedName {
-				t.Errorf("extractMetadataFromLS() Name = %v, want %v", Name, test.expectedName)
+			if name != test.expectedName {
+				t.Errorf("extractMetadataFromLS() Name = %v, want %v", name, test.expectedName)
 			}
 		})
 	}

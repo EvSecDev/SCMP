@@ -37,15 +37,15 @@ func printMessage(requiredVerbosityLevel int, message string, vars ...interface{
 // Parse out options from config file into global
 func parseConfig() (err error) {
 	// Config agnostic configuration options
-	config.OSPathSeparator = string(os.PathSeparator)
-	config.UserHomeDirectory, err = os.UserHomeDir()
+	config.osPathSeparator = string(os.PathSeparator)
+	config.userHomeDirectory, err = os.UserHomeDir()
 	if err != nil {
 		err = fmt.Errorf("unable to find home directory: %v", err)
 		return
 	}
 
 	// Load Config File
-	configAbsolutePath := expandHomeDirectory(config.FilePath)
+	configAbsolutePath := expandHomeDirectory(config.filePath)
 	sshConfigFile, err := os.ReadFile(configAbsolutePath)
 	if err != nil {
 		err = fmt.Errorf("reading config failed: %v", err)
@@ -60,29 +60,29 @@ func parseConfig() (err error) {
 		return
 	}
 
-	printMessage(VerbosityProgress, "Retrieving known_hosts file contents\n")
+	printMessage(verbosityProgress, "Retrieving known_hosts file contents\n")
 
 	// Set globals - see global section at top for descriptions
 
 	// Set path to failtracker file (in config directory)
 	configDirectory := filepath.Dir(configAbsolutePath)
-	config.FailTrackerFilePath = filepath.Join(configDirectory, FailTrackerFile)
+	config.failTrackerFilePath = filepath.Join(configDirectory, failTrackerFile)
 
 	// Retrieve known_hosts file path
-	config.KnownHostsFilePath, _ = sshConfig.Get("*", "UserKnownHostsFile")
-	if config.KnownHostsFilePath == "" {
+	config.knownHostsFilePath, _ = sshConfig.Get("*", "UserKnownHostsFile")
+	if config.knownHostsFilePath == "" {
 		err = fmt.Errorf("known_hosts file path must be present")
 		return
 	}
 
 	// Format known_hosts path correctly
-	config.KnownHostsFilePath = expandHomeDirectory(config.KnownHostsFilePath)
+	config.knownHostsFilePath = expandHomeDirectory(config.knownHostsFilePath)
 
 	// Ensure known_hosts file exists, if not create it
-	_, err = os.Stat(config.KnownHostsFilePath)
+	_, err = os.Stat(config.knownHostsFilePath)
 	if os.IsNotExist(err) {
 		var knownHostsFile *os.File
-		knownHostsFile, err = os.Create(config.KnownHostsFilePath)
+		knownHostsFile, err = os.Create(config.knownHostsFilePath)
 		if err != nil {
 			return
 		}
@@ -92,50 +92,50 @@ func parseConfig() (err error) {
 	}
 
 	// Read in file
-	knownHostFile, err := os.ReadFile(config.KnownHostsFilePath)
+	knownHostFile, err := os.ReadFile(config.knownHostsFilePath)
 	if err != nil {
 		err = fmt.Errorf("unable to read known_hosts file: %v", err)
 		return
 	}
 
 	// Store all known_hosts as array
-	config.KnownHosts = strings.Split(string(knownHostFile), "\n")
+	config.knownHosts = strings.Split(string(knownHostFile), "\n")
 
 	// All config dir names in repo
-	config.UniversalDirectory, _ = sshConfig.Get("", "UniversalDirectory")
-	if strings.Contains(config.UniversalDirectory, config.OSPathSeparator) {
+	config.universalDirectory, _ = sshConfig.Get("", "UniversalDirectory")
+	if strings.Contains(config.universalDirectory, config.osPathSeparator) {
 		err = fmt.Errorf("UniversalDirectory should be a relative path from the root of repository")
 		return
 	}
 
-	printMessage(VerbosityProgress, "Retrieving ignored directories config option\n")
+	printMessage(verbosityProgress, "Retrieving ignored directories config option\n")
 
 	// Ignored Dirs in repo
-	IgnoreDirectoryNames, _ := sshConfig.Get("", "IgnoreDirectories")
-	config.IgnoreDirectories = strings.Split(IgnoreDirectoryNames, ",")
-	if strings.Contains(IgnoreDirectoryNames, config.OSPathSeparator) {
+	ignoreDirectoryNames, _ := sshConfig.Get("", "IgnoreDirectories")
+	config.ignoreDirectories = strings.Split(ignoreDirectoryNames, ",")
+	if strings.Contains(ignoreDirectoryNames, config.osPathSeparator) {
 		err = fmt.Errorf("IgnoreDirectories should be relative paths from the root of repository")
 		return
 	}
 
 	// Check maxconns is valid
-	if config.MaxSSHConcurrency == 0 {
+	if config.maxSSHConcurrency == 0 {
 		err = fmt.Errorf("max connections cannot be 0")
 		return
 	}
 
 	// Password vault file
 	vaultRelPath, _ := sshConfig.Get("", "PasswordVault")
-	config.VaultFilePath = expandHomeDirectory(vaultRelPath)
+	config.vaultFilePath = expandHomeDirectory(vaultRelPath)
 
 	// Initialize vault map
-	config.Vault = make(map[string]Credential)
+	config.vault = make(map[string]Credential)
 
-	printMessage(VerbosityProgress, "Retrieving Configurations for Hosts\n")
+	printMessage(verbosityProgress, "Retrieving Configurations for Hosts\n")
 
 	// Array of Hosts and their info
-	config.HostInfo = make(map[string]EndpointInfo)
-	config.AllUniversalGroups = make(map[string][]string)
+	config.hostInfo = make(map[string]EndpointInfo)
+	config.allUniversalGroups = make(map[string][]string)
 	var hostInfo EndpointInfo
 	for _, host := range sshConfig.Hosts {
 		// Skip host patterns with more than one pattern
@@ -151,69 +151,69 @@ func parseConfig() (err error) {
 			continue
 		}
 
-		printMessage(VerbosityData, "  Host: %s\n", hostPattern)
+		printMessage(verbosityData, "  Host: %s\n", hostPattern)
 
 		// Save hostname into info map
-		hostInfo.EndpointName = hostPattern
+		hostInfo.endpointName = hostPattern
 
-		printMessage(VerbosityData, "    Retrieving Username\n")
+		printMessage(verbosityData, "    Retrieving Username\n")
 
 		// Save user into info map
-		hostInfo.EndpointUser, _ = sshConfig.Get(hostPattern, "User")
+		hostInfo.endpointUser, _ = sshConfig.Get(hostPattern, "User")
 
-		printMessage(VerbosityData, "    Retrieving Address\n")
+		printMessage(verbosityData, "    Retrieving Address\n")
 
 		// First item must be present
 		endpointAddr, _ := sshConfig.Get(hostPattern, "Hostname")
 
-		printMessage(VerbosityData, "    Retrieving Port\n")
+		printMessage(verbosityData, "    Retrieving Port\n")
 
 		// Get port from endpoint
 		endpointPort, _ := sshConfig.Get(hostPattern, "Port")
 
 		// Network Address Parsing - only if address
 		if endpointAddr != "" && endpointPort != "" {
-			printMessage(VerbosityData, "    Parsing endpoint address\n")
+			printMessage(verbosityData, "    Parsing endpoint address\n")
 
-			hostInfo.Endpoint, err = ParseEndpointAddress(endpointAddr, endpointPort)
+			hostInfo.endpoint, err = parseEndpointAddress(endpointAddr, endpointPort)
 			if err != nil {
 				err = fmt.Errorf("failed parsing network address: %v", err)
 				return
 			}
 		}
 
-		printMessage(VerbosityData, "    Retrieving Identity File Path\n")
+		printMessage(verbosityData, "    Retrieving Identity File Path\n")
 
 		// Get identity file path
-		hostInfo.IdentityFile, _ = sshConfig.Get(hostPattern, "IdentityFile")
+		hostInfo.identityFile, _ = sshConfig.Get(hostPattern, "IdentityFile")
 
-		printMessage(VerbosityData, "    Retrieving Remote Temp Dirs\n")
+		printMessage(verbosityData, "    Retrieving Remote Temp Dirs\n")
 
 		// Save remote transfer buffer and backup dir into host info map
-		hostInfo.RemoteBackupDir, _ = sshConfig.Get(hostPattern, "RemoteBackupDir")
-		hostInfo.RemoteTransferBuffer, _ = sshConfig.Get(hostPattern, "RemoteTransferBuffer")
+		hostInfo.remoteBackupDir, _ = sshConfig.Get(hostPattern, "RemoteBackupDir")
+		hostInfo.remoteTransferBuffer, _ = sshConfig.Get(hostPattern, "RemoteTransferBuffer")
 
 		// Ensure trailing slashes don't make their way into the path
-		hostInfo.RemoteTransferBuffer = strings.TrimSuffix(hostInfo.RemoteTransferBuffer, "/")
+		hostInfo.remoteTransferBuffer = strings.TrimSuffix(hostInfo.remoteTransferBuffer, "/")
 
-		printMessage(VerbosityData, "    Retrieving Deployment State\n")
+		printMessage(verbosityData, "    Retrieving Deployment State\n")
 
 		// Save deployment state of this host
-		hostInfo.DeploymentState, _ = sshConfig.Get(hostPattern, "DeploymentState")
+		hostInfo.deploymentState, _ = sshConfig.Get(hostPattern, "DeploymentState")
 
-		printMessage(VerbosityData, "    Retrieving if host requires vault password\n")
+		printMessage(verbosityData, "    Retrieving if host requires vault password\n")
 
 		// Create list of hosts that would need vault access
-		PasswordRequired, _ := sshConfig.Get(hostPattern, "PasswordRequired")
-		if strings.ToLower(PasswordRequired) == "yes" {
-			printMessage(VerbosityData, "     Host requires vault password\n")
-			hostInfo.RequiresVault = true
+		passwordRequired, _ := sshConfig.Get(hostPattern, "PasswordRequired")
+		if strings.ToLower(passwordRequired) == "yes" {
+			printMessage(verbosityData, "     Host requires vault password\n")
+			hostInfo.requiresVault = true
 		} else {
-			printMessage(VerbosityData, "     Host does not require vault password\n")
-			hostInfo.RequiresVault = false
+			printMessage(verbosityData, "     Host does not require vault password\n")
+			hostInfo.requiresVault = false
 		}
 
-		printMessage(VerbosityData, "    Retrieving Host Ignore Universal State\n")
+		printMessage(verbosityData, "    Retrieving Host Ignore Universal State\n")
 
 		// Get all groups this host is a part of
 		universalGroupsCSV, _ := sshConfig.Get(hostPattern, "GroupTags")
@@ -222,12 +222,10 @@ func parseConfig() (err error) {
 		ignoreUniversalString, _ := sshConfig.Get(hostPattern, "IgnoreUniversal")
 
 		// Parse config host groups into necessary global/host variables
-		HostIgnoresUniversal, HostUniversalGroups := filterHostGroups(hostPattern, universalGroupsCSV, ignoreUniversalString)
-		hostInfo.IgnoreUniversal = HostIgnoresUniversal
-		hostInfo.UniversalGroups = HostUniversalGroups
+		hostInfo.ignoreUniversal, hostInfo.universalGroups = filterHostGroups(hostPattern, universalGroupsCSV, ignoreUniversalString)
 
 		// Save host back into global map
-		config.HostInfo[hostPattern] = hostInfo
+		config.hostInfo[hostPattern] = hostInfo
 	}
 
 	return
@@ -236,22 +234,22 @@ func parseConfig() (err error) {
 // Creates two maps relating to host groups
 // First map: key'd on group and contains only groups that the host is a part of (values are empty)
 // Second map: global key'd on group and contains array of hosts belonging to that group
-func filterHostGroups(endpointName string, universalGroupsCSV string, ignoreUniversalString string) (HostIgnoresUniversal bool, HostUniversalGroups map[string]struct{}) {
+func filterHostGroups(endpointName string, universalGroupsCSV string, ignoreUniversalString string) (hostIgnoresUniversal bool, hostUniversalGroups map[string]struct{}) {
 	// Convert CSV of host groups to array
 	universalGroupsList := strings.Split(universalGroupsCSV, ",")
 
 	// If host ignores universal configs
 	if strings.ToLower(ignoreUniversalString) == "yes" {
-		HostIgnoresUniversal = true
+		hostIgnoresUniversal = true
 	} else {
-		HostIgnoresUniversal = false
+		hostIgnoresUniversal = false
 
 		// Not ignoring, make this host a part of the universal group
-		universalGroupsList = append(universalGroupsList, config.UniversalDirectory)
+		universalGroupsList = append(universalGroupsList, config.universalDirectory)
 	}
 
 	// Get universal groups this host is a part of
-	HostUniversalGroups = make(map[string]struct{})
+	hostUniversalGroups = make(map[string]struct{})
 	for _, universalGroup := range universalGroupsList {
 		// Skip empty hosts' group
 		if universalGroup == "" {
@@ -259,10 +257,10 @@ func filterHostGroups(endpointName string, universalGroupsCSV string, ignoreUniv
 		}
 
 		// Map of groups that this host is a part of
-		HostUniversalGroups[universalGroup] = struct{}{}
+		hostUniversalGroups[universalGroup] = struct{}{}
 
 		// Add this hosts name to the global universal map for groups this host is a part of
-		config.AllUniversalGroups[universalGroup] = append(config.AllUniversalGroups[universalGroup], endpointName)
+		config.allUniversalGroups[universalGroup] = append(config.allUniversalGroups[universalGroup], endpointName)
 	}
 
 	return
@@ -280,7 +278,7 @@ func expandHomeDirectory(path string) (absolutePath string) {
 	path = strings.TrimPrefix(path, "~/")
 
 	// Combine Users home directory path with the input path
-	absolutePath = filepath.Join(config.UserHomeDirectory, path)
+	absolutePath = filepath.Join(config.userHomeDirectory, path)
 	return
 }
 

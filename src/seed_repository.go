@@ -26,7 +26,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 	}()
 
-	printMessage(VerbosityStandard, "==== Secure Configuration Management Repository Seeding ====\n")
+	printMessage(verbosityStandard, "==== Secure Configuration Management Repository Seeding ====\n")
 
 	// Check local system
 	err := localSystemChecks()
@@ -38,19 +38,19 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 
 	if dryRunRequested {
 		// Notify user that program is in dry run mode
-		printMessage(VerbosityStandard, "Requested dry-run, aborting deployment\n")
+		printMessage(verbosityStandard, "Requested dry-run, aborting deployment\n")
 		if globalVerbosityLevel < 2 {
 			// If not running with higher verbosity, no need to collect deployment information
 			return
 		}
-		printMessage(VerbosityProgress, "Outputting information collected for deployment:\n")
+		printMessage(verbosityProgress, "Outputting information collected for deployment:\n")
 	}
 
 	// Loop hosts chosen by user and prepare relevant host information for deployment
-	for endpointName, hostInfo := range config.HostInfo {
-		SkipHost := checkForOverride(hostOverride, endpointName)
-		if SkipHost {
-			printMessage(VerbosityProgress, "  Skipping host %s, not desired\n", endpointName)
+	for endpointName, hostInfo := range config.hostInfo {
+		skipHost := checkForOverride(hostOverride, endpointName)
+		if skipHost {
+			printMessage(verbosityProgress, "  Skipping host %s, not desired\n", endpointName)
 			continue
 		}
 
@@ -59,7 +59,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		logError("Error retrieving host secrets", err, true)
 
 		// Retrieve most current global host config
-		hostInfo = config.HostInfo[endpointName]
+		hostInfo = config.hostInfo[endpointName]
 
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
@@ -68,14 +68,14 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 
 		// Connect to the SSH server
-		client, err := connectToSSH(hostInfo.EndpointName, hostInfo.Endpoint, hostInfo.EndpointUser, hostInfo.Password, hostInfo.PrivateKey, hostInfo.KeyAlgo)
+		client, err := connectToSSH(hostInfo.endpointName, hostInfo.endpoint, hostInfo.endpointUser, hostInfo.password, hostInfo.privateKey, hostInfo.keyAlgo)
 		logError("Failed connect to SSH server", err, false)
 		defer client.Close()
 
 		// Run menu for user to select desired files or direct download
 		selectedFiles := make(map[string][]string)
 		if remoteFileOverride == "" {
-			selectedFiles, err = runSelection(endpointName, client, hostInfo.Password)
+			selectedFiles, err = runSelection(endpointName, client, hostInfo.password)
 			logError("Error retrieving remote file list", err, false)
 		} else {
 			// Get remote file metadata
@@ -84,7 +84,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 				// Ls the remote file for metadata information
 				command := "ls -lA " + remoteFile
 				var fileLS string
-				fileLS, err = RunSSHCommand(client, command, "", config.DisableSudo, hostInfo.Password, 30)
+				fileLS, err = runSSHCommand(client, command, "", config.disableSudo, hostInfo.password, 30)
 				logError("Failed to retrieve remote file information", err, false)
 
 				// Split ls output into fields for this file
@@ -121,17 +121,17 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 
 		// Initialize buffer file (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
-		err = SCPUpload(client, []byte{12}, hostInfo.RemoteTransferBuffer)
+		err = SCPUpload(client, []byte{12}, hostInfo.remoteTransferBuffer)
 		logError(fmt.Sprintf("Failed to initialize buffer file on remote host %s", endpointName), err, false)
 
 		// Download user file choices to local repo and format
 		for targetFilePath, fileInfo := range selectedFiles {
-			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, hostInfo.Password, hostInfo.RemoteTransferBuffer)
+			err = retrieveSelectedFile(targetFilePath, fileInfo, endpointName, client, hostInfo.password, hostInfo.remoteTransferBuffer)
 			logError("Error seeding repository", err, false)
 		}
 	}
 
-	printMessage(VerbosityStandard, "============================================================\n")
+	printMessage(verbosityStandard, "============================================================\n")
 }
 
 // Runs the CLI-based menu that user will use to select which files to download
@@ -148,7 +148,7 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 		// Get file names and info for the directory
 		command := "ls -lA " + directory
 		var directoryList string
-		directoryList, err = RunSSHCommand(client, command, "", config.DisableSudo, SudoPassword, 30)
+		directoryList, err = runSSHCommand(client, command, "", config.disableSudo, SudoPassword, 30)
 		if err != nil {
 			// All errors except permission denied exits selection menu
 			if !strings.Contains(err.Error(), "Permission denied") {
@@ -363,26 +363,26 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 			break
 		}
 
-		printMessage(VerbosityProgress, "  File '%s': Retrieving metadata for parent directory '%s'\n", targetFilePath, directory)
+		printMessage(verbosityProgress, "  File '%s': Retrieving metadata for parent directory '%s'\n", targetFilePath, directory)
 
 		// Retrieve metadata
 		command := "ls -ld " + directory
 		var directoryMetadata string
-		directoryMetadata, err = RunSSHCommand(client, command, "root", config.DisableSudo, SudoPassword, 10)
+		directoryMetadata, err = runSSHCommand(client, command, "root", config.disableSudo, SudoPassword, 10)
 		if err != nil {
 			err = fmt.Errorf("ssh command failure: %v", err)
 			return
 		}
 
-		printMessage(VerbosityProgress, "  File '%s': Parsing metadata for parent directory '%s'\n", targetFilePath, directory)
+		printMessage(verbosityProgress, "  File '%s': Parsing metadata for parent directory '%s'\n", targetFilePath, directory)
 
 		// Extract ls information
-		Type, permissionsSymbolic, owner, group, _, _, lerr := extractMetadataFromLS(directoryMetadata)
+		fileType, permissionsSymbolic, owner, group, _, _, lerr := extractMetadataFromLS(directoryMetadata)
 		if lerr != nil {
 			return
 		}
-		if Type != "d" {
-			printMessage(VerbosityProgress, "Warning: expected remote path to be directory, but got type '%s' instead", Type)
+		if fileType != "d" {
+			printMessage(verbosityProgress, "Warning: expected remote path to be directory, but got type '%s' instead", fileType)
 			continue
 		}
 
@@ -391,11 +391,11 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		dirMetadata.TargetFileOwnerGroup = owner + ":" + group
 		dirMetadata.TargetFilePermissions = permissionsSymbolicToNumeric(permissionsSymbolic)
 
-		printMessage(VerbosityData, "  File '%s': Metadata for parent directory '%s': %s %s\n", targetFilePath, directory, permissionsSymbolic, dirMetadata.TargetFileOwnerGroup)
+		printMessage(verbosityData, "  File '%s': Metadata for parent directory '%s': %s %s\n", targetFilePath, directory, permissionsSymbolic, dirMetadata.TargetFileOwnerGroup)
 
 		// Save metadata to map if not the default
 		if dirMetadata.TargetFileOwnerGroup != defaultOwnerGroup || dirMetadata.TargetFilePermissions != defaultPermissions {
-			printMessage(VerbosityProgress, "  File '%s': Parent directory '%s' has non-standard metadata, saving\n", targetFilePath, directory)
+			printMessage(verbosityProgress, "  File '%s': Parent directory '%s' has non-standard metadata, saving\n", targetFilePath, directory)
 			directoryTreeMetadata[directory] = dirMetadata
 		}
 
@@ -403,11 +403,11 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		directory = filepath.Dir(directory)
 	}
 
-	printMessage(VerbosityProgress, "  File '%s': Downloading file\n", targetFilePath)
+	printMessage(verbosityProgress, "  File '%s': Downloading file\n", targetFilePath)
 
 	// Copy desired file to buffer location
 	command := "cp " + targetFilePath + " " + tmpRemoteFilePath
-	_, err = RunSSHCommand(client, command, "", config.DisableSudo, SudoPassword, 20)
+	_, err = runSSHCommand(client, command, "", config.disableSudo, SudoPassword, 20)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
@@ -415,7 +415,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 
 	// Ensure buffer file can be read and then deleted later
 	command = "chmod 666 " + tmpRemoteFilePath
-	_, err = RunSSHCommand(client, command, "", config.DisableSudo, SudoPassword, 10)
+	_, err = runSSHCommand(client, command, "", config.disableSudo, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
@@ -427,10 +427,10 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		return
 	}
 
-	printMessage(VerbosityProgress, "  File '%s': Parsing metadata information\n", targetFilePath)
+	printMessage(verbosityProgress, "  File '%s': Parsing metadata information\n", targetFilePath)
 
 	// Replace target path separators with local os ones
-	hostFilePath := strings.ReplaceAll(targetFilePath, "/", config.OSPathSeparator)
+	hostFilePath := strings.ReplaceAll(targetFilePath, "/", config.osPathSeparator)
 
 	// Use target file path and hosts name for repo file location
 	filePath := endpointName + hostFilePath
@@ -443,7 +443,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	metadataHeader.TargetFileOwnerGroup = fileInfo[1] + ":" + fileInfo[2]
 	metadataHeader.TargetFilePermissions = numberPermissions
 
-	printMessage(VerbosityProgress, "  File '%s': Retrieving reload command information from user\n", targetFilePath)
+	printMessage(verbosityProgress, "  File '%s': Retrieving reload command information from user\n", targetFilePath)
 
 	// Ask user for confirmation to use reloads
 	reloadWanted, err := promptUser("Does file '%s' need reload commands? [y/N]: ", filePath)
@@ -538,7 +538,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	// Make file depending on if plain text or binary
 	if !fileIsPlainText {
 		var userResponse string
-		printMessage(VerbosityStandard, "  File is not plain text, it should probably be stored outside of git\n")
+		printMessage(verbosityStandard, "  File is not plain text, it should probably be stored outside of git\n")
 		fmt.Print("  Specify a directory path where the actual file should be stored or enter nothing to store file directly in repository\n")
 		fmt.Print("Path to External Directory: ")
 		fmt.Scanln(&userResponse)
@@ -585,55 +585,55 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		}
 	}
 
-	printMessage(VerbosityProgress, "Adding JSON metadata header to file '%s'\n", filePath)
+	printMessage(verbosityProgress, "Adding JSON metadata header to file '%s'\n", filePath)
 
 	// Marshal metadata JSON
 	metadata, errNoFatal := json.MarshalIndent(metadataHeader, "", "  ")
 	if errNoFatal != nil {
-		printMessage(VerbosityStandard, "Failed to marshal metadata header into JSON format for file %s: %v\n", filePath, errNoFatal)
+		printMessage(verbosityStandard, "Failed to marshal metadata header into JSON format for file %s: %v\n", filePath, errNoFatal)
 		return
 	}
 
 	// Add header to file contents
-	file := Delimiter + "\n" + string(metadata) + "\n" + Delimiter + "\n" + fileContents
+	file := metaDelimiter + "\n" + string(metadata) + "\n" + metaDelimiter + "\n" + fileContents
 
-	printMessage(VerbosityProgress, "Writing file '%s' to repository\n", filePath)
+	printMessage(verbosityProgress, "Writing file '%s' to repository\n", filePath)
 
 	// Create any missing directories in repository
 	configParentDirs := filepath.Dir(filePath)
 	errNoFatal = os.MkdirAll(configParentDirs, 0700)
 	if errNoFatal != nil {
-		printMessage(VerbosityStandard, "Failed to create missing directories in local repository for file '%s': %v\n", filePath, errNoFatal)
+		printMessage(verbosityStandard, "Failed to create missing directories in local repository for file '%s': %v\n", filePath, errNoFatal)
 		return
 	}
 
 	// Write config to file in repository
 	errNoFatal = os.WriteFile(filePath, []byte(file), 0600)
 	if errNoFatal != nil {
-		printMessage(VerbosityStandard, "Failed to write file '%s' to local repository: %v\n", filePath, errNoFatal)
+		printMessage(verbosityStandard, "Failed to write file '%s' to local repository: %v\n", filePath, errNoFatal)
 		return
 	}
 
 	// Loop over parent directories and write any non-standard json directory metadata
 	for directory, metadata := range directoryTreeMetadata {
-		printMessage(VerbosityProgress, "  File '%s': Writing metadata information for directory '%s'\n", targetFilePath, directory)
+		printMessage(verbosityProgress, "  File '%s': Writing metadata information for directory '%s'\n", targetFilePath, directory)
 
 		// Prepare directory metadata file name
-		directory = strings.ReplaceAll(directory, "/", config.OSPathSeparator)
+		directory = strings.ReplaceAll(directory, "/", config.osPathSeparator)
 		directoryMetaPath := filepath.Join(directory, directoryMetadataFileName)
 		directoryMetaPath = endpointName + directoryMetaPath
 
 		// Marshall metadata json
 		metadata, errNoFatal := json.MarshalIndent(metadata, "", "  ")
 		if errNoFatal != nil {
-			printMessage(VerbosityStandard, "  Failed to marshal metadata header into JSON format for directory '%s': %v\n", directory, errNoFatal)
+			printMessage(verbosityStandard, "  Failed to marshal metadata header into JSON format for directory '%s': %v\n", directory, errNoFatal)
 			continue
 		}
 
 		// Open/create the directory metadata file
 		directoryMetaFile, errNoFatal := os.OpenFile(directoryMetaPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 		if errNoFatal != nil {
-			printMessage(VerbosityStandard, "  Failed to open/create directory metadata file: %v\n", errNoFatal)
+			printMessage(verbosityStandard, "  Failed to open/create directory metadata file: %v\n", errNoFatal)
 			continue
 		}
 		defer directoryMetaFile.Close()
@@ -641,7 +641,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		// Write directory metadata file
 		_, errNoFatal = directoryMetaFile.WriteString(string(metadata))
 		if errNoFatal != nil {
-			printMessage(VerbosityStandard, "  Failed to write directory metadata to local repository: %v\n", errNoFatal)
+			printMessage(verbosityStandard, "  Failed to write directory metadata to local repository: %v\n", errNoFatal)
 			continue
 		}
 	}
