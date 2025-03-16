@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"fmt"
 	"io"
 	"math"
@@ -441,7 +442,7 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 	// Remove .remote-artifact extension if applicable
 	localRepoPath = strings.TrimSuffix(localRepoPath, artifactPointerFileExtension)
 
-	// Format commitFilePath with the expected host path separators
+	// Format repoFilePath with the expected host path separators
 	localRepoPath = strings.ReplaceAll(localRepoPath, config.osPathSeparator, "/")
 
 	// Bad - not a path, just a name
@@ -470,9 +471,15 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 
 // Converts symbolic linux permission to numeric representation
 // Like rwxr-x-rx -> 755
-func permissionsSymbolicToNumeric(permissions string) (perm int) {
-	var bits string
+func permissionsSymbolicToNumeric(permissions string) (perm int, err error) {
+	// Validate length
+	if len(permissions) < 6 || len(permissions) > 9 {
+		err = fmt.Errorf("invalid permissions string: lenght must be between 6 and 9 characters (length is %d)", len(permissions))
+		return
+	}
+
 	// Loop permission fields
+	var bits string
 	for _, field := range []string{permissions[:3], permissions[3:6], permissions[6:]} {
 		bit := 0
 		// Read
@@ -492,38 +499,152 @@ func permissionsSymbolicToNumeric(permissions string) (perm int) {
 	}
 
 	// Convert back to integer (ignore error, we control all input values)
-	perm, _ = strconv.Atoi(bits)
+	perm, err = strconv.Atoi(bits)
 	return
 }
 
 // Extracts all file information from ls -lA
 // Permissions(as 755), Ownership, type, size, name
-func extractMetadataFromLS(lsOutput string) (fileType string, permissions string, owner string, group string, size int, name string, err error) {
+func extractMetadataFromLS(lsOutput string) (metadata RemoteFileInfo, err error) {
 	// Split ls output into fields for this file
 	fileInfo := strings.Fields(lsOutput)
 
-	// Skip misc ls output
-	if len(fileInfo) < 9 {
+	// Skip misc ls output - minimum of 9 fields, max of 11
+	if len(fileInfo) > 11 || len(fileInfo) < 9 {
 		err = fmt.Errorf("ls output not complete, not parsing")
 		return
 	}
 
-	// Retrieve
-	fileType = string(fileInfo[0][0])
-	permissions = string(fileInfo[0][1:])
-	owner = string(fileInfo[2])
-	group = string(fileInfo[3])
-	size, err = strconv.Atoi(fileInfo[4])
-	if err != nil {
-		err = fmt.Errorf("failed to parse size field")
-		size = 0
+	// Separate fields into specific values
+	metadata.fsType = string(fileInfo[0][0]) // (l)rwxrwxrwx 1 root root 13 Jan  1 2024 /opt/exe -> /usr/bin/exe
+	symbolicPermissions := fileInfo[0][1:]   // l(rwxrwxrwx) 1 root root 13 Jan  1 2024 /opt/exe -> /usr/bin/exe
+	metadata.owner = fileInfo[2]             // lrwxrwxrwx 1 (root) root 13 Jan  1 2024 /opt/exe -> /usr/bin/exe
+	metadata.group = fileInfo[3]             // lrwxrwxrwx 1 root (root) 13 Jan  1 2024 /opt/exe -> /usr/bin/exe
+	fileSizeBytes := fileInfo[4]             // lrwxrwxrwx 1 root root (13) Jan  1 2024 /opt/exe -> /usr/bin/exe
+	metadata.name = fileInfo[8]              // lrwxrwxrwx 1 root root 13 Jan  1 2024 (/opt/exe) -> /usr/bin/exe
+	if len(fileInfo) == 11 {
+		metadata.linkTarget = string(fileInfo[10]) // lrwxrwxrwx 1 root root 13 Jan  1 2024 /opt/exe -> (/usr/bin/exe)
 	}
-	name = fileInfo[8]
+
+	// Convert 'rwxrwxrwx' to '777'
+	metadata.permissions, err = permissionsSymbolicToNumeric(symbolicPermissions)
+	if err != nil {
+		return
+	}
+
+	// Change type of file size to integer
+	metadata.size, err = strconv.Atoi(fileSizeBytes)
+	if err != nil {
+		err = fmt.Errorf("invalid file size")
+		return
+	}
+
+	// Valid input to this function implies it exists
+	metadata.exists = true
+
+	return
+}
+
+// Compares compiled metadata from local and remote file and compares them and reports what is different
+// Only compares hashes, owner+group, and permission bits
+func checkForDiff(remoteMetadata RemoteFileInfo, localMetadata FileInfo) (contentDiffers bool, metadataDiffers bool) {
+	// Check if remote content differs from local
+	if remoteMetadata.hash != localMetadata.hash {
+		contentDiffers = true
+	} else if remoteMetadata.hash == localMetadata.hash {
+		contentDiffers = false
+	}
+
+	// Check if remote permissions differs from expected
+	var permissionsDiffer bool
+	if remoteMetadata.permissions != localMetadata.permissions {
+		permissionsDiffer = true
+	} else if remoteMetadata.permissions == localMetadata.permissions {
+		permissionsDiffer = false
+	}
+
+	// Prevent comparing the literal character ':' against local metadata
+	var remoteOwnerGroup string
+	if remoteMetadata.owner != "" && remoteMetadata.group != "" {
+		remoteOwnerGroup = remoteMetadata.owner + ":" + remoteMetadata.group
+	}
+
+	// Check if remote ownership match expected
+	var ownershipDiffers bool
+	if remoteOwnerGroup != localMetadata.ownerGroup {
+		ownershipDiffers = true
+	} else if remoteOwnerGroup == localMetadata.ownerGroup {
+		ownershipDiffers = false
+	}
+
+	// If either piece of metadata differs, whole metdata is different
+	if ownershipDiffers || permissionsDiffer {
+		metadataDiffers = true
+	} else if !ownershipDiffers && !permissionsDiffer {
+		metadataDiffers = false
+	}
+
+	return
+}
+
+// Groups deployment files by identical reload commands
+// Returns a map that keys on a reload ID and the array of commands
+// Returns a regular list of files that do not need reloads
+func groupFilesByReloads(allFileInfo map[string]FileInfo, repoFilePaths []string) (commitFileByCommand map[string][]string, commitFilesNoReload []string) {
+	commitFileByCommand = make(map[string][]string)
+	for _, repoFilePath := range repoFilePaths {
+		// New files with reload commands
+		if allFileInfo[repoFilePath].reloadRequired {
+			// Create an ID based on the command array to uniquely identify the group that files will belong to
+			reloadCommands := fmt.Sprintf("%v", allFileInfo[repoFilePath].reload)
+			cmdArrayID := base64.StdEncoding.EncodeToString([]byte(reloadCommands))
+
+			// Add file to array based on its unique set of reload commands
+			commitFileByCommand[cmdArrayID] = append(commitFileByCommand[cmdArrayID], repoFilePath)
+		} else {
+			// All other files - no reloads - in its own array
+			commitFilesNoReload = append(commitFilesNoReload, repoFilePath)
+		}
+	}
+	return
+}
+
+// Format elapsed millisecond time to its max unit size plus one smaller unit
+func formatElapsedTime(elapsed int64) (elapsedWithUnits string) {
+	// Handle days
+	days := elapsed / (1000 * 60 * 60 * 24)
+	elapsed %= (1000 * 60 * 60 * 24)
+
+	// Handle hours
+	hours := elapsed / (1000 * 60 * 60)
+	elapsed %= (1000 * 60 * 60)
+
+	// Handle minutes
+	minutes := elapsed / (1000 * 60)
+	elapsed %= (1000 * 60)
+
+	// Handle seconds
+	seconds := elapsed / 1000
+	milliseconds := elapsed % 1000
+
+	// Format based on the largest unit available
+	if days > 0 {
+		elapsedWithUnits = fmt.Sprintf("%d days and %d hours", days, hours)
+	} else if hours > 0 {
+		elapsedWithUnits = fmt.Sprintf("%dh and %dm", hours, minutes)
+	} else if minutes > 0 {
+		elapsedWithUnits = fmt.Sprintf("%dm and %ds", minutes, seconds)
+	} else if seconds > 0 {
+		elapsedWithUnits = fmt.Sprintf("%ds %dms", seconds, milliseconds)
+	} else {
+		elapsedWithUnits = fmt.Sprintf("%dms", milliseconds)
+	}
+
 	return
 }
 
 // FormatBytes takes a raw byte integer and converts it to a human-readable format with appropriate units
-func FormatBytes(bytes int) (bytesWithUnits string) {
+func formatBytes(bytes int) (bytesWithUnits string) {
 	units := []string{"Bytes", "KiB", "MiB", "GiB", "TiB", "PiB"}
 	if bytes == 0 {
 		return fmt.Sprintf("0 %s", units[0])

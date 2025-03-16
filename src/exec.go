@@ -34,17 +34,14 @@ func runCmd(command string, hosts string) {
 		err := retrieveHostSecrets(endpointName)
 		logError("Failed to retrieve host secrets", err, false)
 
-		// Retrieve most current global host config
-		hostInfo := config.hostInfo[endpointName]
-
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
-			printHostInformation(hostInfo)
+			printHostInformation(config.hostInfo[endpointName])
 			continue
 		}
 
 		// Run the command
-		executeCommand(hostInfo, command)
+		executeCommand(config.hostInfo[endpointName], command)
 	}
 }
 
@@ -127,21 +124,18 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 		err = retrieveHostSecrets(endpointName)
 		logError("Failed to retrieve host secrets", err, false)
 
-		// Retrieve most current global host config
-		hostInfo := config.hostInfo[endpointName]
-
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
-			printHostInformation(hostInfo)
+			printHostInformation(config.hostInfo[endpointName])
 			continue
 		}
 
 		// Upload and execute the script - disable concurrency if maxconns is 1
 		wg.Add(1)
 		if config.maxSSHConcurrency > 1 {
-			go executeScriptOnHost(&wg, semaphore, hostInfo, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+			go executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 		} else {
-			executeScriptOnHost(&wg, semaphore, hostInfo, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+			executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 			if len(executionErrors) > 0 {
 				// Execution error occured, don't continue with other hosts
 				break

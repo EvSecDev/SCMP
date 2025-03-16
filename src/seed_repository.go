@@ -109,12 +109,13 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 
 				// Filtering file metadata
 				fileName := string(fileInfo[8])
-				permissions := string(fileInfo[0][1:])
+				permissions, err := permissionsSymbolicToNumeric(string(fileInfo[0][1:]))
+				logError("Failed to parse ls output", err, false)
 				fileOwner := string(fileInfo[2])
 				fileGroup := string(fileInfo[3])
 
 				// Add file info to map
-				selectedFiles[fileName] = append(selectedFiles[fileName], permissions)
+				selectedFiles[fileName] = append(selectedFiles[fileName], fmt.Sprintf("%d", permissions))
 				selectedFiles[fileName] = append(selectedFiles[fileName], fileOwner)
 				selectedFiles[fileName] = append(selectedFiles[fileName], fileGroup)
 			}
@@ -184,33 +185,33 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 		// Extract information from the ls output
 		for _, file := range directoryListFiles {
 			// Retrieve File metadata
-			fileType, permissions, fileOwner, fileGroup, _, fileName, errLocal := extractMetadataFromLS(file)
+			metadata, errLocal := extractMetadataFromLS(file)
 			if errLocal != nil {
 				// Only error for this function is incomplete ls, which we skip
 				continue
 			}
 
 			// Determine column spacing from longest file name
-			if length := len(fileName); length > maxLength {
+			if length := len(metadata.name); length > maxLength {
 				maxLength = length
 			}
 
 			// Add file names to their own index - for selection reference
-			dirList = append(dirList, fileName)
+			dirList = append(dirList, metadata.name)
 
 			// Identify if file is directory
-			if fileType == "d" {
+			if metadata.fsType == "d" {
 				// Skip further processing of directories
-				isDir[fileName] = true
+				isDir[metadata.name] = true
 				continue
-			} else if fileType == "-" {
-				isDir[fileName] = false
+			} else if metadata.fsType == "-" {
+				isDir[metadata.name] = false
 			}
 
 			// Add file info to map
-			filesInfo[fileName] = append(filesInfo[fileName], permissions)
-			filesInfo[fileName] = append(filesInfo[fileName], fileOwner)
-			filesInfo[fileName] = append(filesInfo[fileName], fileGroup)
+			filesInfo[metadata.name] = append(filesInfo[metadata.name], fmt.Sprintf("%d", metadata.permissions))
+			filesInfo[metadata.name] = append(filesInfo[metadata.name], metadata.owner)
+			filesInfo[metadata.name] = append(filesInfo[metadata.name], metadata.group)
 		}
 
 		// Use the length of dir list after filtering
@@ -377,21 +378,21 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		printMessage(verbosityProgress, "  File '%s': Parsing metadata for parent directory '%s'\n", targetFilePath, directory)
 
 		// Extract ls information
-		fileType, permissionsSymbolic, owner, group, _, _, lerr := extractMetadataFromLS(directoryMetadata)
+		metadata, lerr := extractMetadataFromLS(directoryMetadata)
 		if lerr != nil {
 			return
 		}
-		if fileType != "d" {
-			printMessage(verbosityProgress, "Warning: expected remote path to be directory, but got type '%s' instead", fileType)
+		if metadata.fsType != "d" {
+			printMessage(verbosityProgress, "Warning: expected remote path to be directory, but got type '%s' instead", metadata.fsType)
 			continue
 		}
 
 		// Metadata
 		var dirMetadata MetaHeader
-		dirMetadata.TargetFileOwnerGroup = owner + ":" + group
-		dirMetadata.TargetFilePermissions = permissionsSymbolicToNumeric(permissionsSymbolic)
+		dirMetadata.TargetFileOwnerGroup = metadata.owner + ":" + metadata.group
+		dirMetadata.TargetFilePermissions = metadata.permissions
 
-		printMessage(verbosityData, "  File '%s': Metadata for parent directory '%s': %s %s\n", targetFilePath, directory, permissionsSymbolic, dirMetadata.TargetFileOwnerGroup)
+		printMessage(verbosityData, "  File '%s': Metadata for parent directory '%s': %d %s\n", targetFilePath, directory, metadata.permissions, dirMetadata.TargetFileOwnerGroup)
 
 		// Save metadata to map if not the default
 		if dirMetadata.TargetFileOwnerGroup != defaultOwnerGroup || dirMetadata.TargetFilePermissions != defaultPermissions {
@@ -435,13 +436,10 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 	// Use target file path and hosts name for repo file location
 	filePath := endpointName + hostFilePath
 
-	// Convert permissions string to number format
-	numberPermissions := permissionsSymbolicToNumeric(fileInfo[0])
-
 	// Put metadata into JSON format
 	var metadataHeader MetaHeader
 	metadataHeader.TargetFileOwnerGroup = fileInfo[1] + ":" + fileInfo[2]
-	metadataHeader.TargetFilePermissions = numberPermissions
+	metadataHeader.TargetFilePermissions, _ = strconv.Atoi(fileInfo[0]) // ignoring error, value was originally an integer and not modified since
 
 	printMessage(verbosityProgress, "  File '%s': Retrieving reload command information from user\n", targetFilePath)
 

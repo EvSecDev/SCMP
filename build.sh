@@ -35,6 +35,7 @@ Options:
 function update_readme {
 	fileName="README.md"
 	helpMenuFromMain=$(cat $SRCdir/main.go | sed -n '/const usage = `/,/`/{/^const usage = `$/d; /^`$/d; p;}')
+	helpMenu=$(echo "$helpMenuFromMain" | grep -Ev "const usage")
 
 	# Line number for start of md section
 	menuSectionStartLineNumber=$(grep -n "### Controller Help Menu" $fileName | cut -d":" -f1)
@@ -51,7 +52,7 @@ function update_readme {
         ' "$fileName")
 
 	# Replace existing code block with new one
-	awk -v start="$helpMenuStartLine" -v end="$helpMenuEndLine" -v replacement="$helpMenuFromMain" '
+	awk -v start="$helpMenuStartLine" -v end="$helpMenuEndLine" -v replacement="$helpMenu" '
 	    NR < start { print }                # Print lines before the start range
 	    NR == start {                       # Print the start line and replacement text
 	        print

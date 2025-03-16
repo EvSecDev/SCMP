@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -46,15 +47,12 @@ func localSystemChecks() (err error) {
 // Post-deployment if an error occured
 // Takes global failure tracker and current commit id and writes it to the fail tracker file in the root of the repository
 // Also prints custom stdout to user to show the errors and how to initiate redeploy when fixed
-func recordDeploymentError(commitID string, postDeployMetrics *PostDeploymentMetrics) (err error) {
+func recordDeploymentError(commitID string) (err error) {
 	// Tell user about error and how to redeploy, writing fails to file in repo
 	pathToExe := os.Args[0]
 
-	printMessage(verbosityStandard, "PARTIAL COMPLETE: %d files(s) deployed to %d host(s) - (%s transferred)\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.sizeTransferred)
-	printMessage(verbosityStandard, "Failure(s) in deployment (commit: %s):\n\n", commitID)
-
 	// Create decoder for raw failtracker JSON
-	failReader := strings.NewReader(failTracker)
+	failReader := bytes.NewReader(failTracker.buffer.Bytes())
 	failDecoder := json.NewDecoder(failReader)
 
 	// Print pretty version of failtracker
@@ -83,27 +81,36 @@ func recordDeploymentError(commitID string, postDeployMetrics *PostDeploymentMet
 
 		// Print all the errors in a cascading format to show root cause
 		errorLayers := strings.Split(failures.ErrorMessage, ": ")
-		indentSpaces := 2
+		indentSpaces := 1
 		for _, errorLayer := range errorLayers {
 			// Print error at this layer with indent
 			printMessage(verbosityStandard, "%s%s\n", strings.Repeat(" ", indentSpaces), errorLayer)
 
 			// Increase indent for next line
-			indentSpaces += 2
+			indentSpaces += 1
 		}
+	}
+
+	// Convert fail buffer back to string
+	failTrackerText := failTracker.buffer.String()
+	if failTrackerText == "" {
+		printMessage(verbosityStandard, "Warning: Failed to read failtracker buffer. Manual redeploy using '--use-failtracker-only' will not work.\n")
+		printMessage(verbosityStandard, "  Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A)\n")
+		err = fmt.Errorf("failTracker buffer is empty")
+		return
 	}
 
 	// Remove errors that are not root-cause failures before writing to tracker file
 	// If a redeploy can't re-attempt the failed action, then it shouldn't be in failtracker file
 	var rootCauseErrors []string
-	errorLines := strings.Split(failTracker, "\n")
+	errorLines := strings.Split(failTrackerText, "\n")
 	for _, errorLine := range errorLines {
 		// File restoration errors are not root cause
 		if !strings.Contains(errorLine, "failed old config restoration") {
 			rootCauseErrors = append(rootCauseErrors, errorLine)
 		}
 	}
-	failTracker = strings.Join(rootCauseErrors, "\n")
+	failTrackerText = strings.Join(rootCauseErrors, "\n")
 
 	// Add FailTracker string to repo working directory fail file
 	failTrackerFile, err := os.Create(config.failTrackerFilePath)
@@ -115,7 +122,7 @@ func recordDeploymentError(commitID string, postDeployMetrics *PostDeploymentMet
 	defer failTrackerFile.Close()
 
 	// Add commitid line to top of fail tracker
-	failTrackerAndCommit := "commitid:" + commitID + "\n" + failTracker
+	failTrackerAndCommit := "commitid:" + commitID + "\n" + failTrackerText
 
 	// Write string to file (overwrite old contents)
 	_, err = failTrackerFile.WriteString(failTrackerAndCommit)

@@ -135,14 +135,14 @@ func SSHIdentityToKey(SSHIdentityFile string) (privateKey ssh.Signer, keyAlgo st
 		keyAlgo = privateKey.PublicKey().Type()
 	} else if SSHKeyType == "encrypted" {
 		// Ask user for key password
-		var passphrase string
+		var passphrase []byte
 		passphrase, err = promptUserForSecret("Enter passphrase for the SSH key `%s`: ", SSHIdentityFile)
 		if err != nil {
 			return
 		}
 
 		// Decrypt and parse private key with password
-		privateKey, err = ssh.ParsePrivateKeyWithPassphrase(SSHIdentity, []byte(passphrase))
+		privateKey, err = ssh.ParsePrivateKeyWithPassphrase(SSHIdentity, passphrase)
 		if err != nil {
 			err = fmt.Errorf("invalid encrypted private key in identity file: %v", err)
 			return

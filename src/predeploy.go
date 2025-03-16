@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 )
 
 // Parses and prepares deployment information
@@ -86,11 +87,14 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	// Show progress to user
 	printMessage(verbosityStandard, "Beginning deployment of %d files(s) to %d host(s)\n", len(allFileInfo), len(allDeploymentHosts))
 
-	// Semaphore to limit concurrency of host deployment go routines as specified in main config
-	semaphore := make(chan struct{}, config.maxSSHConcurrency)
-
 	// Post deployment metrics
 	postDeployMetrics := &PostDeploymentMetrics{}
+
+	// Get current timestamp for deployment elapsed time metric
+	deploymentStartTime := time.Now().UnixMilli()
+
+	// Semaphore to limit concurrency of host deployment go routines as specified in main config
+	semaphore := make(chan struct{}, config.maxSSHConcurrency)
 
 	// Start SSH Deployments by host
 	var wg sync.WaitGroup
@@ -106,7 +110,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 			go sshDeploy(&wg, semaphore, config.hostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
 		} else {
 			sshDeploy(&wg, semaphore, config.hostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
-			if len(failTracker) > 0 {
+			if failTracker.buffer.Len() > 0 {
 				// Deployment error occured, don't continue with deployments
 				break
 			}
@@ -114,8 +118,14 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	}
 	wg.Wait()
 
-	// Remove vault cache
-	config.vault = make(map[string]Credential)
+	// Get final timestamp to mark end of deployment
+	deploymentEndTime := time.Now().UnixMilli()
+
+	// Diff deployment time
+	deploymentElapsedTime := deploymentEndTime - deploymentStartTime
+
+	// Make pretty string with units for user
+	postDeployMetrics.timeElapsed = formatElapsedTime(deploymentElapsedTime)
 
 	// If user requested dry run - print collected information
 	if dryRunRequested {
@@ -125,21 +135,30 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	}
 
 	// Format byte metric to string
-	postDeployMetrics.sizeTransferred = FormatBytes(postDeployMetrics.bytes)
+	postDeployMetrics.sizeTransferred = formatBytes(postDeployMetrics.bytes)
 
 	// Save deployment errors to fail tracker
-	if failTracker != "" {
-		err := recordDeploymentError(commitID, postDeployMetrics)
+	if failTracker.buffer.Len() > 0 {
+		printMessage(verbosityStandard, "PARTIAL COMPLETE: %d item(s) deployed to %d host(s) in %s - (%s transferred)\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
+		printMessage(verbosityStandard, "Failure(s) in deployment (commit: %s):\n\n", commitID)
+
+		err := recordDeploymentError(commitID)
 		logError("Error in failure recording", err, false)
 		return
 	}
 
-	// Remove fail tracker file after successful redeployment - removal errors don't matter, this is just cleaning up.
-	if deployMode == "deployFailures" {
-		os.Remove(config.failTrackerFilePath)
+	// Remove fail tracker file after successful redeployment if it exists - best effort
+	err = os.Remove(config.failTrackerFilePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No warning if the file doesn't exist
+		} else {
+			// Print a warning for any other error
+			printMessage(verbosityStandard, "Warning: Failed to remove file %s: %v\n", config.failTrackerFilePath, err)
+		}
 	}
 
 	// Show progress to user
-	printMessage(verbosityStandard, "\nCOMPLETE: %d files(s) deployed to %d host(s) - (%s transferred)\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.sizeTransferred)
+	printMessage(verbosityStandard, "\nCOMPLETE: %d item(s) deployed to %d host(s) in %s - (%s transferred)\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
 	printMessage(verbosityStandard, "================================================\n")
 }

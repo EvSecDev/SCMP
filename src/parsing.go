@@ -325,11 +325,12 @@ func retrieveHostSecrets(endpointName string) (err error) {
 		err = fmt.Errorf("failed to retrieve private key: %v", err)
 		return
 	}
+
 	printMessage(verbosityFullData, "      Key: %d\n", hostInfo.privateKey)
 
 	// Retrieve password if required
 	if hostInfo.requiresVault {
-		hostInfo.password, err = unlockVault(config.hostInfo[endpointName].endpointName)
+		hostInfo.password, err = unlockVault(endpointName)
 		if err != nil {
 			err = fmt.Errorf("error retrieving host password from vault: %v", err)
 			return
@@ -358,22 +359,22 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 	allFileData = make(map[string][]byte)
 
 	// Load file contents, metadata, hashes, and actions into their own maps
-	for commitFilePath, commitFileAction := range allDeploymentFiles {
-		printMessage(verbosityData, "  Loading repository file %s\n", commitFilePath)
+	for repoFilePath, commitFileAction := range allDeploymentFiles {
+		printMessage(verbosityData, "  Loading repository file %s\n", repoFilePath)
 
 		printMessage(verbosityData, "    Marked as 'to be %s'\n", commitFileAction)
 
 		// Skip loading if file will be deleted
 		if commitFileAction == "delete" {
 			// But, add it to the deploy target files so it can be deleted during ssh
-			allFileInfo[commitFilePath] = FileInfo{action: commitFileAction}
+			allFileInfo[repoFilePath] = FileInfo{action: commitFileAction}
 			continue
 		}
 
 		// Skip loading if file is sym link
 		if strings.Contains(commitFileAction, "symlinkcreate") {
 			// But, add it to the deploy target files so it can be ln'd during ssh
-			allFileInfo[commitFilePath] = FileInfo{action: commitFileAction}
+			allFileInfo[repoFilePath] = FileInfo{action: commitFileAction}
 			continue
 		}
 
@@ -386,7 +387,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 
 		// Get file from git tree
 		var file *object.File
-		file, err = tree.File(commitFilePath)
+		file, err = tree.File(repoFilePath)
 		if err != nil {
 			err = fmt.Errorf("failed retrieving file from git tree: %v", err)
 			return
@@ -412,9 +413,9 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		printMessage(verbosityData, "    Extracting file metadata\n")
 
 		// Directory metadata
-		if strings.HasSuffix(commitFilePath, directoryMetadataFileName) {
+		if strings.HasSuffix(repoFilePath, directoryMetadataFileName) {
 			// Get just directory name
-			directoryName := filepath.Dir(commitFilePath)
+			directoryName := filepath.Dir(repoFilePath)
 
 			// Extract metadata
 			var jsonDirMetadata MetaHeader
@@ -426,11 +427,11 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 
 			// Save Directory metadata to map
 			var info FileInfo
-			info.fileOwnerGroup = jsonDirMetadata.TargetFileOwnerGroup
-			info.filePermissions = jsonDirMetadata.TargetFilePermissions
+			info.ownerGroup = jsonDirMetadata.TargetFileOwnerGroup
+			info.permissions = jsonDirMetadata.TargetFilePermissions
 			info.reloadRequired = false
 			info.action = commitFileAction
-			allFileInfo[commitFilePath] = info
+			allFileInfo[repoFilePath] = info
 
 			// Skip to next file
 			continue
@@ -441,7 +442,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		var fileContent []byte
 		metadata, fileContent, err = extractMetadata(string(content))
 		if err != nil {
-			err = fmt.Errorf("failed to extract metadata header from '%s': %v", commitFilePath, err)
+			err = fmt.Errorf("failed to extract metadata header from '%s': %v", repoFilePath, err)
 			return
 		}
 
@@ -451,7 +452,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		var jsonMetadata MetaHeader
 		err = json.Unmarshal([]byte(metadata), &jsonMetadata)
 		if err != nil {
-			err = fmt.Errorf("failed parsing JSON metadata header for %s: %v", commitFilePath, err)
+			err = fmt.Errorf("failed parsing JSON metadata header for %s: %v", repoFilePath, err)
 			return
 		}
 
@@ -460,7 +461,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		if len(jsonMetadata.ExternalContentLocation) > 0 {
 			// Only allow file URIs for now
 			if !strings.HasPrefix(jsonMetadata.ExternalContentLocation, fileURIPrefix) {
-				err = fmt.Errorf("remote-artifact file '%s': must use '%s' before file paths in 'ExternalContentLocationput' field", commitFilePath, fileURIPrefix)
+				err = fmt.Errorf("remote-artifact file '%s': must use '%s' before file paths in 'ExternalContentLocationput' field", repoFilePath, fileURIPrefix)
 				return
 			}
 
@@ -496,8 +497,8 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 
 		// Put all information gathered into struct
 		var info FileInfo
-		info.fileOwnerGroup = jsonMetadata.TargetFileOwnerGroup
-		info.filePermissions = jsonMetadata.TargetFilePermissions
+		info.ownerGroup = jsonMetadata.TargetFileOwnerGroup
+		info.permissions = jsonMetadata.TargetFilePermissions
 		info.fileSize = len(fileContent)
 		info.reload = jsonMetadata.ReloadCommands
 		if len(info.reload) > 0 {
@@ -527,7 +528,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		info.action = commitFileAction
 
 		// Save info struct into map for this file
-		allFileInfo[commitFilePath] = info
+		allFileInfo[repoFilePath] = info
 
 		// Save data into map
 		_, fileContentAlreadyStored := allFileData[contentHash]
@@ -536,8 +537,8 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		}
 
 		// Print verbose file metadata information
-		printMessage(verbosityFullData, "      Owner and Group:  %s\n", info.fileOwnerGroup)
-		printMessage(verbosityFullData, "      Permissions:      %d\n", info.filePermissions)
+		printMessage(verbosityFullData, "      Owner and Group:  %s\n", info.ownerGroup)
+		printMessage(verbosityFullData, "      Permissions:      %d\n", info.permissions)
 		printMessage(verbosityFullData, "      Content Hash:     %s\n", info.hash)
 		printMessage(verbosityFullData, "      Install Required? %t\n", info.installOptional)
 		if info.installOptional {

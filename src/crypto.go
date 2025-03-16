@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -69,7 +70,7 @@ func modifyVault(endpointName string) (err error) {
 	}
 
 	// Remove password if user supplied empty password
-	if hostPassword == "" {
+	if len(hostPassword) == 0 {
 		// Just return if host is not in vault
 		_, hostExistsinVault := config.vault[endpointName]
 		if !hostExistsinVault {
@@ -105,14 +106,14 @@ func modifyVault(endpointName string) (err error) {
 	}
 
 	// Error if entered passwords are not identical
-	if hostPassword != hostPasswordConfirm {
+	if bytes.Equal(hostPassword, hostPasswordConfirm) {
 		err = fmt.Errorf("passwords do not match")
 		return
 	}
 
 	// Modify/Add host password
 	var credential Credential
-	credential.LoginUserPassword = hostPassword
+	credential.LoginUserPassword = string(hostPassword)
 	config.vault[endpointName] = credential
 
 	// Encrypt and write changes to vault file - return with or without error
@@ -121,7 +122,7 @@ func modifyVault(endpointName string) (err error) {
 }
 
 // Encrypts and writes current vault data back to vault file
-func lockVault(vaultPassword string) (err error) {
+func lockVault(vaultPassword []byte) (err error) {
 	// Marshal vault into json
 	unlockedVault, err := json.Marshal(config.vault)
 	if err != nil {
@@ -156,7 +157,7 @@ func unlockVault(endpointName string) (hostPassword string, err error) {
 		}
 
 		// Get unlock pass from user
-		var vaultPassword string
+		var vaultPassword []byte
 		vaultPassword, err = promptUserForSecret("Enter password for vault: ")
 		if err != nil {
 			return
@@ -250,7 +251,7 @@ func SHA256SumStream(filePath string) (hash string, err error) {
 }
 
 // Derive a secure key from a password string using argon2
-func deriveKey(password string, salt []byte) (derivedKey []byte) {
+func deriveKey(password []byte, salt []byte) (derivedKey []byte) {
 	// Argon2 parameters
 	const time = 1
 	const memory = 64 * 1024
@@ -258,13 +259,13 @@ func deriveKey(password string, salt []byte) (derivedKey []byte) {
 	const keyLength = 32
 
 	// Derive the key from the password
-	derivedKey = argon2.IDKey([]byte(password), salt, time, memory, threads, keyLength)
+	derivedKey = argon2.IDKey(password, salt, time, memory, threads, keyLength)
 	return
 }
 
 // Encrypt a string using a password with chacha20poly1305 and return a byte array of cipher text with required salt and nonce
-func encrypt(plainTextBytes []byte, decryptPassword string) (cipherTextSaltNonce []byte, err error) {
-	printMessage(verbosityDebug, "  Password to Encrypt: %s\n", decryptPassword)
+func encrypt(plainTextBytes []byte, decryptPassword []byte) (cipherTextSaltNonce []byte, err error) {
+	printMessage(verbosityDebug, "  Password to Encrypt: %s\n", string(decryptPassword))
 	printMessage(verbosityDebug, "  PlainText: %v\n", string(plainTextBytes))
 
 	// Generate a salt
@@ -312,8 +313,8 @@ func encrypt(plainTextBytes []byte, decryptPassword string) (cipherTextSaltNonce
 }
 
 // Decrypt a byte array using a password with chacha20poly1305 and return a string of plain text
-func decrypt(cipherTextSaltNonce []byte, encryptPassword string) (plainText string, err error) {
-	printMessage(verbosityDebug, "  Password to Decrypt: %s\n", encryptPassword)
+func decrypt(cipherTextSaltNonce []byte, encryptPassword []byte) (plainText string, err error) {
+	printMessage(verbosityDebug, "  Password to Decrypt: %s\n", string(encryptPassword))
 	printMessage(verbosityDebug, "  Encoded CipherText: %v\n", cipherTextSaltNonce)
 
 	// Decode base64 to raw byte array

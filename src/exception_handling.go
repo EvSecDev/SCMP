@@ -76,7 +76,7 @@ func CreateJournaldLog(errorMessage string, requestedPriority string) (err error
 // Creates JSON line of error host, files, and err
 // Writes into global failure tracker
 // Always returns
-func recordDeploymentFailure(endpointName string, allFileArray []string, index int, errorMessage error) {
+func recordDeploymentFailure(endpointName string, allFileArray []string, fileIndex int, errorMessage error) {
 	// Ensure multiline error messages dont make their way into json
 	message := errorMessage.Error()
 	message = strings.ReplaceAll(message, "\n", " ")
@@ -86,13 +86,10 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 	var fileArray []string
 
 	// Determine which file to add to array
-	if index == 0 {
-		// Add all files to failtracker if host failed early
+	if fileIndex < 0 {
+		// Add all files to failtracker if host failed early (index -1)
 		fileArray = allFileArray
 	} else {
-		// Set index back to correct position
-		fileIndex := index - 1
-
 		// Specific file that failed
 		fileArray = append(fileArray, allFileArray[fileIndex])
 	}
@@ -119,7 +116,7 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, index i
 	}
 
 	// Write (append) fail info for this go routine to global failures - dont conflict with other host go routines
-	failTrackerMutex.Lock()
-	failTracker += string(failedInfo) + "\n"
-	failTrackerMutex.Unlock()
+	failTracker.mutex.Lock()
+	failTracker.buffer.WriteString(string(failedInfo) + "\n")
+	failTracker.mutex.Unlock()
 }

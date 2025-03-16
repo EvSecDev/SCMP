@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -15,7 +16,33 @@ import (
 )
 
 // ###################################
-//      GLOBAL VARIABLES
+//	CONSTANTS
+// ###################################
+
+const metaDelimiter string = "#|^^^|#"
+const defaultConfigPath string = "~/.ssh/config"
+const directoryMetadataFileName string = ".directory_metadata_information.json"
+const autoCommitUserName string = "SCMPController"
+const autoCommitUserEmail string = "scmpc@localhost"
+const fileURIPrefix string = "file://"
+const environmentUnknownSSHHostKey string = "UnknownSSHHostKeyAction"
+const maxDirectoryLoopCount int = 200                          // Maximum recursion for any loop over directories
+const artifactPointerFileExtension string = ".remote-artifact" // file extension to identify 'pointer' files for artifact files
+const hashingBufferSize int = 64 * 1024                        // 64KB Buffer for stream hashing
+const failTrackerFile string = ".scmp-failtracker.json"
+const ( // Descriptive Names for available verbosity levels
+	verbosityNone int = iota
+	verbosityStandard
+	verbosityProgress
+	verbosityData
+	verbosityFullData
+	verbosityDebug
+)
+const progCLIHeader string = "==== Secure Configuration Management Program ===="
+const progVersion string = "v4.3.0"
+
+// ###################################
+//  GLOBAL VARIABLES
 // ###################################
 
 // Global for program configurations
@@ -63,7 +90,6 @@ type EndpointInfo struct {
 	remoteBackupDir      string              // Temporary directory to store backups of existing remote configs while reloads are performed
 }
 
-// Struct for vault passwords
 type Credential struct {
 	LoginUserPassword string `json:"loginUserPassword"`
 }
@@ -78,14 +104,12 @@ type MetaHeader struct {
 	ReloadCommands          []string `json:"Reload,omitempty"`
 }
 
-const metaDelimiter string = "#|^^^|#"
-
 // Struct for all deployment info for a file
 type FileInfo struct {
 	hash            string
 	action          string
-	fileOwnerGroup  string
-	filePermissions int
+	ownerGroup      string
+	permissions     int
 	fileSize        int
 	installOptional bool
 	install         []string
@@ -93,6 +117,19 @@ type FileInfo struct {
 	checks          []string
 	reloadRequired  bool
 	reload          []string
+}
+
+// Holds metadata about remote files
+type RemoteFileInfo struct {
+	hash        string
+	name        string
+	fsType      string
+	permissions int
+	owner       string
+	group       string
+	size        int
+	linkTarget  string
+	exists      bool
 }
 
 // Store deployment host metadata to easily pass between SSH functions
@@ -109,6 +146,24 @@ type ErrorInfo struct {
 	EndpointName string   `json:"endpointName"`
 	Files        []string `json:"files"`
 	ErrorMessage string   `json:"errorMessage"`
+}
+
+// Used for metrics - counting post deployment
+type PostDeploymentMetrics struct {
+	files           int
+	filesMutex      sync.Mutex
+	hosts           int
+	hostsMutex      sync.Mutex
+	bytes           int
+	bytesMutex      sync.Mutex
+	sizeTransferred string
+	timeElapsed     string
+}
+
+// FailureTracker holds the failure tracker state
+type FailureTracker struct {
+	buffer bytes.Buffer
+	mutex  sync.Mutex
 }
 
 // #### Written to only from main
@@ -128,116 +183,14 @@ var dryRunRequested bool       // for printing relevant information and bailing 
 //	5 - Debug: shows extra data during processing (raw bytes)
 var globalVerbosityLevel int
 
-// Descriptive Names for available verbosity levels
-const (
-	verbosityNone int = iota
-	verbosityStandard
-	verbosityProgress
-	verbosityData
-	verbosityFullData
-	verbosityDebug
-)
-
-// Program Constants
-const defaultConfigPath string = "~/.ssh/config"
-const directoryMetadataFileName string = ".directory_metadata_information.json"
-const autoCommitUserName string = "SCMPController"
-const autoCommitUserEmail string = "scmpc@localhost"
-const fileURIPrefix string = "file://"
-const environmentUnknownSSHHostKey string = "UnknownSSHHostKeyAction"
-const maxDirectoryLoopCount int = 1000                         // Maximum recursion for any loop over directories
-const artifactPointerFileExtension string = ".remote-artifact" // file extension to identify 'pointer' files for artifact files
-const hashingBufferSize int = 64 * 1024                        // 64KB Buffer for stream hashing
-
 // #### Written to in other functions - use mutex
 
 // Global for checking remote hosts keys
 var addAllUnknownHosts bool
 var knownHostMutex sync.Mutex
 
-// Used for metrics - counting post deployment
-type PostDeploymentMetrics struct {
-	files           int
-	filesMutex      sync.Mutex
-	hosts           int
-	hostsMutex      sync.Mutex
-	bytes           int
-	bytesMutex      sync.Mutex
-	sizeTransferred string
-}
-
 // Global to track failed go routines' hosts, files, and errors to be able to retry deployment on user request
-const failTrackerFile string = ".scmp-failtracker.json"
-
-var failTracker string
-var failTrackerMutex sync.Mutex
-
-// Program Meta Info
-const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v4.3.0"
-const usage = `Secure Configuration Management Program (SCMP)
-  Deploy configuration files from a git repository to Linux servers via SSH
-  Deploy ad-hoc commands and scripts to Linux servers via SSH
-
-Options:
-  -c, --config </path/to/ssh/config>             Path to the configuration file
-                                                 [default: ~/.ssh/config]
-  -d, --deploy-changes                           Deploy changed files in the specified commit
-                                                 [commit default: head]
-  -a, --deploy-all                               Deploy all files in specified commit
-                                                 [commit default: head]
-  -f, --deploy-failures                          Deploy failed files/hosts using
-                                                 failtracker file from last failed deployment
-  -e, --execute <"command"|file:///>             Run adhoc single command or upload and
-                                                 execute the script on remote hosts
-  -r, --remote-hosts <host1,host2,...|file:///>  Override hosts to connect to for deployment
-                                                 or adhoc command/script execution
-  -R, --remote-files <file1,file2,...|file:///>  Override file(s) to retrieve using seed-repository
-                                                 Also override default remote path for script execution
-  -l, --local-files <file1,file2,...|file:///>   Override file(s) for deployment
-                                                 Must be relative file paths from inside the repository
-  -C, --commitid <hash>                          Commit ID (hash) of the commit to
-                                                 deploy configurations from
-  -T, --dry-run                                  Does everything except start SSH connections
-                                                 Prints out deployment information
-  -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections
-                                                 [default: 10] (1 disables concurrency)
-  -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the
-                                                 vault (will create the vault if it doesn't exist)
-  -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path
-                                                 with the given initial branch name
-  -s, --seed-repo                                Retrieve existing files from remote hosts to
-                                                 seed the local repository (Requires '--remote-hosts')
-      --git-add <dir|file>                       Add files/directories/globs to git worktree
-                                                 Required for artifact tracking feature
-      --git-status                               Check current worktree status
-                                                 Prints out file paths that differ from clean worktree
-      --git-commit <'message'|file:///>          Commit changes to git repository with message
-                                                 File contents will be read and used as message
-      --allow-deletions                          Allows deletions (remote files or vault entires)
-                                                 Only applies to '--deploy-changes' or '--modify-vault-password'
-      --install                                  Runs installation commands in config files metadata JSON header
-                                                 Commands are run before file deployments (before checks)
-      --disable-reloads                          Disables execution of reload commands for this deployment
-                                                 Useful to write configs that normally need reloads without running them
-      --disable-privilege-escalation             Disables use of sudo when executing commands remotely
-                                                 All commands will be run as the login user
-      --ignore-deployment-state                  Ignores the current deployment state in the configuration file
-                                                 For example, will deploy to a host marked as offline
-      --regex                                    Enables regular expression parsing for specific arguments
-                                                 Supported arguments: '-r', '-R', '-l'
-  -t, --test-config                              Test controller configuration syntax
-                                                 and configuration option validity
-  -v, --verbose <0...5>                          Increase details and frequency of progress messages
-                                                 (Higher is more verbose) [default: 1]
-  -h, --help                                     Show this help menu
-  -V, --version                                  Show version and packages
-      --versionid                                Show only version number
-
-Report bugs to: dev@evsec.net
-SCMP home page: <https://github.com/EvSecDev/SCMP>
-General help using GNU software: <https://www.gnu.org/gethelp/>
-`
+var failTracker = &FailureTracker{}
 
 // ###################################
 //	MAIN - START
@@ -245,6 +198,7 @@ General help using GNU software: <https://www.gnu.org/gethelp/>
 
 func main() {
 	// Program Argument Variables
+	var sshConfigPath string
 	var deployChangesRequested bool
 	var deployAllRequested bool
 	var deployFailuresRequested bool
@@ -265,9 +219,74 @@ func main() {
 	var gitStatusRequested bool
 	var gitCommitRequested string
 
+	// Help Menu
+	const usage = `
+Secure Configuration Management Program (SCMP)
+  Deploy configuration files from a git repository to Linux servers via SSH
+  Deploy ad-hoc commands and scripts to Linux servers via SSH
+
+  Options:
+    -c, --config </path/to/ssh/config>             Path to the configuration file
+                                                   [default: ~/.ssh/config]
+    -d, --deploy-changes                           Deploy changed files in the specified commit
+                                                   [commit default: head]
+    -a, --deploy-all                               Deploy all files in specified commit
+                                                   [commit default: head]
+    -f, --deploy-failures                          Deploy failed files/hosts using
+                                                   failtracker file from last failed deployment
+    -e, --execute <"command"|file:///>             Run adhoc single command or upload and
+                                                   execute the script on remote hosts
+    -r, --remote-hosts <host1,host2,...|file:///>  Override hosts to connect to for deployment
+                                                   or adhoc command/script execution
+    -R, --remote-files <file1,file2,...|file:///>  Override file(s) to retrieve using seed-repository
+                                                   Also override default remote path for script execution
+    -l, --local-files <file1,file2,...|file:///>   Override file(s) for deployment
+                                                   Must be relative file paths from inside the repository
+    -C, --commitid <hash>                          Commit ID (hash) of the commit to
+                                                   deploy configurations from
+    -T, --dry-run                                  Does everything except start SSH connections
+                                                   Prints out deployment information
+    -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections
+                                                   [default: 10] (1 disables concurrency)
+    -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the
+                                                   vault (will create the vault if it doesn't exist)
+    -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path
+                                                   with the given initial branch name
+    -s, --seed-repo                                Retrieve existing files from remote hosts to
+                                                   seed the local repository (Requires '--remote-hosts')
+        --git-add <dir|file>                       Add files/directories/globs to git worktree
+                                                   Required for artifact tracking feature
+        --git-status                               Check current worktree status
+                                                   Prints out file paths that differ from clean worktree
+        --git-commit <'message'|file:///>          Commit changes to git repository with message
+                                                   File contents will be read and used as message
+        --allow-deletions                          Allows deletions (remote files or vault entires)
+                                                   Only applies to '--deploy-changes' or '--modify-vault-password'
+        --install                                  Runs installation commands in config files metadata JSON header
+                                                   Commands are run before file deployments (before checks)
+        --disable-reloads                          Disables execution of reload commands for this deployment
+                                                   Useful to write configs that normally need reloads without running them
+        --disable-privilege-escalation             Disables use of sudo when executing commands remotely
+                                                   All commands will be run as the login user
+        --ignore-deployment-state                  Ignores the current deployment state in the configuration file
+                                                   For example, will deploy to a host marked as offline
+        --regex                                    Enables regular expression parsing for specific arguments
+                                                   Supported arguments: '-r', '-R', '-l'
+    -t, --test-config                              Test controller configuration syntax
+                                                   and configuration option validity
+    -v, --verbose <0...5>                          Increase details and frequency of progress messages
+                                                   (Higher is more verbose) [default: 1]
+    -h, --help                                     Show this help menu
+    -V, --version                                  Show version and packages
+        --versionid                                Show only version number
+
+  Report bugs to: dev@evsec.net
+  SCMP home page: <https://github.com/EvSecDev/SCMP>
+  General help using GNU software: <https://www.gnu.org/gethelp/>
+`
 	// Read Program Arguments - allowing both short and long args
-	flag.StringVar(&config.filePath, "c", defaultConfigPath, "")
-	flag.StringVar(&config.filePath, "config", defaultConfigPath, "")
+	flag.StringVar(&sshConfigPath, "c", defaultConfigPath, "")
+	flag.StringVar(&sshConfigPath, "config", defaultConfigPath, "")
 	flag.BoolVar(&deployChangesRequested, "d", false, "")
 	flag.BoolVar(&deployChangesRequested, "deploy-changes", false, "")
 	flag.BoolVar(&deployAllRequested, "a", false, "")
@@ -311,12 +330,12 @@ func main() {
 	flag.BoolVar(&gitStatusRequested, "git-status", false, "")
 	flag.StringVar(&gitCommitRequested, "git-commit", "", "")
 
-	// Undocumented internal use only
+	// Undocumented(in help menu) - bootstrap use only
 	flag.BoolVar(&installDefaultConfig, "install-default-config", false, "") // Install the sample config file if it doesn't exist
 	flag.BoolVar(&installAAProf, "install-apparmor-profile", false, "")      // Install the profile if system supports it
 
 	// Custom help menu
-	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...\n%s", os.Args[0], usage) }
+	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...%s", os.Args[0], usage) }
 	flag.Parse()
 
 	// Meta info print out
@@ -412,7 +431,7 @@ func main() {
 	}
 
 	// Retrieve configuration options - file path is global
-	err := parseConfig()
+	err := config.extractOptions(sshConfigPath)
 	logError("Error in controller configuration", err, true)
 
 	// Retrieve any files specified by URI by override arguments

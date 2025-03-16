@@ -3,6 +3,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"testing"
 )
 
@@ -486,24 +487,31 @@ func TestTranslateLocalPathtoRemotePath(t *testing.T) {
 func TestPermissionsSymbolicToNumeric(t *testing.T) {
 	// Define test cases
 	tests := []struct {
-		input    string
-		expected int
+		input       string
+		expected    int
+		expectedErr bool
 	}{
-		{"rwxr-xr-x", 755}, // Full permissions for owner, read and execute for others
-		{"rw-r--r--", 644}, // Read/write for owner, read-only for others
-		{"r--r--r--", 444}, // Read-only for everyone
-		{"rw-rw-rw-", 666}, // Read and write for everyone
-		{"rwx------", 700}, // Full permissions for owner only
-		{"------x", 1},     // Only execute permission for others
+		{"rwxr-xr-x", 755, false},      // Full permissions for owner, read and execute for others
+		{"rw-r--r--", 644, false},      // Read/write for owner, read-only for others
+		{"r--r--r--", 444, false},      // Read-only for everyone
+		{"rw-rw-rw-", 666, false},      // Read and write for everyone
+		{"rwx------", 700, false},      // Full permissions for owner only
+		{"------x", 1, false},          // Only execute permission for others
+		{"", 0, true},                  // No input
+		{"text", 0, true},              // Too short/wrong input
+		{"thistextistoolong", 0, true}, // Too long text input
 	}
 
 	// Iterate over test cases
 	for _, test := range tests {
 		t.Run(test.input, func(t *testing.T) {
 			// Call the function
-			result := permissionsSymbolicToNumeric(test.input)
+			result, err := permissionsSymbolicToNumeric(test.input)
 
 			// Check if the result matches the expected value
+			if (err != nil) != test.expectedErr {
+				t.Errorf("For input %s, error = %v, wantErr %v", test.input, err, test.expectedErr)
+			}
 			if result != test.expected {
 				t.Errorf("For input %s, expected %d, but got %d", test.input, test.expected, result)
 			}
@@ -513,75 +521,328 @@ func TestPermissionsSymbolicToNumeric(t *testing.T) {
 
 func TestExtractMetadataFromLS(t *testing.T) {
 	tests := []struct {
-		name          string
-		lsOutput      string
-		expectedType  string
-		expectedPerms string
-		expectedOwner string
-		expectedGroup string
-		expectedSize  int
-		expectedName  string
-		expectedErr   bool
+		name               string
+		lsOutput           string
+		expectedType       string
+		expectedPerms      int
+		expectedOwner      string
+		expectedGroup      string
+		expectedSize       int
+		expectedName       string
+		expectedLinkTarget string
+		expectedErr        bool
 	}{
 		{
-			name:          "Valid input",
-			lsOutput:      "-rwxr-xr-x 1 user group 1234 Jan 1 12:34 filename",
-			expectedType:  "-",
-			expectedPerms: "rwxr-xr-x",
-			expectedOwner: "user",
-			expectedGroup: "group",
-			expectedSize:  1234,
-			expectedName:  "filename",
-			expectedErr:   false,
+			name:               "Valid input",
+			lsOutput:           "-rwxr-xr-x 1 user group 1234 Jan 1 12:34 filename",
+			expectedType:       "-",
+			expectedPerms:      755,
+			expectedOwner:      "user",
+			expectedGroup:      "group",
+			expectedSize:       1234,
+			expectedName:       "filename",
+			expectedLinkTarget: "",
+			expectedErr:        false,
 		},
 		{
-			name:          "Incomplete input",
-			lsOutput:      "drwxr-xr-x",
-			expectedType:  "",
-			expectedPerms: "",
-			expectedOwner: "",
-			expectedGroup: "",
-			expectedSize:  0,
-			expectedName:  "",
-			expectedErr:   true,
+			name:               "Incomplete input",
+			lsOutput:           "drwxr-xr-x",
+			expectedType:       "",
+			expectedPerms:      0,
+			expectedOwner:      "",
+			expectedGroup:      "",
+			expectedSize:       0,
+			expectedName:       "",
+			expectedLinkTarget: "",
+			expectedErr:        true,
 		},
 		{
-			name:          "Invalid size",
-			lsOutput:      "-rwxr-xr-x 1 user group invalid_size Jan 1 12:34 filename",
-			expectedType:  "-",
-			expectedPerms: "rwxr-xr-x",
-			expectedOwner: "user",
-			expectedGroup: "group",
-			expectedSize:  0,
-			expectedName:  "filename",
-			expectedErr:   true,
+			name:               "Invalid size",
+			lsOutput:           "-rwxr-x--- 1 user group invalid_size Jan 1 12:34 filename",
+			expectedType:       "-",
+			expectedPerms:      750,
+			expectedOwner:      "user",
+			expectedGroup:      "group",
+			expectedSize:       0,
+			expectedName:       "filename",
+			expectedLinkTarget: "",
+			expectedErr:        true,
+		},
+		{
+			name:               "One-Too-Short",
+			lsOutput:           "-rwxr-x-w- 1 user group 123 Jan 12:34 /etc/file",
+			expectedType:       "",
+			expectedPerms:      0,
+			expectedOwner:      "",
+			expectedGroup:      "",
+			expectedSize:       0,
+			expectedName:       "",
+			expectedLinkTarget: "",
+			expectedErr:        true,
+		},
+		{
+			name:               "Symbolic Link",
+			lsOutput:           "lrwxrwxrwx 1 root root 13 Jan  1 2024 /opt/exe -> /usr/bin/exe",
+			expectedType:       "l",
+			expectedPerms:      777,
+			expectedOwner:      "root",
+			expectedGroup:      "root",
+			expectedSize:       13,
+			expectedName:       "/opt/exe",
+			expectedLinkTarget: "/usr/bin/exe",
+			expectedErr:        false,
+		},
+		{
+			name:               "Device File",
+			lsOutput:           "crw--w---- 1 root tty 4, 0 Jan 12 01:23 /dev/tty0",
+			expectedType:       "c",
+			expectedPerms:      620,
+			expectedOwner:      "root",
+			expectedGroup:      "tty",
+			expectedSize:       0,
+			expectedName:       "01:23",
+			expectedLinkTarget: "",
+			expectedErr:        true,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			fileType, permissions, owner, group, size, name, err := extractMetadataFromLS(test.lsOutput)
+			metadata, err := extractMetadataFromLS(test.lsOutput)
 
 			if (err != nil) != test.expectedErr {
 				t.Errorf("extractMetadataFromLS() error = %v, wantErr %v", err, test.expectedErr)
 			}
-			if fileType != test.expectedType {
-				t.Errorf("extractMetadataFromLS() Type = %v, want %v", fileType, test.expectedType)
+			if metadata.fsType != test.expectedType {
+				t.Errorf("extractMetadataFromLS() Type = %v, want %v", metadata.fsType, test.expectedType)
 			}
-			if permissions != test.expectedPerms {
-				t.Errorf("extractMetadataFromLS() Permissions = %v, want %v", permissions, test.expectedPerms)
+			if metadata.permissions != test.expectedPerms {
+				t.Errorf("extractMetadataFromLS() Permissions = %v, want %v", metadata.permissions, test.expectedPerms)
 			}
-			if owner != test.expectedOwner {
-				t.Errorf("extractMetadataFromLS() Owner = %v, want %v", owner, test.expectedOwner)
+			if metadata.owner != test.expectedOwner {
+				t.Errorf("extractMetadataFromLS() Owner = %v, want %v", metadata.owner, test.expectedOwner)
 			}
-			if group != test.expectedGroup {
-				t.Errorf("extractMetadataFromLS() Group = %v, want %v", group, test.expectedGroup)
+			if metadata.group != test.expectedGroup {
+				t.Errorf("extractMetadataFromLS() Group = %v, want %v", metadata.group, test.expectedGroup)
 			}
-			if size != test.expectedSize {
-				t.Errorf("extractMetadataFromLS() Size = %v, want %v", size, test.expectedSize)
+			if metadata.size != test.expectedSize {
+				t.Errorf("extractMetadataFromLS() Size = %v, want %v", metadata.size, test.expectedSize)
 			}
-			if name != test.expectedName {
-				t.Errorf("extractMetadataFromLS() Name = %v, want %v", name, test.expectedName)
+			if metadata.linkTarget != test.expectedLinkTarget {
+				t.Errorf("extractMetadataFromLS() Link = %v, want %v", metadata.linkTarget, test.expectedLinkTarget)
+			}
+			if metadata.name != test.expectedName {
+				t.Errorf("extractMetadataFromLS() Name = %v, want %v", metadata.name, test.expectedName)
+			}
+		})
+	}
+}
+
+func TestCheckForDiff(t *testing.T) {
+	tests := []struct {
+		name                    string
+		remoteMetadata          RemoteFileInfo
+		localMetadata           FileInfo
+		expectedContentDiffers  bool
+		expectedMetadataDiffers bool
+	}{
+		{
+			name: "Everything differs",
+			remoteMetadata: RemoteFileInfo{
+				hash:        "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+				permissions: 757,
+				owner:       "user1",
+				group:       "group1",
+			},
+			localMetadata: FileInfo{
+				hash:        "590c9f8430c7435807df8ba9a476e3f1295d46ef210f6efae2043a4c085a569e",
+				permissions: 640,
+				ownerGroup:  "user2:group1",
+			},
+			expectedContentDiffers:  true,
+			expectedMetadataDiffers: true,
+		},
+		{
+			name: "Hashes differ",
+			remoteMetadata: RemoteFileInfo{
+				hash: "1b4f0e9851971998e732078544c96b36c3d01cedf7caa332359d6f1d83567014",
+			},
+			localMetadata: FileInfo{
+				hash: "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752",
+			},
+			expectedContentDiffers:  true,
+			expectedMetadataDiffers: false,
+		},
+		{
+			name: "Permissions differ",
+			remoteMetadata: RemoteFileInfo{
+				permissions: 757,
+			},
+			localMetadata: FileInfo{
+				permissions: 640,
+			},
+			expectedContentDiffers:  false,
+			expectedMetadataDiffers: true,
+		},
+		{
+			name: "Owner and group differ",
+			remoteMetadata: RemoteFileInfo{
+				owner: "user1",
+				group: "group1",
+			},
+			localMetadata: FileInfo{
+				ownerGroup: "user2:group2",
+			},
+			expectedContentDiffers:  false,
+			expectedMetadataDiffers: true,
+		},
+		{
+			name: "No differences",
+			remoteMetadata: RemoteFileInfo{
+				hash:        "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752",
+				permissions: 0755,
+				owner:       "user1",
+				group:       "group1",
+			},
+			localMetadata: FileInfo{
+				hash:        "60303ae22b998861bce3b28f33eec1be758a213c86c93c076dbe9f558c11c752",
+				permissions: 0755,
+				ownerGroup:  "user1:group1",
+			},
+			expectedContentDiffers:  false,
+			expectedMetadataDiffers: false,
+		},
+		{
+			name: "No data",
+			remoteMetadata: RemoteFileInfo{
+				hash:        "",
+				permissions: 0,
+				owner:       "",
+				group:       "",
+			},
+			localMetadata: FileInfo{
+				hash:        "",
+				permissions: 0,
+				ownerGroup:  "",
+			},
+			expectedContentDiffers:  false,
+			expectedMetadataDiffers: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			contentDiffers, metadataDiffers := checkForDiff(test.remoteMetadata, test.localMetadata)
+
+			if contentDiffers != test.expectedContentDiffers {
+				t.Errorf("expected contentDiffers %v, got %v", test.expectedContentDiffers, contentDiffers)
+			}
+			if metadataDiffers != test.expectedMetadataDiffers {
+				t.Errorf("expected metadataDiffers %v, got %v", test.expectedMetadataDiffers, metadataDiffers)
+			}
+		})
+	}
+}
+
+// Helper function to compare slices of strings
+func compareStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	sort.Strings(a)
+	sort.Strings(b)
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// Helper function to compare maps of string to slice of strings
+func compareStringMapSlices(a, b map[string][]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, value := range a {
+		if _, exists := b[key]; !exists {
+			return false
+		}
+		if !compareStringSlices(value, b[key]) {
+			return false
+		}
+	}
+	return true
+}
+
+// Test function for groupFilesByReloads
+func TestGroupFilesByReloads(t *testing.T) {
+	tests := []struct {
+		name              string
+		allFileInfo       map[string]FileInfo
+		repoFilePaths     []string
+		expectedByCommand map[string][]string
+		expectedNoReload  []string
+	}{
+		{
+			name: "files with reload and no reload",
+			allFileInfo: map[string]FileInfo{
+				"file1": {reloadRequired: true, reload: []string{"cmd50", "cmd51", "cmd52"}},
+				"file2": {reloadRequired: true, reload: []string{"cmd40", "cmd41"}},
+				"file3": {reloadRequired: false, reload: nil},
+			},
+			repoFilePaths: []string{"file1", "file2", "file3"},
+			expectedByCommand: map[string][]string{
+				"W2NtZDUwIGNtZDUxIGNtZDUyXQ==": {"file1"},
+				"W2NtZDQwIGNtZDQxXQ==":         {"file2"},
+			},
+			expectedNoReload: []string{"file3"},
+		},
+		{
+			name: "all files with the same reload command",
+			allFileInfo: map[string]FileInfo{
+				"file1": {reloadRequired: true, reload: []string{"cmd30", "cmd32", "cmd^$"}},
+				"file2": {reloadRequired: true, reload: []string{"cmd30", "cmd32", "cmd^$"}},
+				"file3": {reloadRequired: false, reload: nil},
+			},
+			repoFilePaths: []string{"file1", "file2", "file3"},
+			expectedByCommand: map[string][]string{
+				"W2NtZDMwIGNtZDMyIGNtZF4kXQ==": {"file1", "file2"},
+			},
+			expectedNoReload: []string{"file3"},
+		},
+		{
+			name: "no files with reload commands",
+			allFileInfo: map[string]FileInfo{
+				"file1": {reloadRequired: false, reload: nil},
+				"file2": {reloadRequired: false, reload: nil},
+			},
+			repoFilePaths:     []string{"file1", "file2"},
+			expectedByCommand: map[string][]string{}, // No files with reloads
+			expectedNoReload:  []string{"file1", "file2"},
+		},
+		{
+			name:              "empty input",
+			allFileInfo:       map[string]FileInfo{},
+			repoFilePaths:     []string{},
+			expectedByCommand: map[string][]string{}, // No files
+			expectedNoReload:  []string{},            // No files
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Call the function being tested
+			commitFileByCommand, commitFilesNoReload := groupFilesByReloads(tt.allFileInfo, tt.repoFilePaths)
+
+			// Check if the result matches the expected output for commitFileByCommand
+			if !compareStringMapSlices(commitFileByCommand, tt.expectedByCommand) {
+				t.Errorf("expected commitFileByCommand: %v, got: %v", tt.expectedByCommand, commitFileByCommand)
+			}
+
+			// Check if the result matches the expected output for commitFilesNoReload
+			if !compareStringSlices(commitFilesNoReload, tt.expectedNoReload) {
+				t.Errorf("expected commitFilesNoReload: %v, got: %v", tt.expectedNoReload, commitFilesNoReload)
 			}
 		})
 	}
@@ -622,7 +883,7 @@ func TestFormatBytes(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.expected, func(t *testing.T) {
-			result := FormatBytes(test.input)
+			result := formatBytes(test.input)
 			if result != test.expected {
 				t.Errorf("For input %d, expected %s but got %s", test.input, test.expected, result)
 			}

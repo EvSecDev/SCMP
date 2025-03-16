@@ -35,7 +35,7 @@ func printMessage(requiredVerbosityLevel int, message string, vars ...interface{
 }
 
 // Parse out options from config file into global
-func parseConfig() (err error) {
+func (config *Config) extractOptions(configFilePath string) (err error) {
 	// Config agnostic configuration options
 	config.osPathSeparator = string(os.PathSeparator)
 	config.userHomeDirectory, err = os.UserHomeDir()
@@ -45,8 +45,8 @@ func parseConfig() (err error) {
 	}
 
 	// Load Config File
-	configAbsolutePath := expandHomeDirectory(config.filePath)
-	sshConfigFile, err := os.ReadFile(configAbsolutePath)
+	config.filePath = expandHomeDirectory(configFilePath)
+	sshConfigFile, err := os.ReadFile(config.filePath)
 	if err != nil {
 		err = fmt.Errorf("reading config failed: %v", err)
 		return
@@ -65,7 +65,7 @@ func parseConfig() (err error) {
 	// Set globals - see global section at top for descriptions
 
 	// Set path to failtracker file (in config directory)
-	configDirectory := filepath.Dir(configAbsolutePath)
+	configDirectory := filepath.Dir(config.filePath)
 	config.failTrackerFilePath = filepath.Join(configDirectory, failTrackerFile)
 
 	// Retrieve known_hosts file path
@@ -224,7 +224,7 @@ func parseConfig() (err error) {
 		// Parse config host groups into necessary global/host variables
 		hostInfo.ignoreUniversal, hostInfo.universalGroups = filterHostGroups(hostPattern, universalGroupsCSV, ignoreUniversalString)
 
-		// Save host back into global map
+		// write into config
 		config.hostInfo[hostPattern] = hostInfo
 	}
 
@@ -297,7 +297,7 @@ func promptUser(userPrompt string, printVars ...interface{}) (userResponse strin
 }
 
 // Prompts user for a secret value (does not echo back entered text)
-func promptUserForSecret(userPrompt string, printVars ...interface{}) (userResponse string, err error) {
+func promptUserForSecret(userPrompt string, printVars ...interface{}) (userResponse []byte, err error) {
 	// Create PTY if not in terminal
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		err = fmt.Errorf("not in a terminal, prompts do not work")
@@ -306,13 +306,11 @@ func promptUserForSecret(userPrompt string, printVars ...interface{}) (userRespo
 
 	// Regular prompt
 	fmt.Printf(userPrompt, printVars...)
-	userResponseBytes, err := term.ReadPassword(int(os.Stdin.Fd()))
+	userResponse, err = term.ReadPassword(int(os.Stdin.Fd()))
 	if err != nil {
 		return
 	}
 
-	// Convert to string for return
-	userResponse = string(userResponseBytes)
 	fmt.Println()
 	return
 }
