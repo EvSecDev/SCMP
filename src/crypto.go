@@ -215,6 +215,8 @@ func SHA256Sum(input []byte) (hash string) {
 // Takes filepath, reads in globally defined amount in buffer, hashes
 // Returns hexadecimal hash string
 func SHA256SumStream(filePath string) (hash string, err error) {
+	const hashingBufferSize int = 64 * 1024 // 64KB Buffer for stream hashing
+
 	// Open the file
 	file, err := os.Open(filePath)
 	if err != nil {

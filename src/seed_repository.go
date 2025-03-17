@@ -87,37 +87,15 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 				fileLS, err = runSSHCommand(client, command, "", config.disableSudo, hostInfo.password, 30)
 				logError("Failed to retrieve remote file information", err, false)
 
-				// Split ls output into fields for this file
-				fileInfo := strings.Fields(fileLS)
-
-				// Skip misc ls output
-				if len(fileInfo) < 9 {
-					continue
-				}
-
-				// Split out permissions and check for directory or regular file
-				fileType := string(fileInfo[0][0])
-
-				// Identify if file is directory
-				if fileType == "d" {
-					// Skip file if dir
-					continue
-				} else if fileType != "-" {
-					// Skip other non-files
-					continue
-				}
-
-				// Filtering file metadata
-				fileName := string(fileInfo[8])
-				permissions, err := permissionsSymbolicToNumeric(string(fileInfo[0][1:]))
-				logError("Failed to parse ls output", err, false)
-				fileOwner := string(fileInfo[2])
-				fileGroup := string(fileInfo[3])
+				// Parse ls output into fields
+				fileMetadata, err := extractMetadataFromLS(fileLS)
+				logError("Failed to parse remote file metadata", err, false)
 
 				// Add file info to map
-				selectedFiles[fileName] = append(selectedFiles[fileName], fmt.Sprintf("%d", permissions))
-				selectedFiles[fileName] = append(selectedFiles[fileName], fileOwner)
-				selectedFiles[fileName] = append(selectedFiles[fileName], fileGroup)
+				selectedFiles[remoteFile] = append(selectedFiles[remoteFile], fmt.Sprintf("%d", fileMetadata.permissions))
+				selectedFiles[remoteFile] = append(selectedFiles[remoteFile], fileMetadata.owner)
+				selectedFiles[remoteFile] = append(selectedFiles[remoteFile], fileMetadata.group)
+				selectedFiles[remoteFile] = append(selectedFiles[remoteFile], fileMetadata.fsType)
 			}
 		}
 
@@ -201,9 +179,7 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 
 			// Identify if file is directory
 			if metadata.fsType == "d" {
-				// Skip further processing of directories
 				isDir[metadata.name] = true
-				continue
 			} else if metadata.fsType == "-" {
 				isDir[metadata.name] = false
 			}
@@ -212,6 +188,7 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 			filesInfo[metadata.name] = append(filesInfo[metadata.name], fmt.Sprintf("%d", metadata.permissions))
 			filesInfo[metadata.name] = append(filesInfo[metadata.name], metadata.owner)
 			filesInfo[metadata.name] = append(filesInfo[metadata.name], metadata.group)
+			filesInfo[metadata.name] = append(filesInfo[metadata.name], metadata.fsType)
 		}
 
 		// Use the length of dir list after filtering
@@ -301,11 +278,6 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 				// Get file name from user selection number
 				name := dirList[dirIndex-1]
 
-				// Skip dirs if selected
-				if isDir[name] {
-					continue
-				}
-
 				// Format into absolute path
 				absolutePath := filepath.Join(directory, name)
 
@@ -313,6 +285,7 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 				selectedFiles[absolutePath] = append(selectedFiles[absolutePath], filesInfo[name][0])
 				selectedFiles[absolutePath] = append(selectedFiles[absolutePath], filesInfo[name][1])
 				selectedFiles[absolutePath] = append(selectedFiles[absolutePath], filesInfo[name][2])
+				selectedFiles[absolutePath] = append(selectedFiles[absolutePath], filesInfo[name][3])
 			}
 		}
 
@@ -325,9 +298,12 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 	return
 }
 
+// TODO: fix this trainwreck of a function
+
 // Downloads user selected files from remote host
 // Adds metadata header
 // Recreates directory structure of remote host in the local repository
+// Can add single directory
 func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName string, client *ssh.Client, SudoPassword string, tmpRemoteFilePath string) (err error) {
 	// Recommended reload commands for known configuration files
 	// If user wants reloads, they will be prompted to use the reloads below if the file has the prefix of a map key (reloads are optional)
@@ -347,6 +323,65 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		"/etc/squid/":          {"squid -f /etc/squid/squid.conf -k check", "systemctl restart squid.service", "systemctl is-active squid.service"},
 		"/etc/syslog-ng":       {"syslog-ng -s", "systemctl restart syslog-ng", "systemctl is-active syslog-ng"},
 		"/etc/chrony":          {"chronyd -f /etc/chrony/chrony.conf -p", "systemctl restart chrony.service", "systemctl is-active chrony.service"},
+	}
+
+	// Selected is directory, save just that and return
+	if fileInfo[3] == "d" {
+		command := "ls -ld " + targetFilePath
+		var directoryMetadata string
+		directoryMetadata, err = runSSHCommand(client, command, "root", config.disableSudo, SudoPassword, 10)
+		if err != nil {
+			err = fmt.Errorf("ssh command failure: %v", err)
+			return
+		}
+
+		printMessage(verbosityProgress, "  Directory '%s': Parsing metadata...\n", targetFilePath)
+
+		// Extract ls information
+		metadata, lerr := extractMetadataFromLS(directoryMetadata)
+		if lerr != nil {
+			err = lerr
+			return
+		}
+
+		// Metadata header
+		var dirMetadata MetaHeader
+		dirMetadata.TargetFileOwnerGroup = metadata.owner + ":" + metadata.group
+		dirMetadata.TargetFilePermissions = metadata.permissions
+
+		printMessage(verbosityData, "  Directory '%s': Metadata: %d %s\n", targetFilePath, metadata.permissions, dirMetadata.TargetFileOwnerGroup)
+
+		// Paths
+		repoPath := filepath.Join(endpointName, targetFilePath)
+		metadataFile := filepath.Join(repoPath, directoryMetadataFileName)
+
+		// Marshal metadata JSON
+		metadataJSON, errNoFatal := json.MarshalIndent(dirMetadata, "", "  ")
+		if errNoFatal != nil {
+			printMessage(verbosityStandard, "Failed to marshal metadata header into JSON format for directory %s: %v\n", repoPath, errNoFatal)
+			return
+		}
+
+		// Add header to file contents
+		file := metaDelimiter + "\n" + string(metadataJSON) + "\n" + metaDelimiter + "\n"
+
+		printMessage(verbosityProgress, "Writing directory metadata to repository\n")
+
+		// Create any missing directories in repository
+		errNoFatal = os.MkdirAll(repoPath, 0700)
+		if errNoFatal != nil {
+			printMessage(verbosityStandard, "Failed to create missing directories in local repository for directory '%s': %v\n", repoPath, errNoFatal)
+			return
+		}
+
+		// Write config to file in repository
+		errNoFatal = os.WriteFile(metadataFile, []byte(file), 0600)
+		if errNoFatal != nil {
+			printMessage(verbosityStandard, "Failed to write file '%s' to local repository: %v\n", metadataFile, errNoFatal)
+			return
+		}
+
+		return
 	}
 
 	// Default Directory permissions (to ignore)
@@ -380,6 +415,7 @@ func retrieveSelectedFile(targetFilePath string, fileInfo []string, endpointName
 		// Extract ls information
 		metadata, lerr := extractMetadataFromLS(directoryMetadata)
 		if lerr != nil {
+			err = lerr
 			return
 		}
 		if metadata.fsType != "d" {

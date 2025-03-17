@@ -242,6 +242,8 @@ func connectToSSH(endpointName string, endpointSocket string, endpointUser strin
 // Custom HostKeyCallback for validating remote public key against known pub keys
 // If unknown, will ask user if it should trust the remote host
 func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (err error) {
+	const environmentUnknownSSHHostKey string = "UnknownSSHHostKeyAction"
+
 	// Turn remote address into format used with known_hosts file entries
 	cleanHost, _, err := net.SplitHostPort(remote.String())
 	if err != nil {

@@ -17,6 +17,9 @@ import (
 // Sets up new git repository based on controller-expected directory format
 // Also creates intial commit so the first deployment will have something to compare against
 func createNewRepository(newRepoInfo string) {
+	const autoCommitUserName string = "SCMPController"
+	const autoCommitUserEmail string = "scmpc@localhost"
+
 	// Split user choices
 	userRepoChoices := strings.Split(newRepoInfo, ":")
 

@@ -12,6 +12,8 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+// Gets absolute path to the root of the git repository using the current working directory
+// Value is saved to global config structure
 func retrieveGitRepoPath() (err error) {
 	printMessage(verbosityProgress, "Retrieving repository file path\n")
 
@@ -42,8 +44,80 @@ func retrieveGitRepoPath() (err error) {
 	return
 }
 
-// Commit already added worktree items
-func gitCommit(gitCommitAction string, worktree *git.Worktree) (err error) {
+// Retrieves working tree and worktree status using git repository in current working directory
+func gitOpenCWD() (worktree *git.Worktree, status git.Status, err error) {
+	// Check working dir for git repo
+	err = retrieveGitRepoPath()
+	if err != nil {
+		return
+	}
+
+	// Open repository
+	repo, err := git.PlainOpen(config.repositoryPath)
+	if err != nil {
+		return
+	}
+
+	// Get working tree
+	worktree, err = repo.Worktree()
+	if err != nil {
+		return
+	}
+
+	// Get worktree status
+	status, err = worktree.Status()
+
+	return
+}
+
+// Adds changes based on user glob to the working tree
+func gitAdd(addGlob string) (err error) {
+	// Retrieve working tree
+	worktree, status, err := gitOpenCWD()
+	if err != nil {
+		return
+	}
+
+	// Check for artifacts and update pointers if required
+	gitArtifactTracking()
+
+	// Return early if nothing to add
+	if status.IsClean() {
+		printMessage(verbosityStandard, "nothing to add, working tree clean\n")
+		return
+	}
+
+	printMessage(verbosityFullData, "Raw add option: '%s'\n", addGlob)
+
+	// Exit if dry-run requested
+	if dryRunRequested {
+		printMessage(verbosityStandard, "Dry-run requested, not altering worktree\n")
+		return
+	}
+
+	// Add all files to worktree
+	err = worktree.AddGlob(addGlob)
+	if err != nil {
+		return
+	}
+
+	return
+}
+
+// Commit only already added worktree items
+func gitCommit(gitCommitAction string) (err error) {
+	// Retrieve working tree
+	worktree, status, err := gitOpenCWD()
+	if err != nil {
+		return
+	}
+
+	// Return early if nothing to commit
+	if status.IsClean() {
+		printMessage(verbosityStandard, "nothing to commit, working tree clean\n")
+		return
+	}
+
 	printMessage(verbosityFullData, "Raw commit option: '%s'\n", gitCommitAction)
 
 	// Retrieve commit message from user supplied file
@@ -85,6 +159,9 @@ func gitCommit(gitCommitAction string, worktree *git.Worktree) (err error) {
 	if err != nil {
 		return
 	}
+
+	// Set global to true, deployment might occur after this commit
+	calledByGitHook = true
 
 	return
 }
@@ -141,6 +218,7 @@ func getCommit(commitID *string) (tree *object.Tree, commit *object.Commit, err 
 	return
 }
 
+// Resets HEAD to previous commit without changing working directory
 func gitRollBackOneCommit() (err error) {
 	// Warn user
 	fmt.Printf("WARNING: Removing current repository commit due to processing error.\n")

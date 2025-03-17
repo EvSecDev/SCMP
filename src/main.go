@@ -11,24 +11,19 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/go-git/go-git/v5"
 	"golang.org/x/crypto/ssh"
 )
 
 // ###################################
-//	CONSTANTS
+//	GLOBAL CONSTANTS
 // ###################################
 
 const metaDelimiter string = "#|^^^|#"
 const defaultConfigPath string = "~/.ssh/config"
 const directoryMetadataFileName string = ".directory_metadata_information.json"
-const autoCommitUserName string = "SCMPController"
-const autoCommitUserEmail string = "scmpc@localhost"
 const fileURIPrefix string = "file://"
-const environmentUnknownSSHHostKey string = "UnknownSSHHostKeyAction"
 const maxDirectoryLoopCount int = 200                          // Maximum recursion for any loop over directories
 const artifactPointerFileExtension string = ".remote-artifact" // file extension to identify 'pointer' files for artifact files
-const hashingBufferSize int = 64 * 1024                        // 64KB Buffer for stream hashing
 const failTrackerFile string = ".scmp-failtracker.json"
 const ( // Descriptive Names for available verbosity levels
 	verbosityNone int = iota
@@ -370,64 +365,10 @@ Secure Configuration Management Program (SCMP)
 		return
 	}
 
-	// If user specified any git action, parse then exit
-	if gitAddRequested != "" || gitStatusRequested || gitCommitRequested != "" {
-		// Check working dir for git repo
-		err := retrieveGitRepoPath()
-		logError("Repository Error", err, false)
-
-		// Only track artifacts when running add
-		if gitAddRequested != "" {
-			// Check for artifacts and update pointers if required
-			gitArtifactTracking()
-		}
-
-		// Open repository
-		repo, err := git.PlainOpen(config.repositoryPath)
-		logError("Failed to open repository", err, false)
-
-		// Get working tree
-		worktree, err := repo.Worktree()
-		logError("Failed to get git worktree", err, false)
-
-		// Check current status
-		status, err := worktree.Status()
-		logError("Failed to get current worktree status", err, false)
-
-		if gitAddRequested != "" && !status.IsClean() {
-			printMessage(verbosityFullData, "Raw add option: '%s'\n", gitAddRequested)
-
-			// Exit if dry-run requested
-			if dryRunRequested {
-				printMessage(verbosityStandard, "Dry-run requested, not altering worktree\n")
-				return
-			}
-
-			// Add all files to worktree
-			err = worktree.AddGlob(gitAddRequested)
-			if err != nil {
-				return
-			}
-
-			return
-		} else if gitCommitRequested != "" && !status.IsClean() {
-			err = gitCommit(gitCommitRequested, worktree)
-			logError("Failed to commit changes", err, false)
-
-			// Deployment might occur after
-			calledByGitHook = true
-		} else if gitStatusRequested && !status.IsClean() {
-			currentStatus, err := worktree.Status()
-			logError("Failed to retrieve worktree status", err, false)
-			printMessage(verbosityStandard, "%s", currentStatus.String())
-			return
-		} else if status.IsClean() {
-			printMessage(verbosityStandard, "nothing to commit, working tree clean\n")
-			return
-		} else if !status.IsClean() {
-			printMessage(verbosityStandard, "Untracked files present, please deal with them\n")
-			return
-		}
+	// Git commit separated from regular conditional block so it can be included with other arguments
+	if gitCommitRequested != "" {
+		err := gitCommit(gitCommitRequested)
+		logError("Failed to commit changes", err, false)
 	}
 
 	// Retrieve configuration options - file path is global
@@ -447,6 +388,20 @@ Secure Configuration Management Program (SCMP)
 		// If user wants to test config, just exit once program gets to this point
 		// Any config errors will be discovered prior to this point and exit with whatever error happened
 		printMessage(verbosityStandard, "controller: configuration file %s test is successful\n", config.filePath)
+	} else if gitStatusRequested {
+		// Retrieve working tree
+		_, status, err := gitOpenCWD()
+		logError("Failed to retrieve worktree status", err, false)
+
+		// Print staged changes
+		if status.IsClean() {
+			printMessage(verbosityStandard, "no changes, working tree clean\n")
+		} else if !status.IsClean() {
+			printMessage(verbosityStandard, "%s", status.String())
+		}
+	} else if gitAddRequested != "" {
+		err := gitAdd(gitAddRequested)
+		logError("Failed to add changes to working tree", err, false)
 	} else if modifyVaultHost != "" {
 		err = modifyVault(modifyVaultHost)
 		logError("Error modifying vault", err, false)
