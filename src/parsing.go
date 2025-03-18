@@ -412,48 +412,36 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 
 		printMessage(verbosityData, "    Extracting file metadata\n")
 
-		// Directory metadata
+		// Retrieve metadata depending on if this is a directory or a file
+		var fileContent []byte
+		var jsonMetadata MetaHeader
 		if strings.HasSuffix(repoFilePath, directoryMetadataFileName) {
 			// Get just directory name
 			directoryName := filepath.Dir(repoFilePath)
 
 			// Extract metadata
-			var jsonDirMetadata MetaHeader
-			err = json.Unmarshal(content, &jsonDirMetadata)
+			err = json.Unmarshal(content, &jsonMetadata)
 			if err != nil {
 				err = fmt.Errorf("failed parsing directory JSON metadata for '%s': %v", directoryName, err)
 				return
 			}
+		} else {
+			// Extract metadata from file contents
+			var metadata string
+			metadata, fileContent, err = extractMetadata(string(content))
+			if err != nil {
+				err = fmt.Errorf("failed to extract metadata header from '%s': %v", repoFilePath, err)
+				return
+			}
 
-			// Save Directory metadata to map
-			var info FileInfo
-			info.ownerGroup = jsonDirMetadata.TargetFileOwnerGroup
-			info.permissions = jsonDirMetadata.TargetFilePermissions
-			info.reloadRequired = false
-			info.action = commitFileAction
-			allFileInfo[repoFilePath] = info
+			printMessage(verbosityData, "    Parsing metadata header JSON\n")
 
-			// Skip to next file
-			continue
-		}
-
-		// Grab metadata out of contents
-		var metadata string
-		var fileContent []byte
-		metadata, fileContent, err = extractMetadata(string(content))
-		if err != nil {
-			err = fmt.Errorf("failed to extract metadata header from '%s': %v", repoFilePath, err)
-			return
-		}
-
-		printMessage(verbosityData, "    Parsing metadata header JSON\n")
-
-		// Parse JSON into a generic map
-		var jsonMetadata MetaHeader
-		err = json.Unmarshal([]byte(metadata), &jsonMetadata)
-		if err != nil {
-			err = fmt.Errorf("failed parsing JSON metadata header for %s: %v", repoFilePath, err)
-			return
+			// Parse JSON into a generic map
+			err = json.Unmarshal([]byte(metadata), &jsonMetadata)
+			if err != nil {
+				err = fmt.Errorf("failed parsing JSON metadata header for %s: %v", repoFilePath, err)
+				return
+			}
 		}
 
 		// If file is an artifact pointer, retrieve real file contents, else hash content itself
@@ -488,7 +476,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 				// Overwrite pointer file contents with actual file data
 				fileContent = artifactFileContents
 			}
-		} else {
+		} else if len(fileContent) > 0 {
 			printMessage(verbosityData, "    Hashing file content\n")
 
 			// SHA256 Hash the metadata-less contents
@@ -499,7 +487,10 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		var info FileInfo
 		info.ownerGroup = jsonMetadata.TargetFileOwnerGroup
 		info.permissions = jsonMetadata.TargetFilePermissions
-		info.fileSize = len(fileContent)
+		if len(fileContent) > 0 {
+			// Save file size if content is present
+			info.fileSize = len(fileContent)
+		}
 		info.reload = jsonMetadata.ReloadCommands
 		if len(info.reload) > 0 {
 			// Reload commands are present, set bool to true
@@ -524,7 +515,10 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 			// Install commands are not present, set to false
 			info.installOptional = false
 		}
-		info.hash = contentHash
+		if len(contentHash) > 0 {
+			// Save hash of the files contents if present
+			info.hash = contentHash
+		}
 		info.action = commitFileAction
 
 		// Save info struct into map for this file
@@ -539,7 +533,9 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		// Print verbose file metadata information
 		printMessage(verbosityFullData, "      Owner and Group:  %s\n", info.ownerGroup)
 		printMessage(verbosityFullData, "      Permissions:      %d\n", info.permissions)
-		printMessage(verbosityFullData, "      Content Hash:     %s\n", info.hash)
+		if len(info.hash) > 0 {
+			printMessage(verbosityFullData, "      Content Hash:     %s\n", info.hash)
+		}
 		printMessage(verbosityFullData, "      Install Required? %t\n", info.installOptional)
 		if info.installOptional {
 			printMessage(verbosityFullData, "      Install Commands  %s\n", info.install)
