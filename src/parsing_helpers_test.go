@@ -519,120 +519,150 @@ func TestPermissionsSymbolicToNumeric(t *testing.T) {
 	}
 }
 
-func TestExtractMetadataFromLS(t *testing.T) {
+func TestExtractMetadataFromStat(t *testing.T) {
 	tests := []struct {
-		name               string
-		lsOutput           string
-		expectedType       string
-		expectedPerms      int
-		expectedOwner      string
-		expectedGroup      string
-		expectedSize       int
-		expectedName       string
-		expectedLinkTarget string
-		expectedErr        bool
+		name        string
+		statOutput  string
+		expected    RemoteFileInfo
+		expectError bool
 	}{
 		{
-			name:               "Valid input",
-			lsOutput:           "-rwxr-xr-x 1 user group 1234 Jan 1 12:34 filename",
-			expectedType:       "-",
-			expectedPerms:      755,
-			expectedOwner:      "user",
-			expectedGroup:      "group",
-			expectedSize:       1234,
-			expectedName:       "filename",
-			expectedLinkTarget: "",
-			expectedErr:        false,
+			name:       "normal file",
+			statOutput: "[/etc/rmt],[regular file],[root],[root],[640],[53],['/etc/rmt']",
+			expected: RemoteFileInfo{
+				name:        "/etc/rmt",
+				fsType:      "regular file",
+				owner:       "root",
+				group:       "root",
+				permissions: 640,
+				size:        53,
+				linkTarget:  "",
+				exists:      true,
+			},
+			expectError: false,
 		},
 		{
-			name:               "Incomplete input",
-			lsOutput:           "drwxr-xr-x",
-			expectedType:       "",
-			expectedPerms:      0,
-			expectedOwner:      "",
-			expectedGroup:      "",
-			expectedSize:       0,
-			expectedName:       "",
-			expectedLinkTarget: "",
-			expectedErr:        true,
+			name:        "invalid field count",
+			statOutput:  "[/etc/rmt],[symbolic link],[root],[root],[777],[13]",
+			expected:    RemoteFileInfo{},
+			expectError: true,
 		},
 		{
-			name:               "Invalid size",
-			lsOutput:           "-rwxr-x--- 1 user group invalid_size Jan 1 12:34 filename",
-			expectedType:       "-",
-			expectedPerms:      750,
-			expectedOwner:      "user",
-			expectedGroup:      "group",
-			expectedSize:       0,
-			expectedName:       "filename",
-			expectedLinkTarget: "",
-			expectedErr:        true,
+			name:        "incorrect field prefix",
+			statOutput:  "etc/rmt],[symbolic link],[root],[root],[777],[13],['/etc/rmt' -> '/usr/sbin/rmt']",
+			expected:    RemoteFileInfo{},
+			expectError: true,
 		},
 		{
-			name:               "One-Too-Short",
-			lsOutput:           "-rwxr-x-w- 1 user group 123 Jan 12:34 /etc/file",
-			expectedType:       "",
-			expectedPerms:      0,
-			expectedOwner:      "",
-			expectedGroup:      "",
-			expectedSize:       0,
-			expectedName:       "",
-			expectedLinkTarget: "",
-			expectedErr:        true,
+			name:        "incorrect field suffix",
+			statOutput:  "[/etc/rmt],[symbolic link],[root],[root],[777],[13],['/etc/rmt' -> '/usr/sbin/rmt'",
+			expected:    RemoteFileInfo{},
+			expectError: true,
 		},
 		{
-			name:               "Symbolic Link",
-			lsOutput:           "lrwxrwxrwx 1 root root 13 Jan  1 2024 /opt/exe -> /usr/bin/exe",
-			expectedType:       "l",
-			expectedPerms:      777,
-			expectedOwner:      "root",
-			expectedGroup:      "root",
-			expectedSize:       13,
-			expectedName:       "/opt/exe",
-			expectedLinkTarget: "/usr/bin/exe",
-			expectedErr:        false,
+			name:        "invalid permission bits",
+			statOutput:  "[/etc/rmt],[symbolic link],[root],[root],[abc],[13],['/etc/rmt' -> '/usr/sbin/rmt']",
+			expected:    RemoteFileInfo{},
+			expectError: true,
 		},
 		{
-			name:               "Device File",
-			lsOutput:           "crw--w---- 1 root tty 4, 0 Jan 12 01:23 /dev/tty0",
-			expectedType:       "c",
-			expectedPerms:      620,
-			expectedOwner:      "root",
-			expectedGroup:      "tty",
-			expectedSize:       0,
-			expectedName:       "01:23",
-			expectedLinkTarget: "",
-			expectedErr:        true,
+			name:        "invalid file size",
+			statOutput:  "[/etc/rmt],[symbolic link],[root],[root],[777],[xyz],['/etc/rmt' -> '/usr/sbin/rmt']",
+			expected:    RemoteFileInfo{},
+			expectError: true,
+		},
+		{
+			name:        "nothing",
+			statOutput:  "",
+			expected:    RemoteFileInfo{},
+			expectError: true,
+		},
+		{
+			name: "newline nothing",
+			statOutput: `
+			`,
+			expected:    RemoteFileInfo{},
+			expectError: true,
+		},
+		{
+			name: "newline filename",
+			statOutput: `[/etc/rmt
+file],[regular file],[root],[root],[777],[584938593485983],[]`,
+			expected:    RemoteFileInfo{},
+			expectError: true,
+		},
+		{
+			name: "no symlink with newline after command",
+			statOutput: `[/etc/rmt],[regular file],[root],[root],[777],[1024],[]
+`,
+			expected: RemoteFileInfo{
+				name:        "/etc/rmt",
+				fsType:      "regular file",
+				owner:       "root",
+				group:       "root",
+				permissions: 777,
+				size:        1024,
+				linkTarget:  "",
+				exists:      true,
+			},
+			expectError: false,
+		},
+		{
+			name:       "symlink",
+			statOutput: "[/etc/r mt],[regular file],[root],[root],[777],[1024],['/etc/r mt' -> '/usr/sbin/rm t']",
+			expected: RemoteFileInfo{
+				name:        "/etc/r mt",
+				fsType:      "regular file",
+				owner:       "root",
+				group:       "root",
+				permissions: 777,
+				size:        1024,
+				linkTarget:  "/usr/sbin/rm t",
+				exists:      true,
+			},
+			expectError: false,
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			metadata, err := extractMetadataFromLS(test.lsOutput)
+			fileInfo, err := extractMetadataFromStat(test.statOutput)
 
-			if (err != nil) != test.expectedErr {
-				t.Errorf("extractMetadataFromLS() error = %v, wantErr %v", err, test.expectedErr)
+			if test.expectError {
+				if err == nil {
+					t.Fatalf("expected error, but got none")
+				}
+				return // if we expect an error, no further checks are needed
 			}
-			if metadata.fsType != test.expectedType {
-				t.Errorf("extractMetadataFromLS() Type = %v, want %v", metadata.fsType, test.expectedType)
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
 			}
-			if metadata.permissions != test.expectedPerms {
-				t.Errorf("extractMetadataFromLS() Permissions = %v, want %v", metadata.permissions, test.expectedPerms)
+
+			// Manually check for equality
+			if fileInfo.name != test.expected.name {
+				t.Errorf("expected name: '%s', got: '%s'", test.expected.name, fileInfo.name)
 			}
-			if metadata.owner != test.expectedOwner {
-				t.Errorf("extractMetadataFromLS() Owner = %v, want %v", metadata.owner, test.expectedOwner)
+			if fileInfo.fsType != test.expected.fsType {
+				t.Errorf("expected fsType: '%s', got: '%s'", test.expected.fsType, fileInfo.fsType)
 			}
-			if metadata.group != test.expectedGroup {
-				t.Errorf("extractMetadataFromLS() Group = %v, want %v", metadata.group, test.expectedGroup)
+			if fileInfo.owner != test.expected.owner {
+				t.Errorf("expected owner: '%s', got: '%s'", test.expected.owner, fileInfo.owner)
 			}
-			if metadata.size != test.expectedSize {
-				t.Errorf("extractMetadataFromLS() Size = %v, want %v", metadata.size, test.expectedSize)
+			if fileInfo.group != test.expected.group {
+				t.Errorf("expected group: '%s', got: '%s'", test.expected.group, fileInfo.group)
 			}
-			if metadata.linkTarget != test.expectedLinkTarget {
-				t.Errorf("extractMetadataFromLS() Link = %v, want %v", metadata.linkTarget, test.expectedLinkTarget)
+			if fileInfo.permissions != test.expected.permissions {
+				t.Errorf("expected permissions: '%d', got: '%d'", test.expected.permissions, fileInfo.permissions)
 			}
-			if metadata.name != test.expectedName {
-				t.Errorf("extractMetadataFromLS() Name = %v, want %v", metadata.name, test.expectedName)
+			if fileInfo.size != test.expected.size {
+				t.Errorf("expected size: '%d', got: '%d'", test.expected.size, fileInfo.size)
+			}
+			if fileInfo.linkTarget != test.expected.linkTarget {
+				t.Errorf("expected linkTarget: '%s', got: '%s'", test.expected.linkTarget, fileInfo.linkTarget)
+			}
+			if fileInfo.exists != test.expected.exists {
+				t.Errorf("expected exists: '%t', got: '%t'", test.expected.exists, fileInfo.exists)
 			}
 		})
 	}

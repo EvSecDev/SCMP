@@ -28,6 +28,9 @@ func (tracker *GitArtifactTracker) logError(err error) {
 }
 
 func gitArtifactTracking() {
+	// Limit concurrency to sane limit - number of max files in flight
+	const maxArtifactConcurrency int = 250
+
 	// Get list of all files in repo ending in .remote-artifact
 	artifactPointerFileNames, err := retrieveArtifactPointerFileNames()
 	logError("Failed to retrieve list of remote artifact files", err, false)
@@ -39,13 +42,16 @@ func gitArtifactTracking() {
 		artifactHash:      make(map[string]string),
 	}
 
+	// Semaphore to limit concurrency
+	semaphore := make(chan struct{}, maxArtifactConcurrency)
+
 	// Concurrency sync
 	var wg sync.WaitGroup
 
 	// Map out each .remote-artifact file in repository and their info
 	for _, artifactPointerFileName := range artifactPointerFileNames {
 		wg.Add(1)
-		go retrieveArtifactFileNames(&wg, artifactPointerFileName, tracker)
+		go retrieveArtifactFileNames(&wg, semaphore, artifactPointerFileName, tracker)
 	}
 	wg.Wait()
 
@@ -61,7 +67,7 @@ func gitArtifactTracking() {
 	// Modify hash map so it only contains hashes of changed artifact files
 	for artifactFileName, oldArtifactFileHash := range tracker.artifactHash {
 		wg.Add(1)
-		go hashArtifactFile(&wg, artifactFileName, oldArtifactFileHash, tracker)
+		go hashArtifactFile(&wg, semaphore, artifactFileName, oldArtifactFileHash, tracker)
 	}
 	wg.Wait()
 
@@ -77,7 +83,7 @@ func gitArtifactTracking() {
 	// Save any new artifact hashes into the artifact pointer file contents
 	for artifactPointerFileName, artifactFileName := range tracker.pointerToArtifact {
 		wg.Add(1)
-		go writeUpdatedArtifactHash(&wg, artifactPointerFileName, artifactFileName, tracker)
+		go writeUpdatedArtifactHash(&wg, semaphore, artifactPointerFileName, artifactFileName, tracker)
 	}
 	wg.Wait()
 
@@ -93,10 +99,17 @@ func gitArtifactTracking() {
 
 // Walks entire git repository and creates array of any file ending in .remote-artifact
 func retrieveArtifactPointerFileNames() (artifactPointerFileNames []string, err error) {
+	// Guard against no repository path
+	if config.repositoryPath == "" {
+		err = fmt.Errorf("could not identify git repository path, unable to track artifact files")
+		return
+	}
+
 	// Walk through the repository to find all remote files
 	err = filepath.Walk(config.repositoryPath, func(path string, info os.FileInfo, err error) error {
 		// Bail on any errors accessing directory
 		if err != nil {
+			err = fmt.Errorf("failure encountered processing '%s': %v", path, err)
 			return err
 		}
 
@@ -111,7 +124,11 @@ func retrieveArtifactPointerFileNames() (artifactPointerFileNames []string, err 
 }
 
 // Retrieve artifact file names from pointer
-func retrieveArtifactFileNames(wg *sync.WaitGroup, artifactPointerFileName string, tracker *GitArtifactTracker) {
+func retrieveArtifactFileNames(wg *sync.WaitGroup, semaphore chan struct{}, artifactPointerFileName string, tracker *GitArtifactTracker) {
+	// Concurrency Limit Signaler
+	semaphore <- struct{}{}
+	defer func() { <-semaphore }()
+
 	// Signal routine is done after return
 	defer wg.Done()
 
@@ -179,7 +196,11 @@ func retrieveArtifactFileNames(wg *sync.WaitGroup, artifactPointerFileName strin
 }
 
 // Hash artifact file and update hash map
-func hashArtifactFile(wg *sync.WaitGroup, artifactFileName string, oldArtifactFileHash string, tracker *GitArtifactTracker) {
+func hashArtifactFile(wg *sync.WaitGroup, semaphore chan struct{}, artifactFileName string, oldArtifactFileHash string, tracker *GitArtifactTracker) {
+	// Concurrency Limit Signaler
+	semaphore <- struct{}{}
+	defer func() { <-semaphore }()
+
 	// Signal routine is done after return
 	defer wg.Done()
 
@@ -208,7 +229,11 @@ func hashArtifactFile(wg *sync.WaitGroup, artifactFileName string, oldArtifactFi
 }
 
 // Write new artifact hash to pointer file
-func writeUpdatedArtifactHash(wg *sync.WaitGroup, artifactPointerFileName string, artifactFileName string, tracker *GitArtifactTracker) {
+func writeUpdatedArtifactHash(wg *sync.WaitGroup, semaphore chan struct{}, artifactPointerFileName string, artifactFileName string, tracker *GitArtifactTracker) {
+	// Concurrency Limit Signaler
+	semaphore <- struct{}{}
+	defer func() { <-semaphore }()
+
 	// Signal routine is done after return
 	defer wg.Done()
 

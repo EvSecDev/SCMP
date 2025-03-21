@@ -18,20 +18,31 @@ import (
 //	GLOBAL CONSTANTS
 // ###################################
 
-const metaDelimiter string = "#|^^^|#"
-const defaultConfigPath string = "~/.ssh/config"
-const directoryMetadataFileName string = ".directory_metadata_information.json"
-const fileURIPrefix string = "file://"
-const maxDirectoryLoopCount int = 200                          // Maximum recursion for any loop over directories
-const artifactPointerFileExtension string = ".remote-artifact" // file extension to identify 'pointer' files for artifact files
-const failTrackerFile string = ".scmp-failtracker.json"
-const ( // Descriptive Names for available verbosity levels
+const metaDelimiter string = "#|^^^|#"                                          // Start and stop delimiter for repository file metadata header
+const defaultConfigPath string = "~/.ssh/config"                                // Default to users home directory ssh config file
+const directoryMetadataFileName string = ".directory_metadata_information.json" // hidden file to identify parent directories metadata
+const fileURIPrefix string = "file://"                                          // Used by the user to tell certain arguments to load file content
+const maxDirectoryLoopCount int = 200                                           // Maximum recursion for any loop over directories
+const artifactPointerFileExtension string = ".remote-artifact"                  // file extension to identify 'pointer' files for artifact files
+const failTrackerFile string = ".scmp-failtracker.json"                         // file name for recording deployment failure details
+const (                                                                         // Descriptive Names for available verbosity levels
 	verbosityNone int = iota
 	verbosityStandard
 	verbosityProgress
 	verbosityData
 	verbosityFullData
 	verbosityDebug
+)
+const ( // Descriptive Names for stats fs types
+	dir       string = "directory"
+	file      string = "regular file"
+	fileEmpty string = "regular empty file"
+	symlink   string = "symbolic link"
+	device    string = "block special file"
+	char      string = "character special file"
+	socket    string = "socket"
+	port      string = "port"
+	fifo      string = "fifo"
 )
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
 const progVersion string = "v4.3.0"
@@ -136,6 +147,11 @@ type HostMeta struct {
 	backupPath         string
 }
 
+// Type for commands run remotely
+type RemoteCommand struct {
+	string
+}
+
 // Fail tracker json line format
 type ErrorInfo struct {
 	EndpointName string   `json:"endpointName"`
@@ -159,6 +175,12 @@ type PostDeploymentMetrics struct {
 type FailureTracker struct {
 	buffer bytes.Buffer
 	mutex  sync.Mutex
+}
+
+// For seed repository - keeping track of directories in menu
+type DirectoryState struct {
+	current string
+	stack   []string
 }
 
 // #### Written to only from main
@@ -385,8 +407,7 @@ Secure Configuration Management Program (SCMP)
 
 	// Parse User Choices - see function comment for what each does
 	if testConfig {
-		// If user wants to test config, just exit once program gets to this point
-		// Any config errors will be discovered prior to this point and exit with whatever error happened
+		// If user wants to test config, just exit once program gets to this point (errors will quit the program earlier)
 		printMessage(verbosityStandard, "controller: configuration file %s test is successful\n", config.filePath)
 	} else if gitStatusRequested {
 		// Retrieve working tree
@@ -418,7 +439,7 @@ Secure Configuration Management Program (SCMP)
 	} else if executeCommands != "" {
 		runCmd(executeCommands, hostOverride)
 	} else if gitCommitRequested == "" {
-		// No valid arguments or valid combination of arguments (and not committing - so this doesn't print when committing with other args or no args)
+		// Exclude git commit so this doesn't print when committing with other args or no args)
 		printMessage(verbosityStandard, "No arguments specified or incorrect argument combination. Use '-h' or '--help' to guide your way.\n")
 	}
 }

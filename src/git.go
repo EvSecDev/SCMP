@@ -72,6 +72,12 @@ func gitOpenCWD() (worktree *git.Worktree, status git.Status, err error) {
 
 // Adds changes based on user glob to the working tree
 func gitAdd(addGlob string) (err error) {
+	// Need repository path for artifact processing
+	err = retrieveGitRepoPath()
+	if err != nil {
+		return
+	}
+
 	// Check for artifacts and update pointers if required
 	gitArtifactTracking()
 

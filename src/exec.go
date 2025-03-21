@@ -52,7 +52,8 @@ func executeCommand(hostInfo EndpointInfo, command string) {
 	defer client.Close()
 
 	// Execute user command
-	commandOutput, err := runSSHCommand(client, command, "", config.disableSudo, hostInfo.password, 900)
+	rawCmd := RemoteCommand{command}
+	commandOutput, err := rawCmd.SSHexec(client, "", config.disableSudo, hostInfo.password, 900)
 	logError("Command Failed", err, false)
 
 	// Show command output

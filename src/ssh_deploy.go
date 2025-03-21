@@ -65,11 +65,16 @@ func sshDeploy(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo Endpoin
 
 	// Deploy files that need reload commands to be run
 	bytesTransferred, deployedFiles := DeployWithReload(host, commitFileByCommand, allFileInfo, allFileData)
-	postDeployMetrics.updateCount(deployedFiles, bytesTransferred)
+	postDeployMetrics.updateCount(deployedFiles, bytesTransferred, 0)
 
 	// Deploy files that dont need any reload commands run
 	bytesTransferred, deployedFiles = DeployWithoutReload(host, commitFilesNoReload, allFileInfo, allFileData)
-	postDeployMetrics.updateCount(deployedFiles, bytesTransferred)
+	postDeployMetrics.updateCount(deployedFiles, bytesTransferred, 0)
+
+	// Update metric for entire host
+	if postDeployMetrics.files > 0 {
+		postDeployMetrics.updateCount(0, 0, 1)
+	}
 
 	// Do any remote cleanups are required (non-fatal)
 	cleanupRemote(host)
@@ -177,7 +182,8 @@ func DeployWithReload(host HostMeta, commitFileByCommand map[string][]string, al
 
 			printMessage(verbosityProgress, "Host %s:   Running reload command '%s'\n", host.name, command)
 
-			_, err = runSSHCommand(host.sshClient, command, "root", config.disableSudo, host.password, 90)
+			rawCmd := RemoteCommand{command}
+			_, err = rawCmd.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
 			if err != nil {
 				// Record this failed command - first failure always stops reloads
 				// Record failures using the arry of all files for this command group and signal to record all the files using index "-1"

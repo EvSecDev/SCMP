@@ -503,45 +503,103 @@ func permissionsSymbolicToNumeric(permissions string) (perm int, err error) {
 	return
 }
 
-// Extracts all file information from ls -lA
-// Permissions(as 755), Ownership, type, size, name
-func extractMetadataFromLS(lsOutput string) (metadata RemoteFileInfo, err error) {
-	// Split ls output into fields for this file
-	fileInfo := strings.Fields(lsOutput)
+// Parses custom format used with stat command
+// Relies on the stat formatting found in global constatnt statCmd
+func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err error) {
+	// Index Names:
+	// - 0 = name
+	// - 1 = type - see global const
+	// - 2 = User
+	// - 3 = Group
+	// - 4 = PermissionBits
+	// - 5 = Size in bytes
+	// - 6 = Derefenced name if applicable, otherwise just file name in single quotes
+	//[/etc/rmt],[symbolic link],[root],[root],[777],[13],['/etc/rmt' -> '/usr/sbin/rmt']
+	const linkDelimiter string = "' -> '"
 
-	// Skip misc ls output - minimum of 9 fields, max of 11
-	if len(fileInfo) > 11 || len(fileInfo) < 9 {
-		err = fmt.Errorf("ls output not complete, not parsing")
+	// Trim stray newlines from input if they exist
+	statOutput = strings.TrimSuffix(statOutput, "\n")
+
+	// Separate CSV into fields
+	statFields := strings.Split(statOutput, ",")
+	if len(statFields) != 7 {
+		// Refuse any stat that does not have the exact expected number of fields
+		err = fmt.Errorf("invalid file metadata: expected 7 fields, received %d fields", len(statFields))
 		return
 	}
 
-	// Separate fields into specific values
-	metadata.fsType = string(fileInfo[0][0]) // (l)rwxrwxrwx 1 root root 13 Jan  1 2024 /opt/exe -> /usr/bin/exe
-	symbolicPermissions := fileInfo[0][1:]   // l(rwxrwxrwx) 1 root root 13 Jan  1 2024 /opt/exe -> /usr/bin/exe
-	metadata.owner = fileInfo[2]             // lrwxrwxrwx 1 (root) root 13 Jan  1 2024 /opt/exe -> /usr/bin/exe
-	metadata.group = fileInfo[3]             // lrwxrwxrwx 1 root (root) 13 Jan  1 2024 /opt/exe -> /usr/bin/exe
-	fileSizeBytes := fileInfo[4]             // lrwxrwxrwx 1 root root (13) Jan  1 2024 /opt/exe -> /usr/bin/exe
-	metadata.name = fileInfo[8]              // lrwxrwxrwx 1 root root 13 Jan  1 2024 (/opt/exe) -> /usr/bin/exe
-	if len(fileInfo) == 11 {
-		metadata.linkTarget = string(fileInfo[10]) // lrwxrwxrwx 1 root root 13 Jan  1 2024 /opt/exe -> (/usr/bin/exe)
+	// Extract data from each field, validating field is within bounds
+	for fieldIndex, field := range statFields {
+		// Ensure Prefix is present
+		if !strings.HasPrefix(field, "[") {
+			err = fmt.Errorf("incorrect field prefix: missing prefix character '[' in value '%s'", field)
+			return
+		}
+
+		// Ensure Suffix is present
+		if !strings.HasSuffix(field, "]") {
+			err = fmt.Errorf("incorrect field suffix: missing suffix character ']' in value '%s'", field)
+			return
+		}
+
+		// Trim prefix and suffix from field text
+		statFields[fieldIndex] = strings.TrimPrefix(statFields[fieldIndex], "[")
+		statFields[fieldIndex] = strings.TrimSuffix(statFields[fieldIndex], "]")
 	}
 
-	// Convert 'rwxrwxrwx' to '777'
-	metadata.permissions, err = permissionsSymbolicToNumeric(symbolicPermissions)
+	// Handle symlink field parsing if present
+	if strings.Contains(statFields[6], linkDelimiter) {
+		// Split on the link point string
+		dereferencedFields := strings.Split(statFields[6], linkDelimiter)
+
+		// Ensure string was properly separated
+		if len(dereferencedFields) != 2 {
+			err = fmt.Errorf("could not identify dereferenced link target name from value '%s'", statFields[6])
+			return
+		}
+
+		// Trim single quotes from stat output
+		dereferencedFields[1] = strings.TrimPrefix(dereferencedFields[1], "'")
+		dereferencedFields[1] = strings.TrimSuffix(dereferencedFields[1], "'")
+
+		// Save back into array
+		statFields[6] = dereferencedFields[1]
+	} else if !strings.Contains(statFields[6], linkDelimiter) {
+		// Zero out the string
+		statFields[6] = ""
+	}
+
+	// Reject file names with newlines
+	if strings.Contains(statFields[0], "\n") || strings.Contains(statFields[6], "\n") {
+		err = fmt.Errorf("file names with newlines are unsupported")
+		return
+	}
+
+	// Put all parsed data into structured return
+	fileInfo.name = statFields[0]
+	fileInfo.fsType = statFields[1]
+	fileInfo.owner = statFields[2]
+	fileInfo.group = statFields[3]
+	fileInfo.linkTarget = statFields[6]
+
+	// Assert permission string as integer
+	permissionBits, err := strconv.Atoi(statFields[4])
 	if err != nil {
+		err = fmt.Errorf("permission bits not a number: %v", err)
 		return
 	}
+	fileInfo.permissions = permissionBits
 
-	// Change type of file size to integer
-	metadata.size, err = strconv.Atoi(fileSizeBytes)
+	// Assert file size string as integer
+	fileSizeBytes, err := strconv.Atoi(statFields[5])
 	if err != nil {
-		err = fmt.Errorf("invalid file size")
+		err = fmt.Errorf("file size not a number: %v", err)
 		return
 	}
+	fileInfo.size = fileSizeBytes
 
 	// Valid input to this function implies it exists
-	metadata.exists = true
-
+	fileInfo.exists = true
 	return
 }
 

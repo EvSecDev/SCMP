@@ -48,10 +48,10 @@ If you like what this program can do or want to expand functionality yourself, f
   - Deployment test run using single host (use `--max-conns 1 -r HOST`)
   - Exclude hosts from deployments (use config option `DeploymentState offline`)
   - Ad-hoc override host exclusion from deployments (use `--ignore-deployment-state`)
-  - Run a linear series of commands prior to any deployment actions (part of JSON file metadata header)
-  - Run a linear series of commands to enable/reload/start services associated with files (part of JSON file metadata header)
+  - Run a linear series of commands prior to any deployment actions per file/directory (part of JSON metadata header)
+  - Run a linear series of commands to enable/reload/start services associated with files/directories (part of JSON metadata header)
     - Option to temporarily disable globally for a deployment
-  - Run a linear series of commands to install services associated with files (part of JSON file metadata header)
+  - Run a linear series of commands to install services associated with files/directories (part of JSON metadata header)
   - Easy retry of deployment failures with a single argument
   - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
 - File/Directory Management
@@ -61,6 +61,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Group files together to apply to multiple hosts
   - Options to ignore specific directories in the repository
   - Track binary/artifact files (executables, images, videos, documents)
+  - Support standard ASCII naming
 - Host Management
   - Use standard SSH client config to management endpoints
   - Ability to mark individual hosts as offline to prevent deployments to that host
@@ -79,6 +80,8 @@ If you like what this program can do or want to expand functionality yourself, f
 ### What it can NOT do
 
 - File/Directory Management
+  - File/Directory names containing newlines or DEL characters
+  - File/Directory names containing non-printable ASCII as well as non-ASCII characters
   - Handle some special files (device, pipes, sockets, ect.)
 - SSH
   - 2FA (TOTP) logins
@@ -89,7 +92,7 @@ If you like what this program can do or want to expand functionality yourself, f
 
 - Remote Host Requirements:
   - OpenSSH Server
-  - Commands: `ls, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum`
+  - Commands: `ls, stat, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum`
 - Local Host Requirements:
   - Unix file paths
 
@@ -491,7 +494,7 @@ complete -F _controller controller
 
 ### Commit Automatic Rollback
 
-When the controller is called via the git post-commit hook, there is a feature that will automatically roll back the commit when encountering an error.
+When the controller is called with its `--git-commit` argument, there is a feature that will automatically roll back the commit when encountering an error.
 During the processing of a commit, any error before the controller connects to remote hosts will result the HEAD being moved to the previous commit.
 
 This is intentional to ensure that the HEAD commit is the most accurate representation of what configurations are currently deployed in the network.
