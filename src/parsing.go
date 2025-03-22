@@ -362,7 +362,7 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 	for repoFilePath, commitFileAction := range allDeploymentFiles {
 		printMessage(verbosityData, "  Loading repository file %s\n", repoFilePath)
 
-		printMessage(verbosityData, "    Marked as 'to be %s'\n", commitFileAction)
+		printMessage(verbosityData, "    Marked as '%s'\n", commitFileAction)
 
 		// Skip loading if file will be deleted
 		if commitFileAction == "delete" {

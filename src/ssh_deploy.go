@@ -95,8 +95,8 @@ func DeployWithReload(host HostMeta, commitFileByCommand map[string][]string, al
 	}()
 
 	printMessage(verbosityProgress, "Host %s: Starting deployment for configs with reload commands\n", host.name)
+
 	// Loop over command groups and deploy files that need reload commands
-	var err error
 	for reloadID, repoFilePaths := range commitFileByCommand {
 		printMessage(verbosityData, "Host %s: Starting deployment for configs with reload command ID %s\n", host.name, reloadID)
 
@@ -104,10 +104,10 @@ func DeployWithReload(host HostMeta, commitFileByCommand map[string][]string, al
 		var fileModifiedCounter int
 
 		// Deploy all files for this specific reload command set
-		backupFileHashes := make(map[string]string)
+		backupFileHashes := make(map[string]RemoteFileInfo)
 		var reloadCmdsRequired bool
 		for commitIndex, repoFilePath := range repoFilePaths {
-			printMessage(verbosityData, "Host %s:   Starting deployment for config %s\n", host.name, repoFilePath)
+			printMessage(verbosityData, "Host %s:   Starting deployment for '%s'\n", host.name, repoFilePath)
 
 			// Split repository host dir and config file path for obtaining the absolute target file path
 			// Reminder:
@@ -119,7 +119,7 @@ func DeployWithReload(host HostMeta, commitFileByCommand map[string][]string, al
 			targetFileAction := allFileInfo[repoFilePath].action
 
 			// Run Check commands first
-			err = runCheckCommands(host, allFileInfo, repoFilePath)
+			err := runCheckCommands(host, allFileInfo, repoFilePath)
 			if err != nil {
 				err = fmt.Errorf("failed SSH Command on host during check command: %v", err)
 				recordDeploymentFailure(host.name, repoFilePaths, commitIndex, err)
@@ -134,34 +134,43 @@ func DeployWithReload(host HostMeta, commitFileByCommand map[string][]string, al
 				continue
 			}
 
-			// Create/Modify file if requested
-			if targetFileAction == "create" {
-				fileModified, transferredBytes, remoteOldMetadata, err := deployFile(host, targetFilePath, repoFilePath, allFileInfo[repoFilePath], allFileData)
+			// Deploy based on action (fs type)
+			var remoteModified bool
+			var transferredBytes int
+			if targetFileAction == "dirCreate" || targetFileAction == "dirModify" {
+				remoteModified, err = deployDirectory(host, targetFilePath, allFileInfo[repoFilePath])
 				if err != nil {
-					if err.Error() != "hash matches local and metadata up-to-date" {
-						// Only record deployment errors that are real
-						err = fmt.Errorf("failed deployment of file: %v", err)
-						recordDeploymentFailure(host.name, repoFilePaths, commitIndex, err)
-					}
-					continue
+					err = fmt.Errorf("failed deployment of directory: %v", err)
+					recordDeploymentFailure(host.name, repoFilePaths, commitIndex, err)
 				}
-
-				// Increment metric for dir modification
-				if fileModified {
-					fileModifiedCounter++
-					// Set flag to allow reload commands to run for this group
-					reloadCmdsRequired = true
+			} else if targetFileAction == "create" {
+				var remoteOldMetadata RemoteFileInfo
+				remoteModified, transferredBytes, remoteOldMetadata, err = deployFile(host, targetFilePath, repoFilePath, allFileInfo[repoFilePath], allFileData)
+				if err != nil {
+					err = fmt.Errorf("failed deployment of file: %v", err)
+					recordDeploymentFailure(host.name, repoFilePaths, commitIndex, err)
 				}
-
-				deployedBytes += transferredBytes
 
 				// Record backup file hashes to map in case reload fails and restoration needs to occur
-				backupFileHashes[targetFilePath] = remoteOldMetadata.hash
+				if remoteModified {
+					backupFileHashes[targetFilePath] = remoteOldMetadata
+				}
+			}
+
+			// Add any tracked transferred bytes to metric counter
+			deployedBytes += transferredBytes
+
+			// Increment metric for file modification
+			if remoteModified {
+				fileModifiedCounter++
+				reloadCmdsRequired = true // Set flag to allow reload commands to run for this group
 			}
 		}
 
-		// Since all the files use the same command array, just pick out one file to get the reload command array from
-		commandReloadArray := allFileInfo[repoFilePaths[0]].reload
+		// If user requested force, proceed with reloads
+		if config.forceEnabled {
+			reloadCmdsRequired = true
+		}
 
 		// Do not run reloads if file operations encountered error
 		if !reloadCmdsRequired {
@@ -170,6 +179,9 @@ func DeployWithReload(host HostMeta, commitFileByCommand map[string][]string, al
 		}
 
 		printMessage(verbosityProgress, "Host %s: Starting execution of reload commands\n", host.name)
+
+		// Since all the files use the same command array, just pick out one file to get the reload command array from
+		commandReloadArray := allFileInfo[repoFilePaths[0]].reload
 
 		// Run all the commands required by this config file group
 		var reloadFailed bool
@@ -183,7 +195,7 @@ func DeployWithReload(host HostMeta, commitFileByCommand map[string][]string, al
 			printMessage(verbosityProgress, "Host %s:   Running reload command '%s'\n", host.name, command)
 
 			rawCmd := RemoteCommand{command}
-			_, err = rawCmd.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+			_, err := rawCmd.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
 			if err != nil {
 				// Record this failed command - first failure always stops reloads
 				// Record failures using the arry of all files for this command group and signal to record all the files using index "-1"
@@ -208,7 +220,7 @@ func DeployWithReload(host HostMeta, commitFileByCommand map[string][]string, al
 				printMessage(verbosityData, "Host %s:   Restoring config file %s due to failed reload command\n", host.name, targetFilePath)
 
 				// Put backup file into origina location
-				err = restoreOldFile(host, targetFilePath, backupFileHashes[targetFilePath])
+				err := restoreOldFile(host, targetFilePath, backupFileHashes[targetFilePath])
 				if err != nil {
 					err = fmt.Errorf("failed old config restoration: %v", err)
 					recordDeploymentFailure(host.name, repoFilePaths, commitIndex, err)
@@ -241,13 +253,13 @@ func DeployWithoutReload(host HostMeta, commitFilesNoReload []string, allFileInf
 
 	// Loop through target files and deploy (non-reload required configs)
 	for commitIndex, repoFilePath := range commitFilesNoReload {
-		printMessage(verbosityData, "Host %s:   Starting deployment for %s\n", host.name, repoFilePath)
+		printMessage(verbosityData, "Host %s:   Starting deployment for '%s'\n", host.name, repoFilePath)
 
 		// Split repository host dir and config file path for obtaining the absolute target file path
-		_, targetFilePath := translateLocalPathtoRemotePath(repoFilePath)
 		// Reminder:
 		// targetFilePath   should be the file path as expected on the remote system
 		// repoFilePath     should be the local file path within the commit repository - is REQUIRED to reference keys in the big config information maps (commitFileData, commitFileActions, ect.)
+		_, targetFilePath := translateLocalPathtoRemotePath(repoFilePath)
 
 		// Run Check commands first
 		err := runCheckCommands(host, allFileInfo, repoFilePath)
@@ -265,84 +277,52 @@ func DeployWithoutReload(host HostMeta, commitFilesNoReload []string, allFileInf
 			continue
 		}
 
-		// What to do - Create/Delete/symlink the config
+		// What to do - Create/Delete/symlink/modify the file
 		targetFileAction := allFileInfo[repoFilePath].action
 
-		// Delete file on remote if deleted in repo
+		// Deploy based on action (fs type)
+		var remoteModified bool
+		var transferredBytes int
 		if targetFileAction == "delete" {
-			printMessage(verbosityData, "Host %s:   Deleting config %s\n", host.name, targetFilePath)
-
-			err = deleteFile(host, targetFilePath)
+			remoteModified, err = deleteFile(host, targetFilePath)
 			if err != nil {
-				// Only record errors where removal of the specific file failed
 				if strings.Contains(err.Error(), "failed to remove file") {
+					// Record errors where removal of the specific file failed
 					recordDeploymentFailure(host.name, commitFilesNoReload, commitIndex, err)
 					continue
+				} else {
+					// Show warning to user for other errors (removing empty parent dirs)
+					printMessage(verbosityStandard, "Warning: Host %s: %v\n", host.name, err)
 				}
-
-				// Other errors (removing empty parent dirs) are not recorded
-				printMessage(verbosityStandard, "Warning: Host %s: %v\n", host.name, err)
 			}
-
-			// Done deleting (or recording error) - Next deployment file
-			deployedConfigs++
-			continue
-		}
-
-		// Create symbolic link if requested
-		if strings.Contains(targetFileAction, "symlinkcreate") {
-			printMessage(verbosityData, "Host %s:   Creating symlink %s\n", host.name, targetFilePath)
-
-			linkModified, err := createSymLink(host, targetFilePath, targetFileAction)
+		} else if strings.Contains(targetFileAction, "symlinkcreate") {
+			remoteModified, err = createSymLink(host, targetFilePath, targetFileAction)
 			if err != nil {
+				err = fmt.Errorf("failed deployment of symbolic link: %v", err)
 				recordDeploymentFailure(host.name, commitFilesNoReload, commitIndex, err)
 				continue
 			}
-
-			// Increment metric for link creation
-			if linkModified {
-				deployedConfigs++
-			}
-
-			continue
-		}
-
-		// Create/Modify directory if requested
-		if targetFileAction == "dirCreate" || targetFileAction == "dirModify" {
-			dirModified, err := deployDirectory(host, targetFilePath, allFileInfo[repoFilePath])
+		} else if targetFileAction == "dirCreate" || targetFileAction == "dirModify" {
+			remoteModified, err = deployDirectory(host, targetFilePath, allFileInfo[repoFilePath])
 			if err != nil {
 				err = fmt.Errorf("failed deployment of directory: %v", err)
 				recordDeploymentFailure(host.name, commitFilesNoReload, commitIndex, err)
 				continue
 			}
-
-			// Increment metric for dir modification
-			if dirModified {
-				deployedConfigs++
+		} else if targetFileAction == "create" {
+			remoteModified, transferredBytes, _, err = deployFile(host, targetFilePath, repoFilePath, allFileInfo[repoFilePath], allFileData)
+			if err != nil {
+				err = fmt.Errorf("failed deployment of file: %v", err)
+				recordDeploymentFailure(host.name, commitFilesNoReload, commitIndex, err)
 			}
-
-			continue
 		}
 
-		// Create/Modify file if requested
-		if targetFileAction == "create" {
-			fileModified, transferredBytes, _, err := deployFile(host, targetFilePath, repoFilePath, allFileInfo[repoFilePath], allFileData)
-			if err != nil {
-				if err.Error() != "hash matches local and metadata up-to-date" {
-					// Only record deployment errors that are real
-					err = fmt.Errorf("failed deployment of file: %v", err)
-					recordDeploymentFailure(host.name, commitFilesNoReload, commitIndex, err)
-				}
-				continue
-			}
+		// Add any tracked transferred bytes to metric counter
+		deployedBytes += transferredBytes
 
-			// Increment metric for dir modification
-			if fileModified {
-				deployedConfigs++
-			}
-
-			// Add any tracked transferred bytes to metric counter
-			deployedBytes += transferredBytes
+		// Increment metric for dir modification
+		if remoteModified {
+			deployedConfigs++
 		}
 	}
 	return

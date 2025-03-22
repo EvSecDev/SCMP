@@ -606,6 +606,13 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 // Compares compiled metadata from local and remote file and compares them and reports what is different
 // Only compares hashes, owner+group, and permission bits
 func checkForDiff(remoteMetadata RemoteFileInfo, localMetadata FileInfo) (contentDiffers bool, metadataDiffers bool) {
+	// If user requested force, return early, as deployment will be atomic
+	if config.forceEnabled {
+		contentDiffers = true
+		metadataDiffers = true
+		return
+	}
+
 	// Check if remote content differs from local
 	if remoteMetadata.hash != localMetadata.hash {
 		contentDiffers = true

@@ -149,7 +149,7 @@ func getOldRemoteInfo(host HostMeta, targetPath string) (remoteMetadata RemoteFi
 	if err != nil {
 		return
 	}
-	if remoteMetadata.fsType != "-" && remoteMetadata.fsType != "d" {
+	if remoteMetadata.fsType != file && remoteMetadata.fsType != dir && remoteMetadata.fsType != fileEmpty {
 		err = fmt.Errorf("expected remote path to be file or directory, but got type '%s' instead", remoteMetadata.fsType)
 		return
 	}
@@ -158,7 +158,7 @@ func getOldRemoteInfo(host HostMeta, targetPath string) (remoteMetadata RemoteFi
 	remoteMetadata.name = targetPath
 
 	// Only hash if its a file
-	if remoteMetadata.fsType == "-" {
+	if remoteMetadata.fsType == file || remoteMetadata.fsType == fileEmpty {
 		// Get the SHA256 hash of the remote old conf file
 		command := buildHashCmd(targetPath)
 		var commandOutput string
@@ -205,9 +205,9 @@ func backupOldFile(host HostMeta, remoteMetadata RemoteFileInfo) (err error) {
 // Moves backup config file into original location after file deployment failure
 // Assumes backup file is located in the directory at backupFilePath
 // Ensures restoration worked by hashing and comparing to pre-deployment file hash
-func restoreOldFile(host HostMeta, targetFilePath string, oldRemoteFileHash string) (err error) {
+func restoreOldFile(host HostMeta, targetFilePath string, remoteMetadata RemoteFileInfo) (err error) {
 	// Empty oldRemoteFileHash indicates there was nothing to backup, therefore restore should not occur
-	if oldRemoteFileHash == "" {
+	if remoteMetadata.hash == "" {
 		return
 	}
 
@@ -217,6 +217,19 @@ func restoreOldFile(host HostMeta, targetFilePath string, oldRemoteFileHash stri
 
 	// Move backup conf into place
 	command := buildMv(backupFilePath, targetFilePath)
+	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+	if err != nil {
+		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
+		return
+	}
+	command = buildChmod(targetFilePath, remoteMetadata.permissions)
+	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+	if err != nil {
+		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
+		return
+	}
+	targetRemoteOwnerGroup := remoteMetadata.owner + ":" + remoteMetadata.group
+	command = buildChown(targetFilePath, targetRemoteOwnerGroup)
 	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
@@ -235,7 +248,7 @@ func restoreOldFile(host HostMeta, targetFilePath string, oldRemoteFileHash stri
 	remoteFileHash := SHA256RegEx.FindString(commandOutput)
 
 	// Ensure restoration succeeded
-	if oldRemoteFileHash != remoteFileHash {
+	if remoteMetadata.hash != remoteFileHash {
 		err = fmt.Errorf("restored file hash is different than its original hash")
 		return
 	}
@@ -312,9 +325,11 @@ func transferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath
 }
 
 // Deletes given file from remote and parent directory if empty
-func deleteFile(host HostMeta, targetFilePath string) (err error) {
+func deleteFile(host HostMeta, targetFilePath string) (fileDeleted bool, err error) {
 	// Note: technically inefficient; if a file is moved within same directory, this will delete the file and parent dir(maybe)
 	//                                then when deploying the moved file, it will recreate folder that was just deleted.
+
+	printMessage(verbosityData, "Host %s:   Deleting config %s\n", host.name, targetFilePath)
 
 	// Attempt remove file
 	command := buildRm(targetFilePath)
@@ -329,6 +344,9 @@ func deleteFile(host HostMeta, targetFilePath string) (err error) {
 		// Reset err var
 		err = nil
 	}
+
+	// Deletion occured, signal as such
+	fileDeleted = true
 
 	// Danger Zone: Remove empty parent dirs
 	targetPath := filepath.Dir(targetFilePath)
@@ -362,6 +380,8 @@ func deleteFile(host HostMeta, targetFilePath string) (err error) {
 
 // Create symbolic link to specific target file (as present in file action string)
 func createSymLink(host HostMeta, linkName string, targetFileAction string) (linkModified bool, err error) {
+	printMessage(verbosityData, "Host %s:   Creating symlink %s\n", host.name, linkName)
+
 	// Check if a file is already there
 	oldSymLinkExists, statOutput, err := checkRemoteFileDirExistence(host.sshClient, linkName, host.password)
 	if err != nil {
@@ -383,7 +403,7 @@ func createSymLink(host HostMeta, linkName string, targetFileAction string) (lin
 		}
 
 		// Error if the remote file is not a link
-		if oldMetadata.fsType != "l" {
+		if oldMetadata.fsType != symlink {
 			err = fmt.Errorf("file already exists where symbolic link is supposed to be created")
 			return
 		}
@@ -424,7 +444,6 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 	// Next file if this one does not need updating
 	if !contentDiffers && !metadataDiffers {
 		printMessage(verbosityProgress, "Host %s: File '%s' hash matches local and metadata up-to-date... skipping this file\n", host.name, targetFilePath)
-		err = fmt.Errorf("hash matches local and metadata up-to-date")
 		return
 	}
 
@@ -436,6 +455,10 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 
 		err = modifyMetadata(host, remoteMetadata, localMetadata)
 		if err != nil {
+			lerr := restoreOldFile(host, targetFilePath, remoteMetadata)
+			if lerr != nil {
+				err = fmt.Errorf("%v: restoration failed: %v", err, lerr)
+			}
 			return
 		}
 
@@ -453,6 +476,10 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 		// Transfer config file to remote with correct ownership and permissions
 		err = createRemoteFile(host, targetFilePath, allFileData[hashIndex], localMetadata.hash, localMetadata.ownerGroup, localMetadata.permissions)
 		if err != nil {
+			lerr := restoreOldFile(host, targetFilePath, remoteMetadata)
+			if lerr != nil {
+				err = fmt.Errorf("%v: restoration failed: %v", err, lerr)
+			}
 			return
 		}
 

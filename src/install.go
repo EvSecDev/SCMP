@@ -292,13 +292,12 @@ func installAAProfile() {
 	const AppArmorProfile = `### Apparmor Profile for the Secure Configuration Management Controller
 ## This is a very locked down profile made for Debian systems
 ## Variables - add to if required
-@{exelocation}=$executablePath
-@{repolocation}=$RepositoryPath
-@{configdir}=~/.ssh/config
-
 @{profilelocation}=$ApparmorProfilePath
 @{pid}={[1-9],[1-9][0-9],[1-9][0-9][0-9],[1-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9][0-9],[1-4][0-9][0-9][0-9][0-9][0-9][0-9]}
-@{home}={/root,/home/*}
+@{home}={/root,/home}
+@{exelocation}=$executablePath
+@{repolocation}=$RepositoryPath
+@{configdir}=@{home}/.ssh/config
 
 ## Profile Begin
 profile SCMController @{exelocation} flags=(enforce) {

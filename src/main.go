@@ -73,6 +73,7 @@ type Config struct {
 	runInstallCommands    bool                    // Run the install command section of all relevant files metadata header section (within the given deployment)
 	ignoreDeploymentState bool                    // Ignore any deployment state for a host in the config
 	regexEnabled          bool                    // Globally enable the use of regex for matching hosts/files
+	forceEnabled          bool                    // Atomic mode
 	userHomeDirectory     string                  // Absolute path to users home directory (to expand '~/' in paths)
 	vaultFilePath         string                  // Path to password vault file
 	vault                 map[string]Credential   // Password vault
@@ -281,6 +282,8 @@ Secure Configuration Management Program (SCMP)
                                                    Only applies to '--deploy-changes' or '--modify-vault-password'
         --install                                  Runs installation commands in config files metadata JSON header
                                                    Commands are run before file deployments (before checks)
+        --force                                    Ignores checks and runs atomically
+                                                   Forces writes and reloads of deployment files
         --disable-reloads                          Disables execution of reload commands for this deployment
                                                    Useful to write configs that normally need reloads without running them
         --disable-privilege-escalation             Disables use of sudo when executing commands remotely
@@ -334,6 +337,7 @@ Secure Configuration Management Program (SCMP)
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
 	flag.BoolVar(&config.allowDeletions, "allow-deletions", false, "")
 	flag.BoolVar(&config.runInstallCommands, "install", false, "")
+	flag.BoolVar(&config.forceEnabled, "force", false, "")
 	flag.BoolVar(&config.disableReloads, "disable-reloads", false, "")
 	flag.BoolVar(&config.disableSudo, "disable-privilege-escalation", false, "")
 	flag.BoolVar(&config.ignoreDeploymentState, "ignore-deployment-state", false, "")

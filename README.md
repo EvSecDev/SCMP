@@ -348,6 +348,19 @@ Due to this system, binary files do take up extra processing power and memory sp
 
 Only `file://` (local) URIs are supported for the `ExternalContentLocation` field currently.
 
+### Install commands
+
+Commands in this metadata JSON array are run only by using the controller argument `--install`.
+This feature is meant to provide a mechanism to initialize a service prior to deploying the file.
+
+An example of its usage would be install a package.
+
+```json
+  "Install": [
+    "apt-get install package1 -y"
+  ]
+```
+
 ### Check/Reload commands
 
 It is recommended to use some sort of pre-check/validation/test option for your first reload command for a particular config file.
@@ -361,6 +374,19 @@ If you want to run any commands prior to the new configuration being written, us
 Check commands that fail for a group of files sharing the same reload commands will cause the reloads to NOT run (although all files which have checks that do not fail will be written to remote host)
 Check commands are not grouped together and will run multiple times even if identical between multiple files.
 
+Example metadata JSON:
+
+```json
+  "Checks": [
+    "nslookup required.domain.com"
+  ],
+  "Reload": [
+    "service1 --test-configuration -c /etc/service1/conf",
+    "systemctl restart service1",
+    "systemctl is-active service1"
+  ]
+```
+
 ### BASH Auto-Completion
 
 In order to get auto-completion of the controller's arguments, SSH hosts, and git commit hashes, add this function to your `~/.bashrc`
@@ -373,21 +399,7 @@ _controller() {
     local cur prev opts
 
     # Define all available options
-    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --disable-git-hook --enable-git-hook --test-config --verbose --help --version --versionid"
-
-    # Define arguments for specific options
-    local_config="--config"
-    local_deploy_changes="--deploy-changes --deploy-all --deploy-failures"
-    local_execute="--execute"
-    local_remote_hosts="--remote-hosts"
-    local_remote_files="--remote-files"
-    local_local_files="--local-files"
-    local_commitid="--commitid"
-    local_max_conns="--max-conns"
-    local_modify_vault_password="--modify-vault-password"
-    local_new_repo="--new-repo"
-    local_seed_repo="--seed-repo"
-    local_verbose="--verbose"
+    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --disable-reloads --force --test-config --verbose --help --version --versionid"
 
     # Get the current word the user is typing
     cur="${COMP_WORDS[COMP_CWORD]}"

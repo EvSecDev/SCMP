@@ -151,7 +151,7 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 
 			// Ensure empty lines are not fed into selection
 			var filteredSelectedFiles []string
-			for _, file := range strings.Split(findOutput, "\n") {
+			for file := range strings.SplitSeq(findOutput, "\n") {
 				if file != "" {
 					filteredSelectedFiles = append(filteredSelectedFiles, file)
 				}
