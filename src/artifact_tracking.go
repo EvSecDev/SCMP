@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 )
@@ -21,16 +20,7 @@ type GitArtifactTracker struct {
 	errMutex            sync.Mutex
 }
 
-func (tracker *GitArtifactTracker) logError(err error) {
-	tracker.errMutex.Lock()
-	defer tracker.errMutex.Unlock()
-	tracker.allErrors = append(tracker.allErrors, err)
-}
-
 func gitArtifactTracking() {
-	// Limit concurrency to sane limit - number of max files in flight
-	const maxArtifactConcurrency int = 250
-
 	// Get list of all files in repo ending in .remote-artifact
 	artifactPointerFileNames, err := retrieveArtifactPointerFileNames()
 	logError("Failed to retrieve list of remote artifact files", err, false)
@@ -42,11 +32,10 @@ func gitArtifactTracking() {
 		artifactHash:      make(map[string]string),
 	}
 
-	// Semaphore to limit concurrency
-	semaphore := make(chan struct{}, maxArtifactConcurrency)
-
-	// Concurrency sync
-	var wg sync.WaitGroup
+	// Concurrency
+	const maxArtifactConcurrency int = 250                   // Limit concurrency to sane limit - number of max files in flight
+	semaphore := make(chan struct{}, maxArtifactConcurrency) // Semaphore to limit concurrency
+	var wg sync.WaitGroup                                    // Concurrency sync
 
 	// Map out each .remote-artifact file in repository and their info
 	for _, artifactPointerFileName := range artifactPointerFileNames {
@@ -54,15 +43,7 @@ func gitArtifactTracking() {
 		go retrieveArtifactFileNames(&wg, semaphore, artifactPointerFileName, tracker)
 	}
 	wg.Wait()
-
-	// Check for errors
-	if len(tracker.allErrors) > 0 {
-		printMessage(verbosityStandard, "Error(s) while reading artifact pointers:\n")
-		for _, err := range tracker.allErrors {
-			printMessage(verbosityStandard, "  %v\n", err)
-		}
-		logError("Unable to continue", fmt.Errorf("too many errors"), false)
-	}
+	checkForArtifactErrors(&tracker.allErrors)
 
 	// Modify hash map so it only contains hashes of changed artifact files
 	for artifactFileName, oldArtifactFileHash := range tracker.artifactHash {
@@ -70,15 +51,7 @@ func gitArtifactTracking() {
 		go hashArtifactFile(&wg, semaphore, artifactFileName, oldArtifactFileHash, tracker)
 	}
 	wg.Wait()
-
-	// Check for errors
-	if len(tracker.allErrors) > 0 {
-		printMessage(verbosityStandard, "Error(s) while hashing artifact files:\n")
-		for _, err := range tracker.allErrors {
-			printMessage(verbosityStandard, "  %v\n", err)
-		}
-		logError("Unable to continue", fmt.Errorf("too many errors"), false)
-	}
+	checkForArtifactErrors(&tracker.allErrors)
 
 	// Save any new artifact hashes into the artifact pointer file contents
 	for artifactPointerFileName, artifactFileName := range tracker.pointerToArtifact {
@@ -86,42 +59,12 @@ func gitArtifactTracking() {
 		go writeUpdatedArtifactHash(&wg, semaphore, artifactPointerFileName, artifactFileName, tracker)
 	}
 	wg.Wait()
-
-	// Check for errors
-	if len(tracker.allErrors) > 0 {
-		printMessage(verbosityStandard, "Error(s) while writing new artifact hashes:\n")
-		for _, err := range tracker.allErrors {
-			printMessage(verbosityStandard, "  %v\n", err)
-		}
-		logError("Unable to continue", fmt.Errorf("too many errors"), false)
-	}
+	checkForArtifactErrors(&tracker.allErrors)
 }
 
-// Walks entire git repository and creates array of any file ending in .remote-artifact
-func retrieveArtifactPointerFileNames() (artifactPointerFileNames []string, err error) {
-	// Guard against no repository path
-	if config.repositoryPath == "" {
-		err = fmt.Errorf("could not identify git repository path, unable to track artifact files")
-		return
-	}
-
-	// Walk through the repository to find all remote files
-	err = filepath.Walk(config.repositoryPath, func(path string, info os.FileInfo, err error) error {
-		// Bail on any errors accessing directory
-		if err != nil {
-			err = fmt.Errorf("failure encountered processing '%s': %v", path, err)
-			return err
-		}
-
-		// Check if it's a file and has the .remote-artifact extension
-		if !info.IsDir() && strings.HasSuffix(info.Name(), artifactPointerFileExtension) {
-			artifactPointerFileNames = append(artifactPointerFileNames, path)
-		}
-		return nil
-	})
-
-	return
-}
+// ###################################
+//  Go routines
+// ###################################
 
 // Retrieve artifact file names from pointer
 func retrieveArtifactFileNames(wg *sync.WaitGroup, semaphore chan struct{}, artifactPointerFileName string, tracker *GitArtifactTracker) {

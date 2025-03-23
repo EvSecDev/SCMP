@@ -136,6 +136,9 @@ function fix_program_package_list_print {
 	# Format package list into go print line
 	newPackagePrintLine=$'\t\tfmt.Print("Direct Package Imports: '"${allPackages[@]}"'\\n")'
 
+	# Remove testing package
+	newPackagePrintLine=$(echo "$newPackagePrintLine" | sed 's/ testing//')
+
 	# Write new package line into go source file that has main function
 	sed -i "/$packagePrintLine/c\\$newPackagePrintLine" $mainFile
 }
