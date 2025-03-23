@@ -28,6 +28,22 @@ func logError(errorDescription string, errorMessage error, cleanupNeeded bool) {
 		fmt.Printf("Failed to create journald entry: %v\n", err)
 	}
 
+	// Append message to global log
+	config.eventLogMutex.Lock()
+	config.eventLog = append(config.eventLog, fmt.Sprintf("%s: %v", errorDescription, errorMessage))
+	config.eventLogMutex.Unlock()
+
+	// Write global logs to disk
+	if config.logFile != nil {
+		defer config.logFile.Close()
+
+		allEvents := strings.Join(config.eventLog, "")
+		_, err = config.logFile.WriteString(allEvents + "\n")
+		if err != nil {
+			fmt.Printf("Failed to write to log file: %v\n", err)
+		}
+	}
+
 	// Print the error
 	fmt.Printf("%s: %v\n", errorDescription, errorMessage)
 
@@ -50,6 +66,11 @@ func logError(errorDescription string, errorMessage error, cleanupNeeded bool) {
 
 // Create log entry in journald
 func CreateJournaldLog(errorMessage string, requestedPriority string) (err error) {
+	// Return early when journal is not available
+	if !journal.Enabled() {
+		return
+	}
+
 	// Priority by request input
 	msgPriority := journal.PriAlert
 	if requestedPriority == "err" {
@@ -114,6 +135,11 @@ func recordDeploymentFailure(endpointName string, allFileArray []string, fileInd
 	if err != nil {
 		printMessage(verbosityStandard, "Failed to create journald entry: %v\n", err)
 	}
+
+	// Append error to global log
+	config.eventLogMutex.Lock()
+	config.eventLog = append(config.eventLog, string(failedInfo))
+	config.eventLogMutex.Unlock()
 
 	// Write (append) fail info for this go routine to global failures - dont conflict with other host go routines
 	failTracker.mutex.Lock()

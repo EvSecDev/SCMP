@@ -349,19 +349,15 @@ func retrieveHostSecrets(endpointName string) (err error) {
 // Retrieves all file content for this deployment
 // Return vales provide the content keyed on local file path for the file data, metadata, hashes, and actions
 func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFileInfo map[string]FileInfo, allFileData map[string][]byte, err error) {
-	// Show progress to user
 	printMessage(verbosityStandard, "Loading files for deployment... \n")
 
-	// Initialize map of all local file paths and their associated info (metadata, hashes, and actions)
-	allFileInfo = make(map[string]FileInfo)
-
-	// Initialize map of all local file content mapped by their hash
-	allFileData = make(map[string][]byte)
+	// Initialize maps
+	allFileInfo = make(map[string]FileInfo) // File metadata
+	allFileData = make(map[string][]byte)   // File data
 
 	// Load file contents, metadata, hashes, and actions into their own maps
 	for repoFilePath, commitFileAction := range allDeploymentFiles {
 		printMessage(verbosityData, "  Loading repository file %s\n", repoFilePath)
-
 		printMessage(verbosityData, "    Marked as '%s'\n", commitFileAction)
 
 		// Skip loading if file will be deleted
@@ -493,70 +489,13 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 			contentHash = SHA256Sum(fileContent)
 		}
 
-		// Put all information gathered into struct
-		var info FileInfo
-		info.ownerGroup = jsonMetadata.TargetFileOwnerGroup
-		info.permissions = jsonMetadata.TargetFilePermissions
-		if len(fileContent) > 0 {
-			// Save file size if content is present
-			info.fileSize = len(fileContent)
-		}
-		info.reload = jsonMetadata.ReloadCommands
-		if len(info.reload) > 0 {
-			// Reload commands are present, set bool to true
-			info.reloadRequired = true
-		} else {
-			// Reload commands are not present, set to false
-			info.reloadRequired = false
-		}
-		info.checks = jsonMetadata.CheckCommands
-		if len(info.checks) > 0 {
-			// Check commands are present, set bool to true
-			info.checksRequired = true
-		} else {
-			// Check commands are not present, set to false
-			info.checksRequired = false
-		}
-		info.install = jsonMetadata.InstallCommands
-		if len(info.install) > 0 {
-			// Install commands are present, set bool to true
-			info.installOptional = true
-		} else {
-			// Install commands are not present, set to false
-			info.installOptional = false
-		}
-		if len(contentHash) > 0 {
-			// Save hash of the files contents if present
-			info.hash = contentHash
-		}
-		info.action = commitFileAction
+		// Put all metadata gathered into map
+		allFileInfo[repoFilePath] = jsonToFileInfo(repoFilePath, jsonMetadata, len(fileContent), commitFileAction, contentHash)
 
-		// Save info struct into map for this file
-		allFileInfo[repoFilePath] = info
-
-		// Save data into map
+		// Put file content into map
 		_, fileContentAlreadyStored := allFileData[contentHash]
 		if !fileContentAlreadyStored {
 			allFileData[contentHash] = fileContent
-		}
-
-		// Print verbose file metadata information
-		printMessage(verbosityFullData, "      Owner and Group:  %s\n", info.ownerGroup)
-		printMessage(verbosityFullData, "      Permissions:      %d\n", info.permissions)
-		if len(info.hash) > 0 {
-			printMessage(verbosityFullData, "      Content Hash:     %s\n", info.hash)
-		}
-		printMessage(verbosityFullData, "      Install Required? %t\n", info.installOptional)
-		if info.installOptional {
-			printMessage(verbosityFullData, "      Install Commands  %s\n", info.install)
-		}
-		printMessage(verbosityFullData, "      Checks Required?  %t\n", info.checksRequired)
-		if info.checksRequired {
-			printMessage(verbosityFullData, "      Check Commands    %s\n", info.checks)
-		}
-		printMessage(verbosityFullData, "      Reload Required?  %t\n", info.reloadRequired)
-		if info.reloadRequired {
-			printMessage(verbosityFullData, "      Reload Commands   %s\n", info.reload)
 		}
 	}
 

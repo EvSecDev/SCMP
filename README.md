@@ -152,6 +152,8 @@ Secure Configuration Management Program (SCMP)
                                                    For example, will deploy to a host marked as offline
         --regex                                    Enables regular expression parsing for specific arguments
                                                    Supported arguments: '-r', '-R', '-l'
+        --log-file                                 Write out events to log file
+                                                   Output verbosity follows program-wide '--verbose'
     -t, --test-config                              Test controller configuration syntax
                                                    and configuration option validity
     -v, --verbose <0...5>                          Increase details and frequency of progress messages
@@ -350,6 +352,28 @@ Due to this system, binary files do take up extra processing power and memory sp
 
 Only `file://` (local) URIs are supported for the `ExternalContentLocation` field currently.
 
+### Command Macros (Internal Variables)
+
+Certain macros are supported in the install/check/reload command strings.
+These macros are replaced with known values during predeployment file processing.
+
+Notes:
+
+- Macro names are case-sensitive.
+- Macros inside of double quotes will throw a JSON formatting error
+
+Example of expansion given input of `Server01/etc/nginx/nginx.conf` (other values are retrieved from `.ssh/config`):
+
+```text
+{@FILEPATH}      -> /etc/nginx/nginx.conf
+{@FILEDIR}       -> /etc/nginx
+{@FILENAME}      -> nginx.conf
+{@HOSTNAME}      -> Server01
+{@HOSTLOGINUSER} -> user1
+{@HOSTIP}        -> 192.168.0.1
+{@HOSTPORT}      -> 22
+```
+
 ### Install commands
 
 Commands in this metadata JSON array are run only by using the controller argument `--install`.
@@ -401,7 +425,7 @@ _controller() {
     local cur prev opts
 
     # Define all available options
-    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --disable-reloads --force --test-config --verbose --help --version --versionid"
+    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --verbose --help --version --versionid"
 
     # Get the current word the user is typing
     cur="${COMP_WORDS[COMP_CWORD]}"

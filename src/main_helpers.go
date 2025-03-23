@@ -31,6 +31,11 @@ func printMessage(requiredVerbosityLevel int, message string, vars ...interface{
 	// Required stdout message verbosity level is equal to or less than global verbosity level
 	if requiredVerbosityLevel <= globalVerbosityLevel {
 		fmt.Printf(message, vars...)
+
+		// Append message to global log
+		config.eventLogMutex.Lock()
+		config.eventLog = append(config.eventLog, fmt.Sprintf(message, vars...))
+		config.eventLogMutex.Unlock()
 	}
 }
 
@@ -63,6 +68,14 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 	printMessage(verbosityProgress, "Retrieving known_hosts file contents\n")
 
 	// Set globals - see global section at top for descriptions
+
+	// Open log file
+	if config.logFilePath != "" {
+		config.logFile, err = os.OpenFile(config.logFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			return
+		}
+	}
 
 	// Set path to failtracker file (in config directory)
 	configDirectory := filepath.Dir(config.filePath)

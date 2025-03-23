@@ -45,7 +45,7 @@ const ( // Descriptive Names for stats fs types
 	fifo      string = "fifo"
 )
 const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v4.3.0"
+const progVersion string = "v4.3.1"
 
 // ###################################
 //  GLOBAL VARIABLES
@@ -57,6 +57,10 @@ var config Config
 // Struct for global config
 type Config struct {
 	filePath              string                  // Path to main config - ~/.ssh/config
+	logFilePath           string                  // Path to user requested log file
+	logFile               *os.File                // File to write logs to
+	eventLog              []string                // Global log storage
+	eventLogMutex         sync.Mutex              // Allow concurrent access to log storage
 	failTrackerFilePath   string                  // Path to failtracker file (within same directory as main config)
 	osPathSeparator       string                  // Path separator for compiled OS filesystem
 	hostInfo              map[string]EndpointInfo // Hold some basic information about all the hosts
@@ -293,6 +297,8 @@ Secure Configuration Management Program (SCMP)
                                                    For example, will deploy to a host marked as offline
         --regex                                    Enables regular expression parsing for specific arguments
                                                    Supported arguments: '-r', '-R', '-l'
+        --log-file                                 Write out events to log file
+                                                   Output verbosity follows program-wide '--verbose'
     -t, --test-config                              Test controller configuration syntax
                                                    and configuration option validity
     -v, --verbose <0...5>                          Increase details and frequency of progress messages
@@ -343,6 +349,7 @@ Secure Configuration Management Program (SCMP)
 	flag.BoolVar(&config.disableSudo, "disable-privilege-escalation", false, "")
 	flag.BoolVar(&config.ignoreDeploymentState, "ignore-deployment-state", false, "")
 	flag.BoolVar(&config.regexEnabled, "regex", false, "")
+	flag.StringVar(&config.logFilePath, "log-file", "", "")
 	flag.BoolVar(&versionInfoRequested, "V", false, "")
 	flag.BoolVar(&versionInfoRequested, "version", false, "")
 	flag.BoolVar(&versionRequested, "versionid", false, "")
@@ -446,5 +453,16 @@ Secure Configuration Management Program (SCMP)
 	} else if gitCommitRequested == "" {
 		// Exclude git commit so this doesn't print when committing with other args or no args)
 		printMessage(verbosityStandard, "No arguments specified or incorrect argument combination. Use '-h' or '--help' to guide your way.\n")
+	}
+
+	// Write global logs to disk
+	if config.logFile != nil {
+		defer config.logFile.Close()
+
+		allEvents := strings.Join(config.eventLog, "")
+		_, err = config.logFile.WriteString(allEvents + "\n")
+		if err != nil {
+			fmt.Printf("Failed to write to log file: %v\n", err)
+		}
 	}
 }

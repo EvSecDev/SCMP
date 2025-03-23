@@ -584,7 +584,6 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 	return
 }
 
-
 // Format elapsed millisecond time to its max unit size plus one smaller unit
 func formatElapsedTime(elapsed int64) (elapsedWithUnits string) {
 	// Handle days
@@ -638,4 +637,109 @@ func formatBytes(bytes int) (bytesWithUnits string) {
 	// Return the formatted string
 	bytesWithUnits = fmt.Sprintf("%.2f %s", value, units[unitIndex])
 	return
+}
+
+// Parse JSON metadata into File Info Struct
+func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFileAction string, contentHash string) (info FileInfo) {
+	info.ownerGroup = json.TargetFileOwnerGroup
+	info.permissions = json.TargetFilePermissions
+	if fileSize > 0 {
+		// Save file size if content is present
+		info.fileSize = fileSize
+	}
+	info.reload = json.ReloadCommands
+	if len(info.reload) > 0 {
+		// Reload commands are present, set bool to true
+		info.reloadRequired = true
+		macroToValue(repoFilePath, &info.reload)
+	} else {
+		// Reload commands are not present, set to false
+		info.reloadRequired = false
+	}
+	info.checks = json.CheckCommands
+	if len(info.checks) > 0 {
+		// Check commands are present, set bool to true
+		info.checksRequired = true
+		macroToValue(repoFilePath, &info.checks)
+	} else {
+		// Check commands are not present, set to false
+		info.checksRequired = false
+	}
+	info.install = json.InstallCommands
+	if len(info.install) > 0 {
+		// Install commands are present, set bool to true
+		info.installOptional = true
+		macroToValue(repoFilePath, &info.install)
+	} else {
+		// Install commands are not present, set to false
+		info.installOptional = false
+	}
+	if len(contentHash) > 0 {
+		// Save hash of the files contents if present
+		info.hash = contentHash
+	}
+	info.action = commitFileAction
+
+	// Print verbose file metadata information
+	printMessage(verbosityFullData, "      Owner and Group:  %s\n", info.ownerGroup)
+	printMessage(verbosityFullData, "      Permissions:      %d\n", info.permissions)
+	if len(info.hash) > 0 {
+		printMessage(verbosityFullData, "      Content Hash:     %s\n", info.hash)
+	}
+	printMessage(verbosityFullData, "      Install Required? %t\n", info.installOptional)
+	if info.installOptional {
+		printMessage(verbosityFullData, "      Install Commands  %s\n", info.install)
+	}
+	printMessage(verbosityFullData, "      Checks Required?  %t\n", info.checksRequired)
+	if info.checksRequired {
+		printMessage(verbosityFullData, "      Check Commands    %s\n", info.checks)
+	}
+	printMessage(verbosityFullData, "      Reload Required?  %t\n", info.reloadRequired)
+	if info.reloadRequired {
+		printMessage(verbosityFullData, "      Reload Commands   %s\n", info.reload)
+	}
+	return
+}
+
+// Convert any macros to their actual values
+// Alters input value to replace all ocurrences of supported macros
+func macroToValue(filePath string, inputs *[]string) {
+	const fileNameMacro string = "{@FILENAME}"
+	const filePathMacro string = "{@FILEPATH}"
+	const fileDirMacro string = "{@FILEDIR}"
+	const hostNameMacro string = "{@HOSTNAME}"
+	const hostLoginUserMacro string = "{@HOSTLOGINUSER}"
+	const hostIPMacro string = "{@HOSTIP}"
+	const hostPortMacro string = "{@HOSTPORT}"
+
+	// Get hostname for config lookups for macro values
+	hostName, targetFilePath := translateLocalPathtoRemotePath(filePath)
+	baseFileName := filepath.Base(targetFilePath)
+	fileDirPath := filepath.Dir(targetFilePath)
+
+	// Get enpoint IP and port for macros
+	var endpointIP, endpointPort string
+	endpointSocket := strings.Split(config.hostInfo[hostName].endpoint, ":")
+	if len(endpointSocket) == 2 {
+		endpointIP = endpointSocket[0]
+		endpointPort = endpointSocket[1]
+	} else {
+		endpointIP = "unk"
+		endpointPort = "unk"
+	}
+
+	// Replace values in inputs
+	for index, input := range *inputs {
+		// Replace all occurences of all macros
+		input = strings.ReplaceAll(input, fileNameMacro, baseFileName)
+		input = strings.ReplaceAll(input, filePathMacro, targetFilePath)
+		input = strings.ReplaceAll(input, fileDirMacro, fileDirPath)
+		input = strings.ReplaceAll(input, hostNameMacro, hostName)
+		input = strings.ReplaceAll(input, hostLoginUserMacro, config.hostInfo[hostName].endpointUser)
+		input = strings.ReplaceAll(input, hostIPMacro, endpointIP)
+		input = strings.ReplaceAll(input, hostPortMacro, endpointPort)
+
+		// Save back to original
+		(*inputs)[index] = input
+	}
 }
