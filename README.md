@@ -142,6 +142,8 @@ Secure Configuration Management Program (SCMP)
                                                    Only applies to '--deploy-changes' or '--modify-vault-password'
         --install                                  Runs installation commands in config files metadata JSON header
                                                    Commands are run before file deployments (before checks)
+        --force                                    Ignores checks and runs atomically
+                                                   Forces writes and reloads of deployment files
         --disable-reloads                          Disables execution of reload commands for this deployment
                                                    Useful to write configs that normally need reloads without running them
         --disable-privilege-escalation             Disables use of sudo when executing commands remotely

@@ -37,6 +37,84 @@ func (metric *PostDeploymentMetrics) updateCount(deployedFiles int, deployedByte
 	}
 }
 
+// Assigns unique groups for file reload commands
+// Returns a map keyed on repo file path and its reload group ID
+// Returns a total count of files per reload group ID
+func groupFilesByReloads(allFileInfo map[string]FileInfo, repoFilePaths []string) (reloadIDtoRepoFile map[string][]string, repoFileToReloadID map[string]string, reloadIDfileCount map[string]int) {
+	// Initialize maps
+	reloadIDtoRepoFile = make(map[string][]string)
+	repoFileToReloadID = make(map[string]string)
+	reloadIDfileCount = make(map[string]int)
+
+	// Loop deployment files
+	for _, repoFilePath := range repoFilePaths {
+		if allFileInfo[repoFilePath].reloadRequired {
+			// Create an ID based on the command array to uniquely identify the group that files will belong to
+			reloadCommands := fmt.Sprintf("%v", allFileInfo[repoFilePath].reload)
+			reloadCmdID := base64.StdEncoding.EncodeToString([]byte(reloadCommands))
+
+			// Add file to reload ID map
+			reloadIDtoRepoFile[reloadCmdID] = append(reloadIDtoRepoFile[reloadCmdID], repoFilePath)
+
+			// Add reload ID to file map
+			repoFileToReloadID[repoFilePath] = reloadCmdID
+
+			// Increment count of files in reload group
+			reloadIDfileCount[reloadCmdID]++
+		}
+	}
+	return
+}
+
+// Compares compiled metadata from local and remote file and compares them and reports what is different
+// Only compares hashes, owner+group, and permission bits
+func checkForDiff(remoteMetadata RemoteFileInfo, localMetadata FileInfo) (contentDiffers bool, metadataDiffers bool) {
+	// If user requested force, return early, as deployment will be atomic
+	if config.forceEnabled {
+		contentDiffers = true
+		metadataDiffers = true
+		return
+	}
+
+	// Check if remote content differs from local
+	if remoteMetadata.hash != localMetadata.hash {
+		contentDiffers = true
+	} else if remoteMetadata.hash == localMetadata.hash {
+		contentDiffers = false
+	}
+
+	// Check if remote permissions differs from expected
+	var permissionsDiffer bool
+	if remoteMetadata.permissions != localMetadata.permissions {
+		permissionsDiffer = true
+	} else if remoteMetadata.permissions == localMetadata.permissions {
+		permissionsDiffer = false
+	}
+
+	// Prevent comparing the literal character ':' against local metadata
+	var remoteOwnerGroup string
+	if remoteMetadata.owner != "" && remoteMetadata.group != "" {
+		remoteOwnerGroup = remoteMetadata.owner + ":" + remoteMetadata.group
+	}
+
+	// Check if remote ownership match expected
+	var ownershipDiffers bool
+	if remoteOwnerGroup != localMetadata.ownerGroup {
+		ownershipDiffers = true
+	} else if remoteOwnerGroup == localMetadata.ownerGroup {
+		ownershipDiffers = false
+	}
+
+	// If either piece of metadata differs, whole metdata is different
+	if ownershipDiffers || permissionsDiffer {
+		metadataDiffers = true
+	} else if !ownershipDiffers && !permissionsDiffer {
+		metadataDiffers = false
+	}
+
+	return
+}
+
 // #################################
 //      REMOTE ACTION HANDLING
 // #################################
@@ -85,6 +163,24 @@ func runInstallationCommands(host HostMeta, allFileInfo map[string]FileInfo, rep
 		}
 	}
 
+	return
+}
+
+func runReloadCommands(host HostMeta, reloadCommands []string) (err error) {
+	printMessage(verbosityProgress, "Host %s:   Starting execution of reload commands\n", host.name)
+
+	for _, command := range reloadCommands {
+		printMessage(verbosityProgress, "Host %s:     Running reload command '%s'\n", host.name, command)
+
+		rawCmd := RemoteCommand{command}
+		_, err = rawCmd.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+		if err != nil {
+			err = fmt.Errorf("failed SSH Command on host during reload command %s: %v", command, err)
+			return
+		}
+	}
+
+	printMessage(verbosityProgress, "Host %s:   Finished execution of reload commands\n", host.name)
 	return
 }
 
@@ -379,7 +475,7 @@ func deleteFile(host HostMeta, targetFilePath string) (fileDeleted bool, err err
 }
 
 // Create symbolic link to specific target file (as present in file action string)
-func createSymLink(host HostMeta, linkName string, targetFileAction string) (linkModified bool, err error) {
+func deploySymLink(host HostMeta, linkName string, linkTarget string) (linkModified bool, err error) {
 	printMessage(verbosityData, "Host %s:   Creating symlink %s\n", host.name, linkName)
 
 	// Check if a file is already there
@@ -388,11 +484,6 @@ func createSymLink(host HostMeta, linkName string, targetFileAction string) (lin
 		err = fmt.Errorf("failed checking file existence before creating symbolic link: %v", err)
 		return
 	}
-
-	// Extract target path
-	tgtActionSplitReady := strings.ReplaceAll(targetFileAction, " to target ", "?")
-	targetActionArray := strings.SplitN(tgtActionSplitReady, "?", 2)
-	symLinkTarget := targetActionArray[1]
 
 	if oldSymLinkExists {
 		// Retrieve existing file information
@@ -409,13 +500,13 @@ func createSymLink(host HostMeta, linkName string, targetFileAction string) (lin
 		}
 
 		// Nothing to update, return
-		if oldMetadata.linkTarget == symLinkTarget {
+		if oldMetadata.linkTarget == linkTarget {
 			return
 		}
 	}
 
 	// Create symbolic link
-	command := buildLink(linkName, symLinkTarget)
+	command := buildLink(linkName, linkTarget)
 	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("failed to create symbolic link: %v", err)
@@ -443,11 +534,11 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 
 	// Next file if this one does not need updating
 	if !contentDiffers && !metadataDiffers {
-		printMessage(verbosityProgress, "Host %s: File '%s' hash matches local and metadata up-to-date... skipping this file\n", host.name, targetFilePath)
+		printMessage(verbosityProgress, "Host %s:   File '%s' hash matches local and metadata up-to-date... skipping this file\n", host.name, targetFilePath)
 		return
 	}
 
-	printMessage(verbosityData, "Host %s: File '%s': remote hash: '%s' - local hash: '%s'\n", host.name, targetFilePath, remoteMetadata.hash, localMetadata.hash)
+	printMessage(verbosityData, "Host %s:   File '%s': remote hash: '%s' - local hash: '%s'\n", host.name, targetFilePath, remoteMetadata.hash, localMetadata.hash)
 
 	// Update file metadata
 	if metadataDiffers {
@@ -461,6 +552,7 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 			}
 			return
 		}
+		printMessage(verbosityData, "Host %s:   File '%s': updated metadata\n", host.name, targetFilePath)
 
 		// For  metrics
 		fileModified = true
@@ -493,21 +585,21 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 	return
 }
 
-func deployDirectory(host HostMeta, targetFilePath string, dirInfo FileInfo) (dirModified bool, err error) {
+func deployDirectory(host HostMeta, targetFilePath string, dirInfo FileInfo) (dirModified bool, remoteMetadata RemoteFileInfo, err error) {
 	// Trim directory metadata file name from path
 	targetDirPath := filepath.Dir(targetFilePath)
 
-	printMessage(verbosityData, "Host %s:   Checking directory %s\n", host.name, targetDirPath)
+	printMessage(verbosityData, "Host %s:   Checking directory '%s'\n", host.name, targetDirPath)
 
 	// Retrieve metadata of remote file if it exists
-	remoteMetadata, err := getOldRemoteInfo(host, targetDirPath)
+	remoteMetadata, err = getOldRemoteInfo(host, targetDirPath)
 	if err != nil {
 		return
 	}
 
 	// Create directory if it does not exist
 	if !remoteMetadata.exists {
-		printMessage(verbosityData, "Host %s:   Creating directory %s\n", host.name, targetDirPath)
+		printMessage(verbosityData, "Host %s:   Directory '%s' is missing, creating...\n", host.name, targetDirPath)
 
 		command := buildMkdir(targetDirPath)
 		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
@@ -524,21 +616,23 @@ func deployDirectory(host HostMeta, targetFilePath string, dirInfo FileInfo) (di
 
 	// Check if metadata on directory is up-to-date
 	_, metadataDiffers := checkForDiff(remoteMetadata, dirInfo)
-
-	// Correct metadata of directory if different
-	if metadataDiffers {
-		printMessage(verbosityData, "Host %s:   Updating metdata for directory %s\n", host.name, targetDirPath)
-
-		err = modifyMetadata(host, remoteMetadata, dirInfo)
-		if err != nil {
-			return
-		}
-
-		printMessage(verbosityData, "Host %s:   Modified Directory %s\n", host.name, targetDirPath)
-
-		// For metrics
-		dirModified = true
+	if !metadataDiffers {
+		printMessage(verbosityProgress, "Host %s:   Directory '%s' metadata is up-to-date... skipping changes\n", host.name, targetDirPath)
+		return
 	}
+
+	// Correct metadata of directory
+	printMessage(verbosityData, "Host %s:   Updating metdata for directory %s\n", host.name, targetDirPath)
+
+	err = modifyMetadata(host, remoteMetadata, dirInfo)
+	if err != nil {
+		return
+	}
+
+	printMessage(verbosityData, "Host %s:   Modified Directory %s\n", host.name, targetDirPath)
+
+	// For metrics
+	dirModified = true
 
 	return
 }
@@ -569,6 +663,39 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 			err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
 			return
 		}
+	}
+
+	return
+}
+
+// Determines if reload should occur for files with reloads
+func checkForReload(endpointName string, totalDeployedReloadFiles map[string]int, reloadIDfileCount map[string]int, reloadID string, remoteModified bool) (clearedToReload bool) {
+	// Increment deployment success for files reload group (if it has one)
+	totalDeployedReloadFiles[reloadID]++
+
+	// Internal bool to track if we are going to run reloads are not - default to true if remote modification happened
+	var executeReloads bool
+	if remoteModified {
+		executeReloads = true
+	} else {
+		printMessage(verbosityProgress, "Host %s:   Refusing to run reloads - no remote changes made for reload group\n", endpointName)
+	}
+
+	// User requested force disable of reloads
+	if config.disableReloads {
+		printMessage(verbosityProgress, "Host %s:   Force disabling reloads by user request\n", endpointName)
+		executeReloads = false
+	}
+
+	// User requested force enable reloads
+	if config.forceEnabled {
+		printMessage(verbosityProgress, "Host %s:   Force enabling reloads by user request\n", endpointName)
+		executeReloads = true
+	}
+
+	// Run reloads when all files in reload group deployed without error
+	if executeReloads && totalDeployedReloadFiles[reloadID] == reloadIDfileCount[reloadID] {
+		clearedToReload = true
 	}
 
 	return

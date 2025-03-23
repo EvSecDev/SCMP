@@ -118,6 +118,7 @@ type FileInfo struct {
 	ownerGroup      string
 	permissions     int
 	fileSize        int
+	linkTarget      string
 	installOptional bool
 	install         []string
 	checksRequired  bool

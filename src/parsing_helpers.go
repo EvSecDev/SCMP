@@ -2,7 +2,6 @@
 package main
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io"
 	"math"
@@ -445,6 +444,17 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 	// Format repoFilePath with the expected host path separators
 	localRepoPath = strings.ReplaceAll(localRepoPath, config.osPathSeparator, "/")
 
+	// Remove repository path if its absolute local path
+	if strings.HasPrefix(localRepoPath, config.repositoryPath) {
+		localRepoPath = strings.TrimPrefix(localRepoPath, config.repositoryPath)
+		localRepoPath = strings.TrimPrefix(localRepoPath, "/")
+	}
+
+	// Bad - Disallow relative paths
+	if strings.Contains(localRepoPath, "../") {
+		return
+	}
+
 	// Bad - not a path, just a name
 	if !strings.Contains(localRepoPath, "/") {
 		return
@@ -458,6 +468,11 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 		return
 	}
 
+	// Bad - trailing slash no actual content
+	if pathSplit[1] == "" {
+		return
+	}
+
 	// Retrieve the first array item as the host directory name
 	hostDir = pathSplit[0]
 
@@ -466,40 +481,6 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 
 	// Add leading slash to path
 	targetFilePath = "/" + targetFilePath
-	return
-}
-
-// Converts symbolic linux permission to numeric representation
-// Like rwxr-x-rx -> 755
-func permissionsSymbolicToNumeric(permissions string) (perm int, err error) {
-	// Validate length
-	if len(permissions) < 6 || len(permissions) > 9 {
-		err = fmt.Errorf("invalid permissions string: lenght must be between 6 and 9 characters (length is %d)", len(permissions))
-		return
-	}
-
-	// Loop permission fields
-	var bits string
-	for _, field := range []string{permissions[:3], permissions[3:6], permissions[6:]} {
-		bit := 0
-		// Read
-		if strings.Contains(field, "r") {
-			bit += 4
-		}
-		// Write
-		if strings.Contains(field, "w") {
-			bit += 2
-		}
-		// Execute
-		if strings.Contains(field, "x") {
-			bit += 1
-		}
-		// Convert sum'd bits to string to concat with other loop iterations
-		bits = bits + strconv.Itoa(bit)
-	}
-
-	// Convert back to integer (ignore error, we control all input values)
-	perm, err = strconv.Atoi(bits)
 	return
 }
 
@@ -603,76 +584,6 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 	return
 }
 
-// Compares compiled metadata from local and remote file and compares them and reports what is different
-// Only compares hashes, owner+group, and permission bits
-func checkForDiff(remoteMetadata RemoteFileInfo, localMetadata FileInfo) (contentDiffers bool, metadataDiffers bool) {
-	// If user requested force, return early, as deployment will be atomic
-	if config.forceEnabled {
-		contentDiffers = true
-		metadataDiffers = true
-		return
-	}
-
-	// Check if remote content differs from local
-	if remoteMetadata.hash != localMetadata.hash {
-		contentDiffers = true
-	} else if remoteMetadata.hash == localMetadata.hash {
-		contentDiffers = false
-	}
-
-	// Check if remote permissions differs from expected
-	var permissionsDiffer bool
-	if remoteMetadata.permissions != localMetadata.permissions {
-		permissionsDiffer = true
-	} else if remoteMetadata.permissions == localMetadata.permissions {
-		permissionsDiffer = false
-	}
-
-	// Prevent comparing the literal character ':' against local metadata
-	var remoteOwnerGroup string
-	if remoteMetadata.owner != "" && remoteMetadata.group != "" {
-		remoteOwnerGroup = remoteMetadata.owner + ":" + remoteMetadata.group
-	}
-
-	// Check if remote ownership match expected
-	var ownershipDiffers bool
-	if remoteOwnerGroup != localMetadata.ownerGroup {
-		ownershipDiffers = true
-	} else if remoteOwnerGroup == localMetadata.ownerGroup {
-		ownershipDiffers = false
-	}
-
-	// If either piece of metadata differs, whole metdata is different
-	if ownershipDiffers || permissionsDiffer {
-		metadataDiffers = true
-	} else if !ownershipDiffers && !permissionsDiffer {
-		metadataDiffers = false
-	}
-
-	return
-}
-
-// Groups deployment files by identical reload commands
-// Returns a map that keys on a reload ID and the array of commands
-// Returns a regular list of files that do not need reloads
-func groupFilesByReloads(allFileInfo map[string]FileInfo, repoFilePaths []string) (commitFileByCommand map[string][]string, commitFilesNoReload []string) {
-	commitFileByCommand = make(map[string][]string)
-	for _, repoFilePath := range repoFilePaths {
-		// New files with reload commands
-		if allFileInfo[repoFilePath].reloadRequired {
-			// Create an ID based on the command array to uniquely identify the group that files will belong to
-			reloadCommands := fmt.Sprintf("%v", allFileInfo[repoFilePath].reload)
-			cmdArrayID := base64.StdEncoding.EncodeToString([]byte(reloadCommands))
-
-			// Add file to array based on its unique set of reload commands
-			commitFileByCommand[cmdArrayID] = append(commitFileByCommand[cmdArrayID], repoFilePath)
-		} else {
-			// All other files - no reloads - in its own array
-			commitFilesNoReload = append(commitFilesNoReload, repoFilePath)
-		}
-	}
-	return
-}
 
 // Format elapsed millisecond time to its max unit size plus one smaller unit
 func formatElapsedTime(elapsed int64) (elapsedWithUnits string) {

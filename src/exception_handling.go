@@ -72,7 +72,7 @@ func CreateJournaldLog(errorMessage string, requestedPriority string) (err error
 	return
 }
 
-// Called from within go routines
+// Called from within go routines (-1 means all files in array)
 // Creates JSON line of error host, files, and err
 // Writes into global failure tracker
 // Always returns

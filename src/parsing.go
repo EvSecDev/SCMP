@@ -267,7 +267,7 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 		hostsDeniedUniversalFiles := deniedUniversalFiles[endpointName]
 
 		// Filter committed files to their specific host and deduplicate against universal directory
-		var filteredCommitFiles []string
+		var filteredCommitFiles []string // Order of items in this array is directly linked to the order in which they are deployed per host
 		for commitFile, commitFileAction := range commitFiles {
 			printMessage(verbosityData, "    Filtering file %s\n", commitFile)
 
@@ -372,9 +372,19 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		}
 
 		// Skip loading if file is sym link
-		if strings.Contains(commitFileAction, "symlinkcreate") {
-			// But, add it to the deploy target files so it can be ln'd during ssh
-			allFileInfo[repoFilePath] = FileInfo{action: commitFileAction}
+		if strings.Contains(commitFileAction, "symlinkCreate") {
+			// Extract target path
+			targetActionArray := strings.Split(commitFileAction, " to target ")
+			if len(targetActionArray) < 2 {
+				err = fmt.Errorf("could not extract symbolic link target from value '%s'", commitFileAction)
+				return
+			}
+
+			// Ensure link targets are formatted as they would be remotely
+			_, symLinkTarget := translateLocalPathtoRemotePath(targetActionArray[1])
+
+			// Add it to the deploy target files so it can be ln'd during ssh
+			allFileInfo[repoFilePath] = FileInfo{action: "symlinkCreate", linkTarget: symLinkTarget}
 			continue
 		}
 
