@@ -80,6 +80,18 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	allFileInfo, allFileData, err := loadFiles(allDeploymentFiles, tree)
 	logError("Error loading files", err, true)
 
+	// Correct order of file deployment to account for file dependency
+	for _, host := range allDeploymentHosts {
+		// Reorder deployment list
+		newDeploymentFiles, err := handleFileDependencies(config.hostInfo[host].deploymentFiles, allFileInfo)
+		logError("Failed to resolve file dependencies", err, true)
+
+		// Save back to global
+		hostInfo := config.hostInfo[host]
+		hostInfo.deploymentFiles = newDeploymentFiles
+		config.hostInfo[host] = hostInfo
+	}
+
 	// Ensure local system is in a state that is able to deploy
 	err = localSystemChecks()
 	logError("Error in local system checks", err, true)

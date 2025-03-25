@@ -8,7 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+
+	"slices"
 
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
@@ -602,5 +605,79 @@ func getFailedFiles(failures []string, fileOverride string) (commitFiles map[str
 	// Convert to standard format for override
 	hostOverride = strings.Join(hostOverrideArray, ",")
 
+	return
+}
+
+// Correct the order of deployment based on any present dependencies
+func handleFileDependencies(rawDeploymentFiles []string, allFileInfo map[string]FileInfo) (orderedDeploymentFiles []string, err error) {
+	depCount := make(map[string]int)
+	graph := make(map[string][]string)
+	fileSet := make(map[string]bool)
+
+	// Make map of files for this host for easy lookups of file existence
+	for _, file := range rawDeploymentFiles {
+		fileSet[file] = true
+	}
+
+	// Create dependency graph
+	for file, info := range allFileInfo {
+		for _, dep := range info.dependencies {
+			// If dependency is not part of this deployment, skip adding to graph
+			if !fileSet[dep] {
+				continue
+			}
+			graph[dep] = append(graph[dep], file)
+			depCount[file]++
+		}
+	}
+
+	// Separate list of files with no dependencies
+	noDeps := []string{}
+	for _, file := range rawDeploymentFiles {
+		if depCount[file] == 0 {
+			noDeps = append(noDeps, file)
+		}
+	}
+	sort.Strings(noDeps) // Ensure no_dependency files are in lexiconographical order
+
+	queue := noDeps // Start queue from files with no dependents
+	result := []string{}
+	count := 0
+
+	for len(queue) > 0 {
+		file := queue[0]              // Get lead item in queue
+		queue = queue[1:]             // Remove lead item in queue
+		result = append(result, file) // Add lead item to result
+		count++                       // Count of processed files for circular dep detection
+
+		// Add dependents to result when immediately "attached" to parent
+		for _, neighbor := range graph[file] {
+			depCount[neighbor]-- // Decrease dependent count for processed dependent
+
+			// When file has no more parents, add to queue to get added to result
+			if depCount[neighbor] == 0 {
+				queue = append(queue, neighbor)
+			}
+		}
+	}
+
+	// Return immediately if circular dependency was encountered
+	if count != len(rawDeploymentFiles) {
+		err = fmt.Errorf("circular dependency detected, unable to continue: deployment files: '%v'", rawDeploymentFiles)
+		return
+	}
+
+	// Retrieve solo slice of dependents
+	depFiles := []string{}
+	for _, file := range result {
+		found := slices.Contains(noDeps, file)
+
+		if !found {
+			depFiles = append(depFiles, file)
+		}
+	}
+
+	// Always append dependencies after files with no dependencies
+	orderedDeploymentFiles = append(noDeps, depFiles...)
 	return
 }

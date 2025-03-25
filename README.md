@@ -326,6 +326,15 @@ This metadata file should only be used where custom permissions are absolutely r
 File transfers for this program are done using SCP and are limited to 90 seconds per file.
 Something to keep in mind, your end to end bandwidth for a deployment will determine how large of a file can be transferred in that time.
 
+### Validate File Metadata Header
+
+Here is a bash one-liner to quickly validate metadata headers before deployments if you are manually creating the JSONs
+
+```bash
+FILE="path/to/your/file"
+cat $FILE | sed -n '/#|^^^|#/,/#|^^^|#/ { /#|^^^|#/b; /#|^^^|#/b; p }' | jq .
+```
+
 ### Artifact Files (External Git Content)
 
 Binary files and other non-text files (artifacts) are not great at being tracked by git.

@@ -31,7 +31,10 @@ func printMessage(requiredVerbosityLevel int, message string, vars ...interface{
 	// Required stdout message verbosity level is equal to or less than global verbosity level
 	if requiredVerbosityLevel <= globalVerbosityLevel {
 		fmt.Printf(message, vars...)
+	}
 
+	// Only use global buffer when log file is present
+	if config.logFile != nil && requiredVerbosityLevel <= globalVerbosityLevel {
 		// Append message to global log
 		config.eventLogMutex.Lock()
 		config.eventLog = append(config.eventLog, fmt.Sprintf(message, vars...))

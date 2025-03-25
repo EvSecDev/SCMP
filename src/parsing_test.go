@@ -242,3 +242,267 @@ func compareArrays(array1, array2 []string) (arraysIdentical bool) {
 	arraysIdentical = true
 	return
 }
+
+func TestHandleFileDependencies(t *testing.T) {
+	// Define the test cases directly as literals inside the test function
+	testCases := []struct {
+		name                string
+		hostDeploymentFiles []string
+		allFileInfo         map[string]FileInfo
+		expected            []string
+		expectErr           bool
+		expectedNoOutput    bool
+	}{
+		{
+			name:                "Correct lexicography order",
+			hostDeploymentFiles: []string{"aaaa", "452dddd", "043cccc", "001bbbb", "010ffff", "002eeee"},
+			allFileInfo: map[string]FileInfo{
+				"010ffff": {
+					dependencies: []string{"043cccc", "452dddd"},
+				},
+				"aaaa": {
+					dependencies: []string{"010ffff"},
+				},
+				"452dddd": {
+					dependencies: []string{},
+				},
+				"001bbbb": {
+					dependencies: []string{},
+				},
+				"002eeee": {
+					dependencies: []string{},
+				},
+				"043cccc": {
+					dependencies: []string{},
+				},
+			},
+			expected:  []string{"001bbbb", "002eeee", "043cccc", "452dddd", "010ffff", "aaaa"},
+			expectErr: false,
+		},
+		{
+			name:                "Correct lexicography order different input order",
+			hostDeploymentFiles: []string{"043cccc", "aaaa", "010ffff", "001bbbb", "002eeee", "452dddd"},
+			allFileInfo: map[string]FileInfo{
+				"aaaa": {
+					dependencies: []string{"010ffff"},
+				},
+				"452dddd": {
+					dependencies: []string{},
+				},
+				"043cccc": {
+					dependencies: []string{},
+				},
+				"001bbbb": {
+					dependencies: []string{},
+				},
+				"002eeee": {
+					dependencies: []string{},
+				},
+				"010ffff": {
+					dependencies: []string{"043cccc", "452dddd"},
+				},
+			},
+			expected:  []string{"001bbbb", "002eeee", "043cccc", "452dddd", "010ffff", "aaaa"},
+			expectErr: false,
+		},
+		{
+			name:                "Valid dependency order",
+			hostDeploymentFiles: []string{"file1", "file2", "file3", "file4", "file5"},
+			allFileInfo: map[string]FileInfo{
+				"file1": {
+					dependencies: []string{"file2", "file3"},
+				},
+				"file2": {
+					dependencies: []string{"file3"},
+				},
+				"file5": {
+					dependencies: []string{},
+				},
+				"file4": {
+					dependencies: []string{"file1"},
+				},
+				"file3": {
+					dependencies: []string{},
+				},
+			},
+			expected:  []string{"file3", "file5", "file2", "file1", "file4"},
+			expectErr: false,
+		},
+		{
+			name:                "Valid dependency order different input order",
+			hostDeploymentFiles: []string{"file2", "file5", "file4", "file3", "file1"},
+			allFileInfo: map[string]FileInfo{
+				"file1": {
+					dependencies: []string{"file2", "file3"},
+				},
+				"file2": {
+					dependencies: []string{"file3"},
+				},
+				"file5": {
+					dependencies: []string{},
+				},
+				"file4": {
+					dependencies: []string{"file1"},
+				},
+				"file3": {
+					dependencies: []string{},
+				},
+			},
+			expected:  []string{"file3", "file5", "file2", "file1", "file4"},
+			expectErr: false,
+		},
+		{
+			name:                "Valid dependency order Real Paths",
+			hostDeploymentFiles: []string{"/etc/hosts", "/etc/apt/sources.list", "/etc/rsyslog.conf", "/etc/nginx/nginx.conf", "/etc/resolv.conf", "/etc/network/interfaces", "/etc/apt/apt.conf.d/00aptproxy"},
+			allFileInfo: map[string]FileInfo{
+				"/etc/nginx/nginx.conf": {
+					dependencies: []string{"/etc/apt/sources.list"},
+				},
+				"/etc/apt/sources.list": {
+					dependencies: []string{"/etc/apt/apt.conf.d/00aptproxy", "/etc/network/interfaces", "/etc/resolv.conf"},
+				},
+				"/etc/network/interfaces": {
+					dependencies: []string{},
+				},
+				"/etc/hosts": {
+					dependencies: []string{},
+				},
+				"/etc/rsyslog.conf": {
+					dependencies: []string{"/etc/apt/sources.list"},
+				},
+				"/etc/resolv.conf": {
+					dependencies: []string{"/etc/network/interfaces"},
+				},
+				"/etc/apt/apt.conf.d/00aptproxy": {
+					dependencies: []string{"/etc/network/interfaces"},
+				},
+			},
+			expected:  []string{"/etc/hosts", "/etc/network/interfaces", "/etc/apt/apt.conf.d/00aptproxy", "/etc/resolv.conf", "/etc/apt/sources.list", "/etc/nginx/nginx.conf", "/etc/rsyslog.conf"},
+			expectErr: false,
+		},
+		{
+			name:                "Non-Present Dependencies",
+			hostDeploymentFiles: []string{"/etc/rsyslog.conf", "/etc/nginx/nginx.conf", "/etc/apt/sources.list"},
+			allFileInfo: map[string]FileInfo{
+				"/etc/nginx/nginx.conf": {
+					dependencies: []string{"/etc/apt/sources.list"},
+				},
+				"/etc/apt/sources.list": {
+					dependencies: []string{"/etc/apt/apt.conf.d/00aptproxy", "/etc/network/interfaces", "/etc/resolv.conf"},
+				},
+				"/etc/rsyslog.conf": {
+					dependencies: []string{"/etc/apt/sources.list"},
+				},
+			},
+			expected:  []string{"/etc/apt/sources.list", "/etc/nginx/nginx.conf", "/etc/rsyslog.conf"},
+			expectErr: false,
+		},
+		{
+			name:                "Circular dependency",
+			hostDeploymentFiles: []string{"file1", "file2", "file3", "file4"},
+			allFileInfo: map[string]FileInfo{
+				"file1": {
+					dependencies: []string{"file2"},
+				},
+				"file2": {
+					dependencies: []string{"file4", "file3"},
+				},
+				"file3": {
+					dependencies: []string{"file1"},
+				},
+				"file4": {
+					dependencies: []string{},
+				},
+			},
+			expected:         nil,
+			expectErr:        true,
+			expectedNoOutput: true,
+		},
+		{
+			name:                "Circular dependency larger loop",
+			hostDeploymentFiles: []string{"file4", "file2", "file1", "file3", "file5", "file6"},
+			allFileInfo: map[string]FileInfo{
+				"file1": {
+					dependencies: []string{"file2"},
+				},
+				"file2": {
+					dependencies: []string{"file3"},
+				},
+				"file3": {
+					dependencies: []string{"file4"},
+				},
+				"file4": {
+					dependencies: []string{"file5"},
+				},
+				"file5": {
+					dependencies: []string{"file6"},
+				},
+				"file6": {
+					dependencies: []string{"file1"},
+				},
+			},
+			expected:         nil,
+			expectErr:        true,
+			expectedNoOutput: true,
+		},
+		{
+			name:                "No dependencies",
+			hostDeploymentFiles: []string{"file3", "file2", "file1"},
+			allFileInfo: map[string]FileInfo{
+				"file1": {
+					dependencies: []string{},
+				},
+				"file2": {
+					dependencies: []string{},
+				},
+				"file3": {
+					dependencies: []string{},
+				},
+			},
+			expected:  []string{"file1", "file2", "file3"},
+			expectErr: false,
+		},
+		{
+			name:                "Single file with dependencies",
+			hostDeploymentFiles: []string{"file1", "file2"},
+			allFileInfo: map[string]FileInfo{
+				"file1": {
+					dependencies: []string{"file2"},
+				},
+				"file2": {
+					dependencies: []string{},
+				},
+			},
+			expected:  []string{"file2", "file1"},
+			expectErr: false,
+		},
+		{
+			name:                "No input",
+			hostDeploymentFiles: []string{},
+			allFileInfo:         map[string]FileInfo{},
+			expected:            []string{},
+			expectErr:           false,
+			expectedNoOutput:    false,
+		},
+	}
+
+	// Loop over all test cases
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			result, err := handleFileDependencies(test.hostDeploymentFiles, test.allFileInfo)
+
+			// Check: error, output array, and output validity
+			if test.expectedNoOutput && result != nil {
+				t.Fatalf("expected no output, got '%v'", result)
+			} else if !test.expectedNoOutput && result == nil {
+				t.Fatalf("expected output, got nil")
+			} else if test.expectErr && err == nil {
+				t.Fatalf("expected error, got nil")
+			} else if !test.expectErr && err != nil {
+				t.Fatalf("expected no error, got '%v'", err)
+			} else if !compareArrays(result, test.expected) {
+				t.Errorf("expected '%v', got '%v'", test.expected, result)
+			}
+		})
+	}
+}
