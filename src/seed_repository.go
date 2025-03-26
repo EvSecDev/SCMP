@@ -148,6 +148,10 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 
 // Downloads user selected files/directories and metadata and writes information to repository
 func retrieveSelectedFile(remoteFilePath string, endpointName string, client *ssh.Client, SudoPassword string, tmpRemoteFilePath string) (err error) {
+	// Ensure decorators from ls do not get fed into repo
+	remoteFilePath = strings.TrimSuffix(remoteFilePath, "*")
+	remoteFilePath = strings.TrimSuffix(remoteFilePath, "@")
+
 	// Use target file path and hosts name for repo file location
 	localFilePath := filepath.Join(endpointName, strings.ReplaceAll(remoteFilePath, "/", config.osPathSeparator))
 
