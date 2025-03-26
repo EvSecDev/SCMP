@@ -106,7 +106,7 @@ func modifyVault(endpointName string) (err error) {
 	}
 
 	// Error if entered passwords are not identical
-	if bytes.Equal(hostPassword, hostPasswordConfirm) {
+	if !bytes.Equal(hostPassword, hostPasswordConfirm) {
 		err = fmt.Errorf("passwords do not match")
 		return
 	}
