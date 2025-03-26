@@ -419,7 +419,7 @@ func buildLs(remotePath string) (remoteCommand RemoteCommand) {
 }
 
 func buildLsList(remotePath string) (remoteCommand RemoteCommand) {
-	const lsNamesCmd string = "ls -1F "
+	const lsNamesCmd string = "ls -1AF "
 	remoteCommand.string = lsNamesCmd + "'" + remotePath + "'"
 	return
 }
