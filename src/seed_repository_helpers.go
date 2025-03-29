@@ -557,6 +557,12 @@ func isText(inputBytes *[]byte) (isPlainText bool) {
 		totalCharacters = 500
 	}
 
+	// Empty files can be treated as plain text (Avoid divide by 0)
+	if totalCharacters == 0 {
+		isPlainText = true
+		return
+	}
+
 	// Count the number of characters outside the ASCII printable range (32-126) - skipping DEL
 	for i := range totalCharacters {
 		b := (*inputBytes)[i]
