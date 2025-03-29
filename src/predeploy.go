@@ -102,19 +102,22 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	// Post deployment metrics
 	postDeployMetrics := &PostDeploymentMetrics{}
 
-	// Get current timestamp for deployment elapsed time metric
-	deploymentStartTime := time.Now().UnixMilli()
-
 	// Semaphore to limit concurrency of host deployment go routines as specified in main config
 	semaphore := make(chan struct{}, config.maxSSHConcurrency)
 
-	// Start SSH Deployments by host
-	var wg sync.WaitGroup
+	// Retrieve keys and passwords for any hosts that require it
 	for _, endpointName := range allDeploymentHosts {
 		// Retrieve host secrests (keys,passwords)
 		err = retrieveHostSecrets(endpointName)
 		logError("Error retrieving host secrets", err, true)
+	}
 
+	// Get current timestamp for deployment elapsed time metric
+	deploymentStartTime := time.Now().UnixMilli()
+
+	// Start SSH Deployments by host
+	var wg sync.WaitGroup
+	for _, endpointName := range allDeploymentHosts {
 		// If requesting multithreaded deployment, start go routine, otherwise run without concurrency
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
