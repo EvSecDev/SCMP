@@ -10,12 +10,8 @@ import (
 
 // Parses and prepares deployment information
 func preDeployment(deployMode string, commitID string, hostOverride string, fileOverride string) {
-	// Show progress to user
-	printMessage(verbosityStandard, "%s\n", progCLIHeader)
-	var err error
-
 	// Check working dir for git repo
-	err = retrieveGitRepoPath()
+	err := retrieveGitRepoPath()
 	logError("Repository Error", err, false)
 
 	// Override commitID with one from failtracker if redeploy requested
@@ -54,7 +50,6 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	// Usually when committing files outside of host directories
 	if len(commitFiles) == 0 {
 		printMessage(verbosityStandard, "No files available for deployment.\n")
-		printMessage(verbosityStandard, "================================================\n")
 		return
 	}
 
@@ -72,7 +67,6 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	// Can happen if user specifies change deploy mode with a host that didn't have any changes in the specified commit
 	if len(allDeploymentFiles) == 0 || len(allDeploymentHosts) == 0 {
 		printMessage(verbosityStandard, "No deployment files for available hosts.\n")
-		printMessage(verbosityStandard, "================================================\n")
 		return
 	}
 
@@ -145,7 +139,6 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	// If user requested dry run - print collected information
 	if dryRunRequested {
 		printDeploymentInformation(allFileInfo, allDeploymentHosts)
-		printMessage(verbosityStandard, "================================================\n")
 		return
 	}
 
@@ -154,9 +147,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 	// Save deployment errors to fail tracker
 	if failTracker.buffer.Len() > 0 {
-		printMessage(verbosityStandard, "PARTIAL COMPLETE: %d item(s) deployed to %d host(s) in %s - (%s transferred)\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
-		printMessage(verbosityStandard, "Failure(s) in deployment (commit: %s):\n\n", commitID)
-
+		printMessage(verbosityStandard, "Deployment Completed with Failures: Metrics: {\"Hosts\":%d,\"Items\":%d,\"ElapsedTime\":\"%s\",\"TransferredBytes\":\"%s\"}\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
 		err := recordDeploymentError(commitID)
 		logError("Error in failure recording", err, false)
 		return
@@ -174,6 +165,5 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	}
 
 	// Show progress to user
-	printMessage(verbosityStandard, "\nCOMPLETE: %d item(s) deployed to %d host(s) in %s - (%s transferred)\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
-	printMessage(verbosityStandard, "================================================\n")
+	printMessage(verbosityStandard, "Deployment Completed Successfully. Metrics: {\"Hosts\":%d,\"Items\":%d,\"ElapsedTime\":\"%s\",\"TransferredBytes\":\"%s\"}\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
 }

@@ -44,8 +44,6 @@ const ( // Descriptive Names for stats fs types
 	port      string = "port"
 	fifo      string = "fifo"
 )
-const progCLIHeader string = "==== Secure Configuration Management Program ===="
-const progVersion string = "v4.4.0"
 
 // ###################################
 //  GLOBAL VARIABLES
@@ -370,6 +368,7 @@ Secure Configuration Management Program (SCMP)
 	flag.Parse()
 
 	// Meta info print out
+	const progVersion string = "v4.4.0"
 	if versionInfoRequested {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)

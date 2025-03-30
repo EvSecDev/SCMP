@@ -22,8 +22,6 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 	}()
 
-	printMessage(verbosityStandard, "==== Secure Configuration Management Repository Seeding ====\n")
-
 	// Check local system
 	err := localSystemChecks()
 	logError("Error in system checks", err, false)
@@ -88,8 +86,6 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 			logError("Error seeding repository", err, false)
 		}
 	}
-
-	printMessage(verbosityStandard, "============================================================\n")
 }
 
 // Runs the CLI-based menu that user will use to select which files to download
