@@ -44,6 +44,8 @@ func printMessage(requiredVerbosityLevel int, message string, vars ...interface{
 
 // Parse out options from config file into global
 func (config *Config) extractOptions(configFilePath string) (err error) {
+	const failTrackerFile string = ".scmp-failtracker.json" // file name for recording deployment failure details
+
 	// Config agnostic configuration options
 	config.osPathSeparator = string(os.PathSeparator)
 	config.userHomeDirectory, err = os.UserHomeDir()

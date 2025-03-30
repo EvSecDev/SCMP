@@ -24,7 +24,6 @@ const directoryMetadataFileName string = ".directory_metadata_information.json" 
 const fileURIPrefix string = "file://"                                          // Used by the user to tell certain arguments to load file content
 const maxDirectoryLoopCount int = 200                                           // Maximum recursion for any loop over directories
 const artifactPointerFileExtension string = ".remote-artifact"                  // file extension to identify 'pointer' files for artifact files
-const failTrackerFile string = ".scmp-failtracker.json"                         // file name for recording deployment failure details
 const (                                                                         // Descriptive Names for available verbosity levels
 	verbosityNone int = iota
 	verbosityStandard

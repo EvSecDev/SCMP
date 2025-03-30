@@ -69,6 +69,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - SSH
   - Password-based login
   - Key-based authentication (by file or ssh-agent, per host or all hosts)
+  - SSH Proxy connections (Bastions, Jump hosts, ect.)
   - Concurrent connections (and option to limit/disable concurrency)
   - Password-based Sudo command escalation (and non-sudo actions via explicit argument)
   - Encrypted credential caching for login/sudo passwords
@@ -86,7 +87,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - SSH
   - 2FA (TOTP) logins
   - Use Control Sockets
-  - Use any form of client forwarding (tunnels, x11, agents)
+  - Use some forms of client forwarding (tunnels, x11, agents)
 
 ### Dependencies
 
