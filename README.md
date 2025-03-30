@@ -189,7 +189,7 @@ Secure Configuration Management Program (SCMP)
 1. Create a user that can log into SSH and use Sudo
    - `useradd --create-home --user-group deployer`
    - `passwd deployer`
-2. Add the SSH public key **from the controller installation script** to the users home directory `authorized_keys` file
+2. Add your SSH public key to the users home directory `authorized_keys` file
    - `mkdir -p /home/deployer/.ssh && echo "ssh-ed25519 AAAADEADBEEFDEABEEFDEADBEEF scmp/controller" >> /home/deployer/.ssh/authorized_keys`
 3. Modify `/etc/sudoers` with the below line to allow your new user to run Sudo commands with a password
    - `deployer ALL=(root:root) ALL`
@@ -220,8 +220,8 @@ The interface you will be using for this feature is extremely barebones. It look
 5 home/      11 media/         17 sbin   23 vmlinuz
 6 initrd.img 12 mnt/           18 srv/   24 vmlinuz.old 
 ============================================================
-         Select File    Change Dir ^v  Exit
-        [ # # ## ### ]  [ c0 ] [ c# ]  [ ! ]
+         Select File    Change Dir ^v  Recursive  Exit
+        [ # # ## ### ]  [ c0 ] [ c# ]    [ #r ]   [ ! ]
 hostname:/# Type your selections: _
 ```
 
@@ -236,6 +236,10 @@ If you wanted to select files `vmlinuz`, `initrd.img.old`, `initrd.img`, and the
 If you were in `/etc/` and wanted to move up one directory, you'd type this and press enter:
 
 `hostname:/# Type your selections: c0`
+
+If you were in `/` and wanted to recursively download all files in directory `/opt`, you'd type this and press enter:
+
+`hostname:/# Type your selections: 13r`
 
 The shortcuts will be listed below every directory so you won't need to remember them.
 You can type as many or as little options as you wish in any order, they will all be added.
