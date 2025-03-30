@@ -249,6 +249,13 @@ func SHA256SumStream(filePath string) (hash string, err error) {
 
 	// Return the final hash in hexadecimal format
 	hash = fmt.Sprintf("%x", hashObject.Sum(nil))
+
+	// Guard against empty returns
+	if hash == "" {
+		err = fmt.Errorf("unknown error: empty hash")
+		return
+	}
+
 	return
 }
 

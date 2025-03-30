@@ -10,14 +10,16 @@ import (
 )
 
 type GitArtifactTracker struct {
-	pointerToArtifact   map[string]string
-	pointerMapMutex     sync.Mutex
-	pointerMetadata     map[string]string
-	pointerMetaMapMutex sync.Mutex
-	artifactHash        map[string]string
-	artifactHashMutex   sync.Mutex
-	allErrors           []error
-	errMutex            sync.Mutex
+	pointerToArtifact       map[string]string
+	pointerMapMutex         sync.Mutex
+	pointerMetadata         map[string]string
+	pointerMetaMapMutex     sync.Mutex
+	pointerCurrentHash      map[string]string
+	pointerCurrentHashMutex sync.Mutex
+	artifactHash            map[string]string
+	artifactHashMutex       sync.Mutex
+	allErrors               []error
+	errMutex                sync.Mutex
 }
 
 func gitArtifactTracking() {
@@ -27,9 +29,10 @@ func gitArtifactTracking() {
 
 	// Store artifact information and mapping between pointer and artifact file
 	tracker := &GitArtifactTracker{
-		pointerToArtifact: make(map[string]string),
-		pointerMetadata:   make(map[string]string),
-		artifactHash:      make(map[string]string),
+		pointerToArtifact:  make(map[string]string),
+		pointerMetadata:    make(map[string]string),
+		pointerCurrentHash: make(map[string]string),
+		artifactHash:       make(map[string]string),
 	}
 
 	// Concurrency
@@ -46,9 +49,9 @@ func gitArtifactTracking() {
 	checkForArtifactErrors(&tracker.allErrors)
 
 	// Modify hash map so it only contains hashes of changed artifact files
-	for artifactFileName, oldArtifactFileHash := range tracker.artifactHash {
+	for artifactFileName := range tracker.artifactHash {
 		wg.Add(1)
-		go hashArtifactFile(&wg, semaphore, artifactFileName, oldArtifactFileHash, tracker)
+		go hashArtifactFile(&wg, semaphore, artifactFileName, tracker)
 	}
 	wg.Wait()
 	checkForArtifactErrors(&tracker.allErrors)
@@ -128,8 +131,12 @@ func retrieveArtifactFileNames(wg *sync.WaitGroup, semaphore chan struct{}, arti
 	tracker.pointerToArtifact[artifactPointerFileName] = artifactFileName
 	tracker.pointerMapMutex.Unlock()
 
-	// Save old artifact hash into has map if not already present
-	// Avoids unnecessary writes when many pointer files point to the same artifact file
+	// Add pointer file content current hash to map of pointer names
+	tracker.pointerCurrentHashMutex.Lock()
+	tracker.pointerCurrentHash[artifactPointerFileName] = oldArtifactFileHash
+	tracker.pointerCurrentHashMutex.Unlock()
+
+	// Save old artifact hash into hash map if not already present
 	tracker.artifactHashMutex.Lock()
 	_, artifactAlreadyInHashMap := tracker.artifactHash[artifactFileName]
 	if !artifactAlreadyInHashMap {
@@ -139,7 +146,7 @@ func retrieveArtifactFileNames(wg *sync.WaitGroup, semaphore chan struct{}, arti
 }
 
 // Hash artifact file and update hash map
-func hashArtifactFile(wg *sync.WaitGroup, semaphore chan struct{}, artifactFileName string, oldArtifactFileHash string, tracker *GitArtifactTracker) {
+func hashArtifactFile(wg *sync.WaitGroup, semaphore chan struct{}, artifactFileName string, tracker *GitArtifactTracker) {
 	// Concurrency Limit Signaler
 	semaphore <- struct{}{}
 	defer func() { <-semaphore }()
@@ -154,18 +161,9 @@ func hashArtifactFile(wg *sync.WaitGroup, semaphore chan struct{}, artifactFileN
 		return
 	}
 
-	// Remove entry from hash map if artifact file is unchanged
-	if currrentArtifactFileHash == oldArtifactFileHash {
-		// Remove from hash map - only hashes that need updating should remain in the map
-		tracker.artifactHashMutex.Lock()
-		delete(tracker.artifactHash, artifactFileName)
-		tracker.artifactHashMutex.Unlock()
+	printMessage(verbosityData, "Hashing artifact %s\n", artifactFileName)
 
-		// Next artifact file
-		return
-	}
-
-	// Overwrite old hash in hash map for this artifact
+	// Add pointers hash to map by pointer name
 	tracker.artifactHashMutex.Lock()
 	tracker.artifactHash[artifactFileName] = currrentArtifactFileHash
 	tracker.artifactHashMutex.Unlock()
@@ -180,13 +178,21 @@ func writeUpdatedArtifactHash(wg *sync.WaitGroup, semaphore chan struct{}, artif
 	// Signal routine is done after return
 	defer wg.Done()
 
-	// Skip pointer files where artifact hash has not changed - ArtifactHash should only have stale hashes left in it
+	// Skip pointer files where hash in file matches hash of artifact
 	tracker.artifactHashMutex.Lock()
-	_, StaleHashPresent := tracker.artifactHash[artifactFileName]
+	currentArtifactHash := tracker.artifactHash[artifactFileName]
 	tracker.artifactHashMutex.Unlock()
-	if !StaleHashPresent {
+
+	tracker.pointerCurrentHashMutex.Lock()
+	currentArtifactPointerHash := tracker.pointerCurrentHash[artifactPointerFileName]
+	tracker.pointerCurrentHashMutex.Unlock()
+
+	if currentArtifactHash == currentArtifactPointerHash {
+		printMessage(verbosityProgress, "Artifact pointer does not need it's hash updated (pointer: %s)\n", artifactPointerFileName)
 		return
 	}
+
+	printMessage(verbosityProgress, "Artifact pointer does need it's hash updated (pointer: %s)\n", artifactPointerFileName)
 
 	// Get original metadata from pointer
 	tracker.pointerMetaMapMutex.Lock()

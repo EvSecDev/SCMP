@@ -70,8 +70,6 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 		return
 	}
 
-	printMessage(verbosityProgress, "Retrieving known_hosts file contents\n")
-
 	// Set globals - see global section at top for descriptions
 
 	// Open log file
@@ -126,8 +124,6 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 		return
 	}
 
-	printMessage(verbosityProgress, "Retrieving ignored directories config option\n")
-
 	// Ignored Dirs in repo
 	ignoreDirectoryNames, _ := sshConfig.Get("", "IgnoreDirectories")
 	config.ignoreDirectories = strings.Split(ignoreDirectoryNames, ",")
@@ -149,8 +145,6 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 	// Initialize vault map
 	config.vault = make(map[string]Credential)
 
-	printMessage(verbosityProgress, "Retrieving Configurations for Hosts\n")
-
 	// Array of Hosts and their info
 	config.hostInfo = make(map[string]EndpointInfo)
 	config.allUniversalGroups = make(map[string][]string)
@@ -169,30 +163,20 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 			continue
 		}
 
-		printMessage(verbosityData, "  Host: %s\n", hostPattern)
-
 		// Save hostname into info map
 		hostInfo.endpointName = hostPattern
-
-		printMessage(verbosityData, "    Retrieving Username\n")
 
 		// Save user into info map
 		hostInfo.endpointUser, _ = sshConfig.Get(hostPattern, "User")
 
-		printMessage(verbosityData, "    Retrieving Address\n")
-
 		// First item must be present
 		endpointAddr, _ := sshConfig.Get(hostPattern, "Hostname")
-
-		printMessage(verbosityData, "    Retrieving Port\n")
 
 		// Get port from endpoint
 		endpointPort, _ := sshConfig.Get(hostPattern, "Port")
 
 		// Network Address Parsing - only if address
 		if endpointAddr != "" && endpointPort != "" {
-			printMessage(verbosityData, "    Parsing endpoint address\n")
-
 			hostInfo.endpoint, err = parseEndpointAddress(endpointAddr, endpointPort)
 			if err != nil {
 				err = fmt.Errorf("failed parsing network address: %v", err)
@@ -200,29 +184,19 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 			}
 		}
 
-		printMessage(verbosityData, "    Retrieving SSH Proxies needed for this host\n")
-
 		// Get proxy
 		hostInfo.proxy, _ = sshConfig.Get(hostPattern, "ProxyJump")
-
-		printMessage(verbosityData, "    Retrieving Identity File Path\n")
 
 		// Get identity file path
 		hostInfo.identityFile, _ = sshConfig.Get(hostPattern, "IdentityFile")
 
-		printMessage(verbosityData, "    Retrieving if host requires vault password\n")
-
 		// Create list of hosts that would need vault access
 		passwordRequired, _ := sshConfig.Get(hostPattern, "PasswordRequired")
 		if strings.ToLower(passwordRequired) == "yes" {
-			printMessage(verbosityData, "     Host requires vault password\n")
 			hostInfo.requiresVault = true
 		} else {
-			printMessage(verbosityData, "     Host does not require vault password\n")
 			hostInfo.requiresVault = false
 		}
-
-		printMessage(verbosityData, "    Retrieving Remote Temp Dirs\n")
 
 		// Save remote transfer buffer and backup dir into host info map
 		hostInfo.remoteBackupDir, _ = sshConfig.Get(hostPattern, "RemoteBackupDir")
@@ -231,12 +205,8 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 		// Ensure trailing slashes don't make their way into the path
 		hostInfo.remoteTransferBuffer = strings.TrimSuffix(hostInfo.remoteTransferBuffer, "/")
 
-		printMessage(verbosityData, "    Retrieving Deployment State\n")
-
 		// Save deployment state of this host
 		hostInfo.deploymentState, _ = sshConfig.Get(hostPattern, "DeploymentState")
-
-		printMessage(verbosityData, "    Retrieving Host Ignore Universal State\n")
 
 		// Get all groups this host is a part of
 		universalGroupsCSV, _ := sshConfig.Get(hostPattern, "GroupTags")

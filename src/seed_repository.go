@@ -143,7 +143,9 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 
 		// Parse users selections
 		var userRequestedExit bool
-		userRequestedExit, selectedFiles, directoryState = parseUserSelections(userSelections, dirList, directoryState, client, SudoPassword)
+		var dirSelectedFiles []string
+		userRequestedExit, dirSelectedFiles, directoryState = parseUserSelections(userSelections, dirList, directoryState, client, SudoPassword)
+		selectedFiles = append(selectedFiles, dirSelectedFiles...)
 		if userRequestedExit {
 			// Stop selecting
 			break
