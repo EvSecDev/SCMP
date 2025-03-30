@@ -101,9 +101,16 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 	// Retrieve keys and passwords for any hosts that require it
 	for _, endpointName := range allDeploymentHosts {
-		// Retrieve host secrests (keys,passwords)
-		err = retrieveHostSecrets(endpointName)
+		// Retrieve host secrets
+		config.hostInfo[endpointName], err = retrieveHostSecrets(config.hostInfo[endpointName])
 		logError("Error retrieving host secrets", err, true)
+
+		// Retrieve proxy secrets (if proxy is needed)
+		proxyName := config.hostInfo[endpointName].proxy
+		if proxyName != "" {
+			config.hostInfo[proxyName], err = retrieveHostSecrets(config.hostInfo[proxyName])
+			logError("Error retrieving proxy secrets", err, true)
+		}
 	}
 
 	// Get current timestamp for deployment elapsed time metric
@@ -112,13 +119,16 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	// Start SSH Deployments by host
 	var wg sync.WaitGroup
 	for _, endpointName := range allDeploymentHosts {
+		hostInfo := config.hostInfo[endpointName]
+		proxyInfo := config.hostInfo[config.hostInfo[endpointName].proxy]
+
 		// If requesting multithreaded deployment, start go routine, otherwise run without concurrency
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
 		if config.maxSSHConcurrency > 1 {
-			go sshDeploy(&wg, semaphore, config.hostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
+			go sshDeploy(&wg, semaphore, hostInfo, proxyInfo, allFileInfo, allFileData, postDeployMetrics)
 		} else {
-			sshDeploy(&wg, semaphore, config.hostInfo[endpointName], allFileInfo, allFileData, postDeployMetrics)
+			sshDeploy(&wg, semaphore, hostInfo, proxyInfo, allFileInfo, allFileData, postDeployMetrics)
 			if failTracker.buffer.Len() > 0 {
 				// Deployment error occured, don't continue with deployments
 				break

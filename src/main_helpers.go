@@ -198,10 +198,27 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 			}
 		}
 
+		printMessage(verbosityData, "    Retrieving SSH Proxies needed for this host\n")
+
+		// Get proxy
+		hostInfo.proxy, _ = sshConfig.Get(hostPattern, "ProxyJump")
+
 		printMessage(verbosityData, "    Retrieving Identity File Path\n")
 
 		// Get identity file path
 		hostInfo.identityFile, _ = sshConfig.Get(hostPattern, "IdentityFile")
+
+		printMessage(verbosityData, "    Retrieving if host requires vault password\n")
+
+		// Create list of hosts that would need vault access
+		passwordRequired, _ := sshConfig.Get(hostPattern, "PasswordRequired")
+		if strings.ToLower(passwordRequired) == "yes" {
+			printMessage(verbosityData, "     Host requires vault password\n")
+			hostInfo.requiresVault = true
+		} else {
+			printMessage(verbosityData, "     Host does not require vault password\n")
+			hostInfo.requiresVault = false
+		}
 
 		printMessage(verbosityData, "    Retrieving Remote Temp Dirs\n")
 
@@ -216,18 +233,6 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 
 		// Save deployment state of this host
 		hostInfo.deploymentState, _ = sshConfig.Get(hostPattern, "DeploymentState")
-
-		printMessage(verbosityData, "    Retrieving if host requires vault password\n")
-
-		// Create list of hosts that would need vault access
-		passwordRequired, _ := sshConfig.Get(hostPattern, "PasswordRequired")
-		if strings.ToLower(passwordRequired) == "yes" {
-			printMessage(verbosityData, "     Host requires vault password\n")
-			hostInfo.requiresVault = true
-		} else {
-			printMessage(verbosityData, "     Host does not require vault password\n")
-			hostInfo.requiresVault = false
-		}
 
 		printMessage(verbosityData, "    Retrieving Host Ignore Universal State\n")
 

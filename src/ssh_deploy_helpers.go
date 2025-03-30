@@ -559,7 +559,7 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 	}
 
 	// Update file content
-	if contentDiffers {
+	if contentDiffers && localMetadata.fileSize > 0 {
 		printMessage(verbosityData, "Host %s:   Transferring config '%s' to remote\n", host.name, repoFilePath)
 
 		// Use hash to retrieve file data from map

@@ -316,36 +316,34 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 }
 
 // Writes hosts secrest (key, password) into received map
-func retrieveHostSecrets(endpointName string) (err error) {
+func retrieveHostSecrets(oldHostInfo EndpointInfo) (newHostInfo EndpointInfo, err error) {
 	// Copy current global config for this host to local
-	hostInfo := config.hostInfo[endpointName]
+	newHostInfo = oldHostInfo
 
 	printMessage(verbosityData, "    Retrieving endpoint key\n")
 
 	// Get SSH Private Key from the supplied identity file
-	hostInfo.privateKey, hostInfo.keyAlgo, err = SSHIdentityToKey(hostInfo.identityFile)
+	newHostInfo.privateKey, newHostInfo.keyAlgo, err = SSHIdentityToKey(newHostInfo.identityFile)
 	if err != nil {
 		err = fmt.Errorf("failed to retrieve private key: %v", err)
 		return
 	}
 
-	printMessage(verbosityFullData, "      Key: %d\n", hostInfo.privateKey)
+	printMessage(verbosityFullData, "      Key: %d\n", newHostInfo.privateKey)
 
 	// Retrieve password if required
-	if hostInfo.requiresVault {
-		hostInfo.password, err = unlockVault(endpointName)
+	if newHostInfo.requiresVault {
+		newHostInfo.password, err = unlockVault(newHostInfo.endpointName)
 		if err != nil {
 			err = fmt.Errorf("error retrieving host password from vault: %v", err)
 			return
 		}
 
-		printMessage(verbosityFullData, "      Password: %s\n", hostInfo.password)
+		printMessage(verbosityFullData, "      Password: %s\n", newHostInfo.password)
 	} else {
 		printMessage(verbosityFullData, "      Host does not require password\n")
 	}
 
-	// Write host info back into global config
-	config.hostInfo[endpointName] = hostInfo
 	return
 }
 

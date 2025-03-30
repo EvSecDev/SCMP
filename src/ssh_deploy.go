@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // ###################################
@@ -12,7 +14,7 @@ import (
 // ###################################
 
 // SSH's into a remote host to deploy files and run reload commands
-func sshDeploy(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo EndpointInfo, allFileInfo map[string]FileInfo, allFileData map[string][]byte, postDeployMetrics *PostDeploymentMetrics) {
+func sshDeploy(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo EndpointInfo, proxyInfo EndpointInfo, allFileInfo map[string]FileInfo, allFileData map[string][]byte, postDeployMetrics *PostDeploymentMetrics) {
 	// Signal routine is done after return
 	defer wg.Done()
 
@@ -43,11 +45,15 @@ func sshDeploy(wg *sync.WaitGroup, semaphore chan struct{}, endpointInfo Endpoin
 
 	// Connect to the SSH server
 	var err error
-	host.sshClient, err = connectToSSH(endpointInfo.endpointName, endpointInfo.endpoint, endpointInfo.endpointUser, endpointInfo.password, endpointInfo.privateKey, endpointInfo.keyAlgo)
+	var proxyClient *ssh.Client
+	host.sshClient, proxyClient, err = connectToSSH(endpointInfo, proxyInfo)
 	if err != nil {
 		err = fmt.Errorf("failed connect to SSH server %v", err)
 		recordDeploymentFailure(host.name, endpointInfo.deploymentFiles, -1, err)
 		return
+	}
+	if proxyClient != nil {
+		defer proxyClient.Close()
 	}
 	defer host.sshClient.Close()
 

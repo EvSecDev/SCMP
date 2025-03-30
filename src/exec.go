@@ -31,8 +31,16 @@ func runCmd(command string, hosts string) {
 		}
 
 		// Retrieve host secrets (keys,passwords)
-		err := retrieveHostSecrets(endpointName)
+		var err error
+		config.hostInfo[endpointName], err = retrieveHostSecrets(config.hostInfo[endpointName])
 		logError("Failed to retrieve host secrets", err, false)
+
+		// Retrieve proxy secrets (if proxy is needed)
+		proxyName := config.hostInfo[endpointName].proxy
+		if proxyName != "" {
+			config.hostInfo[proxyName], err = retrieveHostSecrets(config.hostInfo[proxyName])
+			logError("Error retrieving proxy secrets", err, true)
+		}
 
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
@@ -41,14 +49,17 @@ func runCmd(command string, hosts string) {
 		}
 
 		// Run the command
-		executeCommand(config.hostInfo[endpointName], command)
+		executeCommand(config.hostInfo[endpointName], config.hostInfo[proxyName], command)
 	}
 }
 
-func executeCommand(hostInfo EndpointInfo, command string) {
+func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command string) {
 	// Connect to the SSH server
-	client, err := connectToSSH(hostInfo.endpointName, hostInfo.endpoint, hostInfo.endpointUser, hostInfo.password, hostInfo.privateKey, hostInfo.keyAlgo)
+	client, proxyClient, err := connectToSSH(hostInfo, proxyInfo)
 	logError("Failed to connect to host", err, false)
+	if proxyClient != nil {
+		defer proxyClient.Close()
+	}
 	defer client.Close()
 
 	// Execute user command
@@ -112,6 +123,20 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 		printMessage(verbosityProgress, "Outputting information collected for deployment:\n")
 	}
 
+	// Retrieve keys and passwords for any hosts that require it
+	for endpointName := range config.hostInfo {
+		// Retrieve host secrets
+		config.hostInfo[endpointName], err = retrieveHostSecrets(config.hostInfo[endpointName])
+		logError("Error retrieving host secrets", err, true)
+
+		// Retrieve proxy secrets (if proxy is needed)
+		proxyName := config.hostInfo[endpointName].proxy
+		if proxyName != "" {
+			config.hostInfo[proxyName], err = retrieveHostSecrets(config.hostInfo[proxyName])
+			logError("Error retrieving proxy secrets", err, true)
+		}
+	}
+
 	// Run script per host
 	var wg sync.WaitGroup
 	for endpointName := range config.hostInfo {
@@ -121,22 +146,20 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 			continue
 		}
 
-		// Retrieve host secrests (keys,passwords)
-		err = retrieveHostSecrets(endpointName)
-		logError("Failed to retrieve host secrets", err, false)
-
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
 			printHostInformation(config.hostInfo[endpointName])
 			continue
 		}
 
+		proxyName := config.hostInfo[endpointName].proxy
+
 		// Upload and execute the script - disable concurrency if maxconns is 1
 		wg.Add(1)
 		if config.maxSSHConcurrency > 1 {
-			go executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+			go executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 		} else {
-			executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+			executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 			if len(executionErrors) > 0 {
 				// Execution error occured, don't continue with other hosts
 				break
@@ -153,7 +176,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 }
 
 // Connect to a host, upload a script, execute script and print output
-func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo EndpointInfo, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) {
+func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo EndpointInfo, proxyInfo EndpointInfo, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) {
 	// Signal routine is done after return
 	defer wg.Done()
 
@@ -162,11 +185,14 @@ func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo E
 	defer func() { <-semaphore }() // Release the token when the goroutine finishes
 
 	// Connect to the SSH server
-	client, err := connectToSSH(hostInfo.endpointName, hostInfo.endpoint, hostInfo.endpointUser, hostInfo.password, hostInfo.privateKey, hostInfo.keyAlgo)
+	client, proxyClient, err := connectToSSH(hostInfo, proxyInfo)
 	if err != nil {
 		executionErrorsMutex.Lock()
 		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.endpointName, err)
 		executionErrorsMutex.Unlock()
+	}
+	if proxyClient != nil {
+		defer proxyClient.Close()
 	}
 	defer client.Close()
 

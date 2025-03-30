@@ -49,11 +49,19 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 
 		// Retrieve host secrests (keys,passwords)
-		err = retrieveHostSecrets(endpointName)
+		config.hostInfo[endpointName], err = retrieveHostSecrets(config.hostInfo[endpointName])
 		logError("Error retrieving host secrets", err, true)
+
+		// Retrieve proxy secrets (if proxy is needed)
+		proxyName := config.hostInfo[endpointName].proxy
+		if proxyName != "" {
+			config.hostInfo[proxyName], err = retrieveHostSecrets(config.hostInfo[proxyName])
+			logError("Error retrieving proxy secrets", err, true)
+		}
 
 		// Retrieve most current global host config
 		hostInfo = config.hostInfo[endpointName]
+		proxyInfo := config.hostInfo[config.hostInfo[endpointName].proxy]
 
 		// If user requested dry run - print host information and abort connections
 		if dryRunRequested {
@@ -62,8 +70,11 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 
 		// Connect to the SSH server
-		client, err := connectToSSH(hostInfo.endpointName, hostInfo.endpoint, hostInfo.endpointUser, hostInfo.password, hostInfo.privateKey, hostInfo.keyAlgo)
+		client, proxyClient, err := connectToSSH(hostInfo, proxyInfo)
 		logError("Failed connect to SSH server", err, false)
+		if proxyClient != nil {
+			defer proxyClient.Close()
+		}
 		defer client.Close()
 
 		// Run menu for user to select desired files or direct download

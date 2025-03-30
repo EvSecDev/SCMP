@@ -89,6 +89,7 @@ type EndpointInfo struct {
 	universalGroups      map[string]struct{} // Map to store the CSV for config option "GroupTags"
 	deploymentFiles      []string            // Created during pre-deployment to track which config files will be deployed to this host
 	endpointName         string              // Name of host as it appears in config and in git repo top-level directory names
+	proxy                string              // Name of the proxy host to use (if any)
 	endpoint             string              // Address:port of the host
 	endpointUser         string              // Login user name of the host
 	identityFile         string              // Key identity file path (private or public)
@@ -368,7 +369,7 @@ Secure Configuration Management Program (SCMP)
 	flag.Parse()
 
 	// Meta info print out
-	const progVersion string = "v4.4.0"
+	const progVersion string = "v4.4.1"
 	if versionInfoRequested {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)

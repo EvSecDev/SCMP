@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 	"time"
 
@@ -13,56 +14,146 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// Handle building client config and connection to remote host
-// Attempts to automatically recover from some errors like no route to host by waiting a bit
-func connectToSSH(endpointName string, endpointSocket string, endpointUser string, loginPassword string, privateKey ssh.Signer, keyAlgorithm string) (client *ssh.Client, err error) {
-	printMessage(verbosityProgress, "Host %s: Connecting to SSH server\n", endpointName)
+// Standard SSH client configuration settings for specific host
+func setupSSHConfig(hostInfo EndpointInfo) (config *ssh.ClientConfig) {
+	const versionString string = "SSH-2.0-OpenSSH_9.9p2" // Some IPS rules flag on GO's ssh client string
+	const defaultTimeout time.Duration = 30 * time.Second
 
-	// Setup config for client
-	SSHconfig := &ssh.ClientConfig{
-		User: endpointUser,
+	config = &ssh.ClientConfig{
+		User: hostInfo.endpointUser,
 		Auth: []ssh.AuthMethod{
-			ssh.PublicKeys(privateKey),
-			ssh.Password(loginPassword),
+			ssh.PublicKeys(hostInfo.privateKey),
+			ssh.Password(hostInfo.password),
 		},
-		// Some IPS rules flag on GO's ssh client string
-		ClientVersion: "SSH-2.0-OpenSSH_9.8p1",
+		ClientVersion: versionString,
 		HostKeyAlgorithms: []string{
-			keyAlgorithm,
+			hostInfo.keyAlgo,
 		},
 		HostKeyCallback: hostKeyCallback,
-		Timeout:         30 * time.Second,
+		Timeout:         defaultTimeout,
+	}
+	return
+}
+
+// Handle building client config and connection to remote host
+// Attempts to automatically recover from some errors like no route to host by waiting a bit
+func connectToSSH(hostInfo EndpointInfo, proxyInfo EndpointInfo) (client *ssh.Client, proxyConn *ssh.Client, err error) {
+	printMessage(verbosityProgress, "Host %s: Connecting to SSH server\n", hostInfo.endpointName)
+
+	// Setup config for proxy if required
+	var proxySSHconfig *ssh.ClientConfig
+	if hostInfo.proxy != "" {
+		proxySSHconfig = setupSSHConfig(proxyInfo)
 	}
 
+	// Setup config for client
+	SSHconfig := setupSSHConfig(hostInfo)
+
 	// Only attempt connection x times
-	maxConnectionAttempts := 3
+	const maxConnectionAttempts int = 3
 
 	// Loop so some network errors can recover and try again
 	for attempts := 0; attempts <= maxConnectionAttempts; attempts++ {
-		printMessage(verbosityProgress, "Endpoint %s: Establishing connection to SSH server (%d/%d)\n", endpointSocket, attempts, maxConnectionAttempts)
+		if hostInfo.proxy != "" {
+			printMessage(verbosityProgress, "Endpoint %s: Establishing connection to SSH server through proxy %s (%d/%d)\n", hostInfo.endpoint, proxyInfo.endpoint, attempts, maxConnectionAttempts)
 
-		// Connect to the SSH server direct
-		client, err = ssh.Dial("tcp", endpointSocket, SSHconfig)
-
-		// Determine if error is recoverable
-		if err != nil {
-			if strings.Contains(err.Error(), "no route to host") {
-				printMessage(verbosityProgress, "Endpoint %s: No route to SSH server (%d/%d)\n", endpointSocket, attempts, maxConnectionAttempts)
-				// Re-attempt after waiting for network path
-				time.Sleep(200 * time.Millisecond)
+			// SSH Connect to proxy
+			proxyConn, err = ssh.Dial("tcp", proxyInfo.endpoint, proxySSHconfig)
+			retryAvailable, successfulConnection := checkConnection(err)
+			if retryAvailable {
+				printMessage(verbosityProgress, "Endpoint %s: No route to SSH proxy server (%d/%d)\n", hostInfo.endpoint, attempts, maxConnectionAttempts)
 				continue
-			} else {
-				// All other errors, bail from connection attempts
+			}
+			if !successfulConnection {
+				err = fmt.Errorf("failed connection to proxy server: %v", err)
 				return
 			}
+
+			printMessage(verbosityProgress, "Host %s: Connected to SSH proxy server\n", hostInfo.endpointName)
+
+			// TCP Connect to end server through proxy
+			var clientTunnel net.Conn
+			clientTunnel, err = proxyConn.Dial("tcp", hostInfo.endpoint)
+			retryAvailable, successfulConnection = checkConnection(err)
+			if retryAvailable {
+				printMessage(verbosityProgress, "Endpoint %s: No route to SSH server (%d/%d)\n", hostInfo.endpoint, attempts, maxConnectionAttempts)
+				continue
+			}
+			if !successfulConnection {
+				err = fmt.Errorf("failed TCP connection to server: %v", err)
+				return
+			}
+
+			printMessage(verbosityData, "Host %s: Connected by TCP to SSH server\n", hostInfo.endpointName)
+
+			// SSH Hanshake with end server through proxy (error is evaluated below)
+			var clientConn ssh.Conn
+			var clientChannel <-chan ssh.NewChannel
+			var clientRequest <-chan *ssh.Request
+			clientConn, clientChannel, clientRequest, err = ssh.NewClientConn(clientTunnel, hostInfo.endpoint, SSHconfig)
+			retryAvailable, successfulConnection = checkConnection(err)
+			if retryAvailable {
+				printMessage(verbosityProgress, "Endpoint %s: No route to SSH server (%d/%d)\n", hostInfo.endpoint, attempts, maxConnectionAttempts)
+				continue
+			}
+			if !successfulConnection {
+				err = fmt.Errorf("failed SSH handshake to server: %v", err)
+				return
+			}
+
+			// Setup Client
+			client = ssh.NewClient(clientConn, clientChannel, clientRequest)
+			printMessage(verbosityProgress, "Host %s: Connected to SSH server\n", hostInfo.endpointName)
+
+			break
 		} else {
-			// Connection worked
-			printMessage(verbosityProgress, "Host %s: Connected to SSH server\n", endpointName)
+			printMessage(verbosityProgress, "Endpoint %s: Establishing connection to SSH server (%d/%d)\n", hostInfo.endpoint, attempts, maxConnectionAttempts)
+
+			// Connect to the SSH server directly
+			client, err = ssh.Dial("tcp", hostInfo.endpoint, SSHconfig)
+			retryAvailable, successfulConnection := checkConnection(err)
+			if retryAvailable {
+				printMessage(verbosityProgress, "Endpoint %s: No route to SSH server (%d/%d)\n", hostInfo.endpoint, attempts, maxConnectionAttempts)
+				continue
+			}
+			if !successfulConnection {
+				err = fmt.Errorf("failed TCP connection to server: %v", err)
+				return
+			}
+
+			printMessage(verbosityProgress, "Host %s: Connected to SSH server\n", hostInfo.endpointName)
+
 			break
 		}
 	}
 
 	return
+}
+
+// Checks for recoverable network connection errors
+func checkConnection(err error) (retryAvailable bool, success bool) {
+	// Determine if error is recoverable
+	if err != nil {
+		if strings.Contains(err.Error(), "no route to host") {
+			// Sleep for small time to wait for network path
+			time.Sleep(200 * time.Millisecond)
+
+			// Return to try the connection again
+			success = false
+			retryAvailable = true
+			return
+		} else {
+			// All other errors, bail from connection attempts
+			success = false
+			retryAvailable = false
+			return
+		}
+	} else {
+		// Connection worked
+		success = true
+		retryAvailable = false
+		return
+	}
 }
 
 // Uploads content to specified remote file path via SCP
