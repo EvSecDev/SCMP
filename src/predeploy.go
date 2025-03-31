@@ -157,7 +157,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 	// Save deployment errors to fail tracker
 	if failTracker.buffer.Len() > 0 {
-		printMessage(verbosityStandard, "Deployment Completed with Failures: Metrics: {\"Hosts\":%d,\"Items\":%d,\"ElapsedTime\":\"%s\",\"TransferredBytes\":\"%s\"}\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
+		printMessage(verbosityStandard, "Deployment Completed with Failures: Metrics: {\"Hosts\":%d,\"Items\":%d,\"ElapsedTime\":\"%s\",\"TransferredBytes\":\"%s\"}\n", postDeployMetrics.hosts, postDeployMetrics.files, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
 		err := recordDeploymentError(commitID)
 		logError("Error in failure recording", err, false)
 		return
@@ -175,5 +175,5 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	}
 
 	// Show progress to user
-	printMessage(verbosityStandard, "Deployment Completed Successfully. Metrics: {\"Hosts\":%d,\"Items\":%d,\"ElapsedTime\":\"%s\",\"TransferredBytes\":\"%s\"}\n", postDeployMetrics.files, postDeployMetrics.hosts, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
+	printMessage(verbosityStandard, "Deployment Completed Successfully. Metrics: {\"Hosts\":%d,\"Items\":%d,\"ElapsedTime\":\"%s\",\"TransferredBytes\":\"%s\"}\n", postDeployMetrics.hosts, postDeployMetrics.files, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
 }
