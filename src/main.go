@@ -368,7 +368,7 @@ Secure Configuration Management Program (SCMP)
 	flag.Parse()
 
 	// Meta info print out
-	const progVersion string = "v4.4.1"
+	const progVersion string = "v4.4.2"
 	if versionInfoRequested {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)

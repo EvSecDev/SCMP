@@ -182,9 +182,6 @@ func DeployFiles(host HostMeta, deploymentFiles []string, allFileInfo map[string
 				if err != nil {
 					failedFiles := reloadIDtoRepoFile[reloadID]
 					for _, file := range failedFiles {
-						// Record which specific files failed
-						failedFiles = append(failedFiles, file)
-
 						// Restore the failed files
 						printMessage(verbosityData, "Host %s:   Restoring config file %s due to failed reload command\n", host.name, targetFilePath)
 						lerr := restoreOldFile(host, targetFilePath, remoteFileMetadatas[file])
@@ -194,8 +191,8 @@ func DeployFiles(host HostMeta, deploymentFiles []string, allFileInfo map[string
 						}
 					}
 
-					// Record the failed files and skip to next file deployment
-					recordDeploymentFailure(host.name, failedFiles, -1, err)
+					// Record all the files for the reload group and skip to next file deployment
+					recordDeploymentFailure(host.name, reloadIDtoRepoFile[reloadID], -1, err)
 					continue
 				}
 			} else if totalDeployedReloadFiles[reloadID] != reloadIDfileCount[reloadID] {
