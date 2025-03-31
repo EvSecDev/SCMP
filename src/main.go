@@ -108,7 +108,7 @@ type MetaHeader struct {
 	TargetFileOwnerGroup    string   `json:"FileOwnerGroup"`
 	TargetFilePermissions   int      `json:"FilePermissions"`
 	ExternalContentLocation string   `json:"ExternalContentLocation,omitempty"`
-	Dependencies            string   `json:"Dependencies,omitempty"`
+	Dependencies            []string `json:"Dependencies,omitempty"`
 	InstallCommands         []string `json:"Install,omitempty"`
 	CheckCommands           []string `json:"Checks,omitempty"`
 	ReloadCommands          []string `json:"Reload,omitempty"`

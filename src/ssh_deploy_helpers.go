@@ -189,7 +189,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 	// Transfer local file to remote
 	err = transferFile(host.sshClient, fileContents, targetFilePath, host.password, host.transferBufferFile, fileOwnerGroup, filePermissions)
 	if err != nil {
-		err = fmt.Errorf("failed SFTP config file transfer to remote host: %v", err)
+		err = fmt.Errorf("failed SCP file transfer to remote host: %v", err)
 		return
 	}
 
@@ -388,7 +388,7 @@ func transferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath
 		}
 	}
 
-	// SFTP to temp file
+	// SCP to temp file
 	err = SCPUpload(sshClient, localFileContent, tmpRemoteFilePath)
 	if err != nil {
 		return
