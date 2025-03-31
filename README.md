@@ -388,6 +388,23 @@ Example of expansion given input of `Server01/etc/nginx/nginx.conf` (other value
 {@HOSTPORT}      -> 22
 ```
 
+### Inter-file Dependency
+
+Frequently, there is a need to deploy files in a certain order.
+In order to accomplish this, within a given file, you can define which files (by the expected remote target path) that it relies upon.
+This ensures that during deployment, the order in which files are deployed and reloaded is controllable.
+
+This feature does not work with files not tracked in the repository (if you require a certain remote untracked file or system state, please use `Checks` commands)
+
+Example of metadata header:
+
+```json
+  "Dependencies": [
+    "/etc/resolv.conf",
+    "/etc/apt/sources.list"
+  ]
+```
+
 ### Install commands
 
 Commands in this metadata JSON array are run only by using the controller argument `--install`.
