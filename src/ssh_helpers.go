@@ -492,3 +492,9 @@ func buildLink(linkName string, linkTarget string) (remoteCommand RemoteCommand)
 	remoteCommand.string = lnCmd + "'" + linkTarget + "' '" + linkName + "'"
 	return
 }
+
+func buildTouch(remotePath string) (RemoteCommand RemoteCommand) {
+	const touchCmd string = "touch"
+	RemoteCommand.string = touchCmd + " '" + remotePath + "'"
+	return
+}

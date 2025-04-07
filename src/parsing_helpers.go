@@ -441,8 +441,14 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 	// Remove .remote-artifact extension if applicable
 	localRepoPath = strings.TrimSuffix(localRepoPath, artifactPointerFileExtension)
 
+	// Remove .directory_metadata_information.json
+	localRepoPath = strings.TrimSuffix(localRepoPath, directoryMetadataFileName)
+
 	// Format repoFilePath with the expected host path separators
 	localRepoPath = strings.ReplaceAll(localRepoPath, config.osPathSeparator, "/")
+
+	// Remove any trailing slashes
+	localRepoPath = strings.TrimSuffix(localRepoPath, "/")
 
 	// Remove repository path if its absolute local path
 	if strings.HasPrefix(localRepoPath, config.repositoryPath) {
@@ -641,6 +647,7 @@ func formatBytes(bytes int) (bytesWithUnits string) {
 
 // Parse JSON metadata into File Info Struct
 func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFileAction string, contentHash string) (info FileInfo) {
+	_, info.name = translateLocalPathtoRemotePath(repoFilePath)
 	info.ownerGroup = json.TargetFileOwnerGroup
 	info.permissions = json.TargetFilePermissions
 	if fileSize > 0 {
@@ -673,6 +680,10 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 	} else {
 		// Install commands are not present, set to false
 		info.installOptional = false
+	}
+	info.dependencies = json.Dependencies
+	if len(info.dependencies) > 0 {
+		macroToValue(repoFilePath, &info.dependencies)
 	}
 	if len(contentHash) > 0 {
 		// Save hash of the files contents if present

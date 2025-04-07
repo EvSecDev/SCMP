@@ -117,6 +117,7 @@ type MetaHeader struct {
 // Struct for all deployment info for a file
 type FileInfo struct {
 	hash            string
+	name            string
 	action          string
 	ownerGroup      string
 	permissions     int
@@ -368,7 +369,7 @@ Secure Configuration Management Program (SCMP)
 	flag.Parse()
 
 	// Meta info print out
-	const progVersion string = "v4.4.3"
+	const progVersion string = "v4.4.4"
 	if versionInfoRequested {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)

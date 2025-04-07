@@ -540,22 +540,16 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 
 	printMessage(verbosityData, "Host %s:   File '%s': remote hash: '%s' - local hash: '%s'\n", host.name, targetFilePath, remoteMetadata.hash, localMetadata.hash)
 
-	// Update file metadata
-	if metadataDiffers {
-		printMessage(verbosityData, "Host %s:   Checking if file '%s' needs its metadata updated\n", host.name, targetFilePath)
+	// Create file if local is empty
+	if localMetadata.fileSize == 0 && !remoteMetadata.exists {
+		printMessage(verbosityData, "Host %s:   File '%s' is empty and does not exist on remote, creating\n", host.name, targetFilePath)
 
-		err = modifyMetadata(host, remoteMetadata, localMetadata)
+		command := buildTouch(localMetadata.name)
+		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
 		if err != nil {
-			lerr := restoreOldFile(host, targetFilePath, remoteMetadata)
-			if lerr != nil {
-				err = fmt.Errorf("%v: restoration failed: %v", err, lerr)
-			}
+			err = fmt.Errorf("unable to create empty file: %v", err)
 			return
 		}
-		printMessage(verbosityData, "Host %s:   File '%s': updated metadata\n", host.name, targetFilePath)
-
-		// For  metrics
-		fileModified = true
 	}
 
 	// Update file content
@@ -582,13 +576,28 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 		fileModified = true
 	}
 
+	// Update file metadata
+	if metadataDiffers {
+		printMessage(verbosityData, "Host %s:   Checking if file '%s' needs its metadata updated\n", host.name, targetFilePath)
+
+		err = modifyMetadata(host, remoteMetadata, localMetadata)
+		if err != nil {
+			lerr := restoreOldFile(host, targetFilePath, remoteMetadata)
+			if lerr != nil {
+				err = fmt.Errorf("%v: restoration failed: %v", err, lerr)
+			}
+			return
+		}
+		printMessage(verbosityData, "Host %s:   File '%s': updated metadata\n", host.name, targetFilePath)
+
+		// For  metrics
+		fileModified = true
+	}
+
 	return
 }
 
-func deployDirectory(host HostMeta, targetFilePath string, dirInfo FileInfo) (dirModified bool, remoteMetadata RemoteFileInfo, err error) {
-	// Trim directory metadata file name from path
-	targetDirPath := filepath.Dir(targetFilePath)
-
+func deployDirectory(host HostMeta, targetDirPath string, dirInfo FileInfo) (dirModified bool, remoteMetadata RemoteFileInfo, err error) {
 	printMessage(verbosityData, "Host %s:   Checking directory '%s'\n", host.name, targetDirPath)
 
 	// Retrieve metadata of remote file if it exists
@@ -639,14 +648,11 @@ func deployDirectory(host HostMeta, targetFilePath string, dirInfo FileInfo) (di
 
 // Modifies metadata if supplied remote file/dir metadata does not match supplied metadata
 func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata FileInfo) (err error) {
-	// Return early if remote not already present
-	if !remoteMetadata.exists {
-		return
-	}
-
 	// Change permissions if different
 	if remoteMetadata.permissions != localMetadata.permissions {
-		command := buildChmod(remoteMetadata.name, localMetadata.permissions)
+		printMessage(verbosityFullData, "Host %s:    File '%s': changing permissions\n", host.name, localMetadata.name)
+
+		command := buildChmod(localMetadata.name, localMetadata.permissions)
 		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
@@ -657,7 +663,9 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 	// Change ownership if different
 	remoteOwnerGroup := remoteMetadata.owner + ":" + remoteMetadata.group
 	if remoteOwnerGroup != localMetadata.ownerGroup {
-		command := buildChown(remoteMetadata.name, localMetadata.ownerGroup)
+		printMessage(verbosityFullData, "Host %s:    File '%s': changing ownership\n", host.name, localMetadata.name)
+
+		command := buildChown(localMetadata.name, localMetadata.ownerGroup)
 		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
