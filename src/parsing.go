@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -361,15 +360,12 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		printMessage(verbosityData, "  Loading repository file %s\n", repoFilePath)
 		printMessage(verbosityData, "    Marked as '%s'\n", commitFileAction)
 
-		// Skip loading if file will be deleted
+		// Actions that do not require content loading
 		if commitFileAction == "delete" {
-			// But, add it to the deploy target files so it can be deleted during ssh
+			// Add it to the deploy target files so it can be deleted during ssh
 			allFileInfo[repoFilePath] = FileInfo{action: commitFileAction}
 			continue
-		}
-
-		// Skip loading if file is sym link
-		if strings.Contains(commitFileAction, "symlinkCreate") {
+		} else if strings.Contains(commitFileAction, "symlinkCreate") {
 			// Extract target path
 			targetActionArray := strings.Split(commitFileAction, " to target ")
 			if len(targetActionArray) < 2 {
@@ -383,105 +379,32 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 			// Add it to the deploy target files so it can be ln'd during ssh
 			allFileInfo[repoFilePath] = FileInfo{action: "symlinkCreate", linkTarget: symLinkTarget}
 			continue
-		}
-
-		// Skip loading unsupported file types - safety blocker
-		if commitFileAction != "create" && commitFileAction != "dirCreate" && commitFileAction != "dirModify" {
+		} else if commitFileAction != "create" && commitFileAction != "dirCreate" && commitFileAction != "dirModify" {
+			// Skip unsupported file types - safety blocker
 			continue
 		}
 
-		printMessage(verbosityData, "    Retrieving file contents\n")
-
-		// Get file from git tree
-		var file *object.File
-		file, err = tree.File(repoFilePath)
-		if err != nil {
-			err = fmt.Errorf("failed retrieving file from git tree: %v", err)
+		// Retrieve file contents from git
+		content, lerr := loadFileFromGit(tree, repoFilePath)
+		if lerr != nil {
+			err = fmt.Errorf("failed to load file from git tree: %v", lerr)
 			return
 		}
-
-		// Open reader for file contents
-		var reader io.ReadCloser
-		reader, err = file.Reader()
-		if err != nil {
-			err = fmt.Errorf("failed retrieving file reader: %v", err)
-			return
-		}
-		defer reader.Close()
-
-		// Read file contents (as bytes)
-		var content []byte
-		content, err = io.ReadAll(reader)
-		if err != nil {
-			err = fmt.Errorf("failed reading file content: %v", err)
-			return
-		}
-
-		printMessage(verbosityData, "    Extracting file metadata\n")
 
 		// Retrieve metadata depending on if this is a directory or a file
-		var fileContent []byte
-		var jsonMetadata MetaHeader
-		if strings.HasSuffix(repoFilePath, directoryMetadataFileName) {
-			// Get just directory name
-			directoryName := filepath.Dir(repoFilePath)
-
-			// Extract metadata
-			err = json.Unmarshal(content, &jsonMetadata)
-			if err != nil {
-				err = fmt.Errorf("failed parsing directory JSON metadata for '%s': %v", directoryName, err)
-				return
-			}
-		} else {
-			// Extract metadata from file contents
-			var metadata string
-			metadata, fileContent, err = extractMetadata(string(content))
-			if err != nil {
-				err = fmt.Errorf("failed to extract metadata header from '%s': %v", repoFilePath, err)
-				return
-			}
-
-			printMessage(verbosityData, "    Parsing metadata header JSON\n")
-
-			// Parse JSON into a generic map
-			err = json.Unmarshal([]byte(metadata), &jsonMetadata)
-			if err != nil {
-				err = fmt.Errorf("failed parsing JSON metadata header for %s: %v", repoFilePath, err)
-				return
-			}
+		fileContent, jsonMetadata, lerr := extractMetadataFromContents(repoFilePath, content)
+		if lerr != nil {
+			err = fmt.Errorf("Failed to separate metadata from file content: %v", lerr)
+			return
 		}
 
-		// If file is an artifact pointer, retrieve real file contents, else hash content itself
+		// Retrieve actual artifact contents and hash
 		var contentHash string
 		if len(jsonMetadata.ExternalContentLocation) > 0 {
-			// Only allow file URIs for now
-			if !strings.HasPrefix(jsonMetadata.ExternalContentLocation, fileURIPrefix) {
-				err = fmt.Errorf("remote-artifact file '%s': must use '%s' before file paths in 'ExternalContentLocationput' field", repoFilePath, fileURIPrefix)
+			fileContent, contentHash, err = loadArtifactContent(jsonMetadata.ExternalContentLocation, repoFilePath, fileContent, allFileData)
+			if err != nil {
+				err = fmt.Errorf("failed to load artifact file content: %v", err)
 				return
-			}
-
-			// Use hash already in pointer file as hash of actual artifact file contents
-			contentHash = SHA256RegEx.FindString(string(fileContent))
-
-			// Retrieve artifact file data if not already loaded
-			_, artifactDataAlreadyLoaded := allFileData[contentHash]
-			if !artifactDataAlreadyLoaded {
-				// Not adhering to actual URI standards -- I just want file paths
-				artifactFileName := strings.TrimPrefix(jsonMetadata.ExternalContentLocation, fileURIPrefix)
-
-				// Check for ~/ and expand if required
-				artifactFileName = expandHomeDirectory(artifactFileName)
-
-				// Retrieve artifact file contents
-				var artifactFileContents []byte
-				artifactFileContents, err = os.ReadFile(artifactFileName)
-				if err != nil {
-					err = fmt.Errorf("failed to load artifact file data: %v", err)
-					return
-				}
-
-				// Overwrite pointer file contents with actual file data
-				fileContent = artifactFileContents
 			}
 		} else if len(fileContent) > 0 {
 			printMessage(verbosityData, "    Hashing file content\n")

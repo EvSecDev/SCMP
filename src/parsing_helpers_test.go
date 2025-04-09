@@ -289,6 +289,18 @@ func TestExtractMetadata(t *testing.T) {
 {
   "FileOwnerGroup": "root:root",
   "FilePermissions": 755,
+  "Dependencies": [
+    "Host1/etc/network/interfaces",
+	"Host1/etc/hosts"
+  ],
+  "Install": [
+    "command0",
+	"command3"
+  ],
+  "Checks": [
+    "check1",
+	"check2"
+  ],
   "Reload": [
     "command1",
     "command2"
@@ -300,6 +312,18 @@ file content file content file content`,
 {
   "FileOwnerGroup": "root:root",
   "FilePermissions": 755,
+  "Dependencies": [
+    "Host1/etc/network/interfaces",
+	"Host1/etc/hosts"
+  ],
+  "Install": [
+    "command0",
+	"command3"
+  ],
+  "Checks": [
+    "check1",
+	"check2"
+  ],
   "Reload": [
     "command1",
     "command2"

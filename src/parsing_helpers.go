@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -645,6 +646,99 @@ func formatBytes(bytes int) (bytesWithUnits string) {
 	return
 }
 
+// Takes a git tree object and a file path and returns that files contents from git
+func loadFileFromGit(tree *object.Tree, repoFilePath string) (content []byte, err error) {
+	printMessage(verbosityData, "    Retrieving file contents\n")
+
+	// Get file from git tree
+	file, err := tree.File(repoFilePath)
+	if err != nil {
+		return
+	}
+
+	// Open reader for file contents
+	reader, err := file.Reader()
+	if err != nil {
+		err = fmt.Errorf("failed retrieving file reader: %v", err)
+		return
+	}
+	defer reader.Close()
+
+	// Read file contents (as bytes)
+	content, err = io.ReadAll(reader)
+	if err != nil {
+		err = fmt.Errorf("failed reading file content: %v", err)
+		return
+	}
+
+	return
+}
+
+// Takes raw local file content and separates the metadata header from actual file content
+func extractMetadataFromContents(repoFilePath string, content []byte) (fileContent []byte, jsonMetadata MetaHeader, err error) {
+	printMessage(verbosityData, "    Extracting file metadata\n")
+
+	if strings.HasSuffix(repoFilePath, directoryMetadataFileName) {
+		// Get just directory name
+		directoryName := filepath.Dir(repoFilePath)
+
+		// Extract metadata
+		err = json.Unmarshal(content, &jsonMetadata)
+		if err != nil {
+			err = fmt.Errorf("failed parsing directory JSON metadata for '%s': %v", directoryName, err)
+			return
+		}
+	} else {
+		// Extract metadata from file contents
+		var metadata string
+		metadata, fileContent, err = extractMetadata(string(content))
+		if err != nil {
+			err = fmt.Errorf("failed to extract metadata header from '%s': %v", repoFilePath, err)
+			return
+		}
+
+		printMessage(verbosityData, "    Parsing metadata header JSON\n")
+
+		// Parse JSON into a generic map
+		err = json.Unmarshal([]byte(metadata), &jsonMetadata)
+		if err != nil {
+			err = fmt.Errorf("failed parsing JSON metadata header for %s: %v", repoFilePath, err)
+			return
+		}
+	}
+
+	return
+}
+
+// Loads artifact file contents and uses hash in pointer file
+func loadArtifactContent(artifactPath string, artifactPointerPath string, artifactPointerContent []byte, allFileData map[string][]byte) (content []byte, contentHash string, err error) {
+	// Only allow file URIs for now
+	if !strings.HasPrefix(artifactPath, fileURIPrefix) {
+		err = fmt.Errorf("remote-artifact file '%s': must use '%s' before file paths in 'ExternalContentLocation' field", artifactPointerPath, fileURIPrefix)
+		return
+	}
+
+	// Use hash already in pointer file as hash of actual artifact file contents
+	contentHash = SHA256RegEx.FindString(string(artifactPointerContent))
+
+	// Retrieve artifact file data if not already loaded
+	_, artifactDataAlreadyLoaded := allFileData[contentHash]
+	if !artifactDataAlreadyLoaded {
+		// Not adhering to actual URI standards -- I just want file paths
+		artifactFileName := strings.TrimPrefix(artifactPath, fileURIPrefix)
+
+		// Check for ~/ and expand if required
+		artifactFileName = expandHomeDirectory(artifactFileName)
+
+		// Retrieve artifact file contents
+		content, err = os.ReadFile(artifactFileName)
+		if err != nil {
+			return
+		}
+	}
+	return
+}
+
 // Parse JSON metadata into File Info Struct
 func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFileAction string, contentHash string) (info FileInfo) {
 	_, info.name = translateLocalPathtoRemotePath(repoFilePath)
@@ -697,6 +791,7 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 	if len(info.hash) > 0 {
 		printMessage(verbosityFullData, "      Content Hash:     %s\n", info.hash)
 	}
+	printMessage(verbosityFullData, "      Dependencies  %v\n", info.dependencies)
 	printMessage(verbosityFullData, "      Install Required? %t\n", info.installOptional)
 	if info.installOptional {
 		printMessage(verbosityFullData, "      Install Commands  %s\n", info.install)
