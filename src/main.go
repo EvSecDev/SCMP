@@ -33,15 +33,15 @@ const (                                                                         
 	verbosityDebug
 )
 const ( // Descriptive Names for stats fs types
-	dir       string = "directory"
-	file      string = "regular file"
-	fileEmpty string = "regular empty file"
-	symlink   string = "symbolic link"
-	device    string = "block special file"
-	char      string = "character special file"
-	socket    string = "socket"
-	port      string = "port"
-	fifo      string = "fifo"
+	dirType       string = "directory"
+	fileType      string = "regular file"
+	fileEmptyType string = "regular empty file"
+	symlinkType   string = "symbolic link"
+	deviceType    string = "block special file"
+	charType      string = "character special file"
+	socketType    string = "socket"
+	portType      string = "port"
+	fifoType      string = "fifo"
 )
 
 // ###################################
@@ -53,31 +53,35 @@ var config Config
 
 // Struct for global config
 type Config struct {
-	filePath              string                  // Path to main config - ~/.ssh/config
-	logFilePath           string                  // Path to user requested log file
-	logFile               *os.File                // File to write logs to
-	eventLog              []string                // Global log storage
-	eventLogMutex         sync.Mutex              // Allow concurrent access to log storage
-	failTrackerFilePath   string                  // Path to failtracker file (within same directory as main config)
-	osPathSeparator       string                  // Path separator for compiled OS filesystem
-	hostInfo              map[string]EndpointInfo // Hold some basic information about all the hosts
-	knownHostsFilePath    string                  // Path to known server public keys - ~/.ssh/known_hosts
-	knownHosts            []string                // Content of known server public keys - ~/.ssh/known_hosts
-	repositoryPath        string                  // Absolute path to git repository (based on current working dir)
-	universalDirectory    string                  // Universal config directory inside git repo
-	allUniversalGroups    map[string][]string     // Universal group config directory names and their respective hosts
-	ignoreDirectories     []string                // Directories to ignore inside the git repository
-	maxSSHConcurrency     int                     // Maximum threads for ssh sessions
-	disableSudo           bool                    // Disable using sudo for remote commands
-	allowDeletions        bool                    // Allow deletions in local repo to delete files on remote hosts or vault entries
-	disableReloads        bool                    // Disables all deployment reload commands for this deployment
-	runInstallCommands    bool                    // Run the install command section of all relevant files metadata header section (within the given deployment)
-	ignoreDeploymentState bool                    // Ignore any deployment state for a host in the config
-	regexEnabled          bool                    // Globally enable the use of regex for matching hosts/files
-	forceEnabled          bool                    // Atomic mode
-	userHomeDirectory     string                  // Absolute path to users home directory (to expand '~/' in paths)
-	vaultFilePath         string                  // Path to password vault file
-	vault                 map[string]Credential   // Password vault
+	filePath            string                  // Path to main config - ~/.ssh/config
+	logFilePath         string                  // Path to user requested log file
+	logFile             *os.File                // File to write logs to
+	eventLog            []string                // Global log storage
+	eventLogMutex       sync.Mutex              // Allow concurrent access to log storage
+	failTrackerFilePath string                  // Path to failtracker file (within same directory as main config)
+	osPathSeparator     string                  // Path separator for compiled OS filesystem
+	hostInfo            map[string]EndpointInfo // Hold some basic information about all the hosts
+	knownHostsFilePath  string                  // Path to known server public keys - ~/.ssh/known_hosts
+	knownHosts          []string                // Content of known server public keys - ~/.ssh/known_hosts
+	repositoryPath      string                  // Absolute path to git repository (based on current working dir)
+	universalDirectory  string                  // Universal config directory inside git repo
+	allUniversalGroups  map[string][]string     // Universal group config directory names and their respective hosts
+	ignoreDirectories   []string                // Directories to ignore inside the git repository
+	options             Opts                    // Options specified by the user
+	userHomeDirectory   string                  // Absolute path to users home directory (to expand '~/' in paths)
+	vaultFilePath       string                  // Path to password vault file
+	vault               map[string]Credential   // Password vault
+}
+
+type Opts struct {
+	maxSSHConcurrency     int  // Maximum threads for ssh sessions
+	disableSudo           bool // Disable using sudo for remote commands
+	allowDeletions        bool // Allow deletions in local repo to delete files on remote hosts or vault entries
+	disableReloads        bool // Disables all deployment reload commands for this deployment
+	runInstallCommands    bool // Run the install command section of all relevant files metadata header section (within the given deployment)
+	ignoreDeploymentState bool // Ignore any deployment state for a host in the config
+	regexEnabled          bool // Globally enable the use of regex for matching hosts/files
+	forceEnabled          bool // Atomic mode
 }
 
 // Struct for host-specific Information
@@ -287,7 +291,7 @@ Secure Configuration Management Program (SCMP)
         --allow-deletions                          Allows deletions (remote files or vault entires)
                                                    Only applies to '--deploy-changes' or '--modify-vault-password'
         --install                                  Runs installation commands in config files metadata JSON header
-                                                   Commands are run before file deployments (before checks)
+                                                   Commands are run before file deployments (after checks)
         --force                                    Ignores checks and runs atomically
                                                    Forces writes and reloads of deployment files
         --disable-reloads                          Disables execution of reload commands for this deployment
@@ -335,21 +339,21 @@ Secure Configuration Management Program (SCMP)
 	flag.BoolVar(&testConfig, "test-config", false, "")
 	flag.BoolVar(&dryRunRequested, "T", false, "")
 	flag.BoolVar(&dryRunRequested, "dry-run", false, "")
-	flag.IntVar(&config.maxSSHConcurrency, "m", 10, "")
-	flag.IntVar(&config.maxSSHConcurrency, "max-conns", 10, "")
+	flag.IntVar(&config.options.maxSSHConcurrency, "m", 10, "")
+	flag.IntVar(&config.options.maxSSHConcurrency, "max-conns", 10, "")
 	flag.StringVar(&modifyVaultHost, "p", "", "")
 	flag.StringVar(&modifyVaultHost, "modify-vault-password", "", "")
 	flag.StringVar(&createNewRepo, "n", "", "")
 	flag.StringVar(&createNewRepo, "new-repo", "", "")
 	flag.BoolVar(&seedRepoFiles, "s", false, "")
 	flag.BoolVar(&seedRepoFiles, "seed-repo", false, "")
-	flag.BoolVar(&config.allowDeletions, "allow-deletions", false, "")
-	flag.BoolVar(&config.runInstallCommands, "install", false, "")
-	flag.BoolVar(&config.forceEnabled, "force", false, "")
-	flag.BoolVar(&config.disableReloads, "disable-reloads", false, "")
-	flag.BoolVar(&config.disableSudo, "disable-privilege-escalation", false, "")
-	flag.BoolVar(&config.ignoreDeploymentState, "ignore-deployment-state", false, "")
-	flag.BoolVar(&config.regexEnabled, "regex", false, "")
+	flag.BoolVar(&config.options.allowDeletions, "allow-deletions", false, "")
+	flag.BoolVar(&config.options.runInstallCommands, "install", false, "")
+	flag.BoolVar(&config.options.forceEnabled, "force", false, "")
+	flag.BoolVar(&config.options.disableReloads, "disable-reloads", false, "")
+	flag.BoolVar(&config.options.disableSudo, "disable-privilege-escalation", false, "")
+	flag.BoolVar(&config.options.ignoreDeploymentState, "ignore-deployment-state", false, "")
+	flag.BoolVar(&config.options.regexEnabled, "regex", false, "")
 	flag.StringVar(&config.logFilePath, "log-file", "", "")
 	flag.BoolVar(&versionInfoRequested, "V", false, "")
 	flag.BoolVar(&versionInfoRequested, "version", false, "")

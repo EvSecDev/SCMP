@@ -50,9 +50,9 @@ func TestFilterHostsAndFiles(t *testing.T) {
 				endpointName:    "host5",
 			},
 		},
-		universalDirectory:    "UniversalConfs",
-		allUniversalGroups:    map[string][]string{"UniversalConfs_Service1": {"host"}},
-		ignoreDeploymentState: false,
+		universalDirectory: "UniversalConfs",
+		allUniversalGroups: map[string][]string{"UniversalConfs_Service1": {"host"}},
+		options:            Opts{ignoreDeploymentState: false},
 	}
 
 	// Test cases
@@ -248,7 +248,7 @@ func TestHandleFileDependencies(t *testing.T) {
 	testCases := []struct {
 		name                string
 		hostDeploymentFiles []string
-		allFileInfo         map[string]FileInfo
+		allFileMeta         map[string]FileInfo
 		expected            []string
 		expectErr           bool
 		expectedNoOutput    bool
@@ -256,7 +256,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "Correct lexicography order",
 			hostDeploymentFiles: []string{"aaaa", "452dddd", "043cccc", "001bbbb", "010ffff", "002eeee"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"010ffff": {
 					dependencies: []string{"043cccc", "452dddd"},
 				},
@@ -282,7 +282,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "Correct lexicography order different input order",
 			hostDeploymentFiles: []string{"043cccc", "aaaa", "010ffff", "001bbbb", "002eeee", "452dddd"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"aaaa": {
 					dependencies: []string{"010ffff"},
 				},
@@ -308,7 +308,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "Valid dependency order",
 			hostDeploymentFiles: []string{"file1", "file2", "file3", "file4", "file5"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"file1": {
 					dependencies: []string{"file2", "file3"},
 				},
@@ -331,7 +331,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "Valid dependency order different input order",
 			hostDeploymentFiles: []string{"file2", "file5", "file4", "file3", "file1"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"file1": {
 					dependencies: []string{"file2", "file3"},
 				},
@@ -354,7 +354,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "Valid dependency order Real Paths",
 			hostDeploymentFiles: []string{"/etc/hosts", "/etc/apt/sources.list", "/etc/rsyslog.conf", "/etc/nginx/nginx.conf", "/etc/resolv.conf", "/etc/network/interfaces", "/etc/apt/apt.conf.d/00aptproxy"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"/etc/nginx/nginx.conf": {
 					dependencies: []string{"/etc/apt/sources.list"},
 				},
@@ -383,7 +383,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "Non-Present Dependencies",
 			hostDeploymentFiles: []string{"/etc/rsyslog.conf", "/etc/nginx/nginx.conf", "/etc/apt/sources.list"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"/etc/nginx/nginx.conf": {
 					dependencies: []string{"/etc/apt/sources.list"},
 				},
@@ -400,7 +400,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "Circular dependency",
 			hostDeploymentFiles: []string{"file1", "file2", "file3", "file4"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"file1": {
 					dependencies: []string{"file2"},
 				},
@@ -421,7 +421,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "Circular dependency larger loop",
 			hostDeploymentFiles: []string{"file4", "file2", "file1", "file3", "file5", "file6"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"file1": {
 					dependencies: []string{"file2"},
 				},
@@ -448,7 +448,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "No dependencies",
 			hostDeploymentFiles: []string{"file3", "file2", "file1"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"file1": {
 					dependencies: []string{},
 				},
@@ -465,7 +465,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "Single file with dependencies",
 			hostDeploymentFiles: []string{"file1", "file2"},
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"file1": {
 					dependencies: []string{"file2"},
 				},
@@ -479,7 +479,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		{
 			name:                "No input",
 			hostDeploymentFiles: []string{},
-			allFileInfo:         map[string]FileInfo{},
+			allFileMeta:         map[string]FileInfo{},
 			expected:            []string{},
 			expectErr:           false,
 			expectedNoOutput:    false,
@@ -489,7 +489,7 @@ func TestHandleFileDependencies(t *testing.T) {
 	// Loop over all test cases
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
-			result, err := handleFileDependencies(test.hostDeploymentFiles, test.allFileInfo)
+			result, err := handleFileDependencies(test.hostDeploymentFiles, test.allFileMeta)
 
 			// Check: error, output array, and output validity
 			if test.expectedNoOutput && result != nil {

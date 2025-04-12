@@ -74,7 +74,7 @@ func compareStringSlices(a, b map[string]int) bool {
 func TestGroupFilesByReloads(t *testing.T) {
 	tests := []struct {
 		name               string
-		allFileInfo        map[string]FileInfo
+		allFileMeta        map[string]FileInfo
 		repoFilePaths      []string
 		reloadIDtoRepoFile map[string][]string
 		repoFileToReloadID map[string]string
@@ -82,7 +82,7 @@ func TestGroupFilesByReloads(t *testing.T) {
 	}{
 		{
 			name: "files with reload and no reload",
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"file1": {reloadRequired: true, reload: []string{"cmd50", "cmd51", "cmd52"}},
 				"file2": {reloadRequired: true, reload: []string{"cmd40", "cmd41"}},
 				"file3": {reloadRequired: false, reload: nil},
@@ -103,7 +103,7 @@ func TestGroupFilesByReloads(t *testing.T) {
 		},
 		{
 			name: "all files with the same reload command",
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"file1": {reloadRequired: true, reload: []string{"cmd30", "cmd32", "cmd^$"}},
 				"file2": {reloadRequired: true, reload: []string{"cmd30", "cmd32", "cmd^$"}},
 				"file3": {reloadRequired: false, reload: nil},
@@ -122,7 +122,7 @@ func TestGroupFilesByReloads(t *testing.T) {
 		},
 		{
 			name: "no files with reload commands",
-			allFileInfo: map[string]FileInfo{
+			allFileMeta: map[string]FileInfo{
 				"file1": {reloadRequired: false, reload: nil},
 				"file2": {reloadRequired: false, reload: nil},
 			},
@@ -133,7 +133,7 @@ func TestGroupFilesByReloads(t *testing.T) {
 		},
 		{
 			name:               "empty input",
-			allFileInfo:        map[string]FileInfo{},
+			allFileMeta:        map[string]FileInfo{},
 			repoFilePaths:      []string{},
 			reloadIDtoRepoFile: map[string][]string{},
 			repoFileToReloadID: map[string]string{}, // No files
@@ -144,7 +144,7 @@ func TestGroupFilesByReloads(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Call the function being tested
-			reloadIDtoRepoFile, repoFileToReloadID, reloadIDfileCount := groupFilesByReloads(test.allFileInfo, test.repoFilePaths)
+			reloadIDtoRepoFile, repoFileToReloadID, reloadIDfileCount := groupFilesByReloads(test.allFileMeta, test.repoFilePaths)
 
 			if !compareMaps(reloadIDtoRepoFile, test.reloadIDtoRepoFile) {
 				t.Errorf("expected repoFileToReloadID: %v, got: %v", test.reloadIDtoRepoFile, reloadIDtoRepoFile)
@@ -335,8 +335,8 @@ func TestCheckForReload(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Override global config variables based on the test case
-			config.disableReloads = test.disableReloads
-			config.forceEnabled = test.forceEnabled
+			config.options.disableReloads = test.disableReloads
+			config.options.forceEnabled = test.forceEnabled
 
 			clearedToReload := checkForReload(test.endpointName, test.totalDeployedReloadFiles, test.reloadIDfileCount, test.reloadID, test.remoteModified)
 

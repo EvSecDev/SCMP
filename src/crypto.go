@@ -79,7 +79,7 @@ func modifyVault(endpointName string) (err error) {
 
 		// Confirm with user before deleting vault entry
 		var userResponse string
-		if config.allowDeletions {
+		if config.options.allowDeletions {
 			userResponse = "y"
 		} else {
 			userResponse, err = promptUser("Please type 'y' to delete vault host '%s': ", endpointName)

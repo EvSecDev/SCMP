@@ -68,13 +68,13 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		return
 	}
 
-	allFileInfo, allFileData, err := loadFiles(allDeploymentFiles, tree)
+	allFileMeta, allFileData, err := loadFiles(allDeploymentFiles, tree)
 	logError("Error loading files", err, true)
 
 	// Correct order of file deployment to account for file dependency
 	for _, host := range allDeploymentHosts {
 		// Reorder deployment list
-		newDeploymentFiles, err := handleFileDependencies(config.hostInfo[host].deploymentFiles, allFileInfo)
+		newDeploymentFiles, err := handleFileDependencies(config.hostInfo[host].deploymentFiles, allFileMeta)
 		logError("Failed to resolve file dependencies", err, true)
 
 		// Save back to global
@@ -86,13 +86,13 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	err = localSystemChecks()
 	logError("Error in local system checks", err, true)
 
-	printMessage(verbosityStandard, "Beginning deployment of %d files(s) to %d host(s)\n", len(allFileInfo), len(allDeploymentHosts))
+	printMessage(verbosityStandard, "Beginning deployment of %d files(s) to %d host(s)\n", len(allFileMeta), len(allDeploymentHosts))
 
 	// Post deployment metrics
 	postDeployMetrics := &PostDeploymentMetrics{}
 
 	// Semaphore to limit concurrency of host deployment go routines as specified in main config
-	semaphore := make(chan struct{}, config.maxSSHConcurrency)
+	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
 
 	// Retrieve keys and passwords for any hosts that require it
 	for _, endpointName := range allDeploymentHosts {
@@ -120,10 +120,10 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		// If requesting multithreaded deployment, start go routine, otherwise run without concurrency
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
-		if config.maxSSHConcurrency > 1 {
-			go sshDeploy(&wg, semaphore, hostInfo, proxyInfo, allFileInfo, allFileData, postDeployMetrics)
+		if config.options.maxSSHConcurrency > 1 {
+			go sshDeploy(&wg, semaphore, hostInfo, proxyInfo, allFileMeta, allFileData, postDeployMetrics)
 		} else {
-			sshDeploy(&wg, semaphore, hostInfo, proxyInfo, allFileInfo, allFileData, postDeployMetrics)
+			sshDeploy(&wg, semaphore, hostInfo, proxyInfo, allFileMeta, allFileData, postDeployMetrics)
 			if failTracker.buffer.Len() > 0 {
 				// Deployment error occured, don't continue with deployments
 				break
@@ -143,7 +143,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 	// If user requested dry run - print collected information
 	if dryRunRequested {
-		printDeploymentInformation(allFileInfo, allDeploymentHosts)
+		printDeploymentInformation(allFileMeta, allDeploymentHosts)
 		return
 	}
 

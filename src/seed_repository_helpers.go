@@ -138,7 +138,7 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 			printMessage(verbosityData, "  Recursing into directory '%s' for all files\n", absolutePath)
 
 			command := RemoteCommand{"find '" + absolutePath + "' -type f"}
-			findOutput, err := command.SSHexec(client, "", config.disableSudo, sudoPassword, 120)
+			findOutput, err := command.SSHexec(client, "", config.options.disableSudo, sudoPassword, 120)
 			if err != nil {
 				return
 			}
@@ -361,7 +361,7 @@ func writeNewDirectoryTreeMetadata(endpointName string, remoteFilePath string, c
 
 		command := buildStat(remoteDirPath)
 		var directoryMetadata string
-		directoryMetadata, err = command.SSHexec(client, "root", config.disableSudo, SudoPassword, 10)
+		directoryMetadata, err = command.SSHexec(client, "root", config.options.disableSudo, SudoPassword, 10)
 		if err != nil {
 			err = fmt.Errorf("ssh command failure: %v", err)
 			return
@@ -374,7 +374,7 @@ func writeNewDirectoryTreeMetadata(endpointName string, remoteFilePath string, c
 		if err != nil {
 			return
 		}
-		if metadata.fsType != dir {
+		if metadata.fsType != dirType {
 			printMessage(verbosityProgress, "Warning: expected remote path to be directory, but got type '%s' instead", metadata.fsType)
 			continue
 		}

@@ -64,7 +64,7 @@ func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command strin
 
 	// Execute user command
 	rawCmd := RemoteCommand{command}
-	commandOutput, err := rawCmd.SSHexec(client, "", config.disableSudo, hostInfo.password, 900)
+	commandOutput, err := rawCmd.SSHexec(client, "", config.options.disableSudo, hostInfo.password, 900)
 	logError("Command Failed", err, false)
 
 	// Show command output
@@ -111,7 +111,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 	printMessage(verbosityStandard, "Executing script '%s'\n", localScriptFilePath)
 
 	// Semaphore to limit concurrency of host connections go routines as specified in main config
-	semaphore := make(chan struct{}, config.maxSSHConcurrency)
+	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
 
 	if dryRunRequested {
 		// Notify user that program is in dry run mode
@@ -156,7 +156,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 
 		// Upload and execute the script - disable concurrency if maxconns is 1
 		wg.Add(1)
-		if config.maxSSHConcurrency > 1 {
+		if config.options.maxSSHConcurrency > 1 {
 			go executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 		} else {
 			executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)

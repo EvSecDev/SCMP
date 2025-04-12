@@ -64,7 +64,7 @@ func TestCheckForOverride(t *testing.T) {
 
 	for _, test := range tests {
 		// Mock global for this test
-		config.regexEnabled = test.useRegex
+		config.options.regexEnabled = test.useRegex
 
 		testTitle := fmt.Sprintf("Available Items:'%s'-Current Item:'%s'", test.override, test.current)
 		t.Run(testTitle, func(t *testing.T) {
@@ -441,7 +441,7 @@ func TestValidateRepoFile(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.path, func(t *testing.T) {
-			skipFile := repoFileIsValid(test.path)
+			skipFile := repoFileIsNotValid(test.path)
 			if skipFile != test.expected.skipFile {
 				t.Errorf("expected skipFile to be %t, got %t", test.expected.skipFile, skipFile)
 			}

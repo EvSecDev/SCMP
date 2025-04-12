@@ -40,7 +40,7 @@ func (metric *PostDeploymentMetrics) updateCount(deployedFiles int, deployedByte
 // Assigns unique groups for file reload commands
 // Returns a map keyed on repo file path and its reload group ID
 // Returns a total count of files per reload group ID
-func groupFilesByReloads(allFileInfo map[string]FileInfo, repoFilePaths []string) (reloadIDtoRepoFile map[string][]string, repoFileToReloadID map[string]string, reloadIDfileCount map[string]int) {
+func groupFilesByReloads(allFileMeta map[string]FileInfo, repoFilePaths []string) (reloadIDtoRepoFile map[string][]string, repoFileToReloadID map[string]string, reloadIDfileCount map[string]int) {
 	// Initialize maps
 	reloadIDtoRepoFile = make(map[string][]string)
 	repoFileToReloadID = make(map[string]string)
@@ -48,9 +48,9 @@ func groupFilesByReloads(allFileInfo map[string]FileInfo, repoFilePaths []string
 
 	// Loop deployment files
 	for _, repoFilePath := range repoFilePaths {
-		if allFileInfo[repoFilePath].reloadRequired {
+		if allFileMeta[repoFilePath].reloadRequired {
 			// Create an ID based on the command array to uniquely identify the group that files will belong to
-			reloadCommands := fmt.Sprintf("%v", allFileInfo[repoFilePath].reload)
+			reloadCommands := fmt.Sprintf("%v", allFileMeta[repoFilePath].reload)
 			reloadCmdID := base64.StdEncoding.EncodeToString([]byte(reloadCommands))
 
 			// Add file to reload ID map
@@ -70,7 +70,7 @@ func groupFilesByReloads(allFileInfo map[string]FileInfo, repoFilePaths []string
 // Only compares hashes, owner+group, and permission bits
 func checkForDiff(remoteMetadata RemoteFileInfo, localMetadata FileInfo) (contentDiffers bool, metadataDiffers bool) {
 	// If user requested force, return early, as deployment will be atomic
-	if config.forceEnabled {
+	if config.options.forceEnabled {
 		contentDiffers = true
 		metadataDiffers = true
 		return
@@ -124,7 +124,7 @@ func initBackupDirectory(host HostMeta) (err error) {
 
 	// Create backup directory
 	command := buildMkdir(host.backupPath)
-	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 	if err != nil {
 		// Since we blindly try to create the directory, ignore errors about it already existing
 		if strings.Contains(strings.ToLower(err.Error()), "file exists") {
@@ -141,7 +141,7 @@ func runCheckCommands(host HostMeta, localMetadata FileInfo) (err error) {
 			printMessage(verbosityData, "Host %s:   Running check command '%s'\n", host.name, command)
 
 			command := RemoteCommand{command}
-			_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+			_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 90)
 			if err != nil {
 				return
 			}
@@ -151,12 +151,12 @@ func runCheckCommands(host HostMeta, localMetadata FileInfo) (err error) {
 }
 
 func runInstallationCommands(host HostMeta, localMetadata FileInfo) (err error) {
-	if localMetadata.installOptional && config.runInstallCommands {
+	if localMetadata.installOptional && config.options.runInstallCommands {
 		for _, command := range localMetadata.install {
 			printMessage(verbosityData, "Host %s:   Running install command '%s'\n", host.name, command)
 
 			command := RemoteCommand{command}
-			_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 180)
+			_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 180)
 			if err != nil {
 				return
 			}
@@ -173,7 +173,7 @@ func runReloadCommands(host HostMeta, reloadCommands []string) (err error) {
 		printMessage(verbosityProgress, "Host %s:     Running reload command '%s'\n", host.name, command)
 
 		rawCmd := RemoteCommand{command}
-		_, err = rawCmd.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+		_, err = rawCmd.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 90)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during reload command %s: %v", command, err)
 			return
@@ -207,7 +207,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 
 	// Get Hash of new deployed conf file
 	command := buildHashCmd(targetFilePath)
-	commandOutput, err := command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+	commandOutput, err := command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during hash of deployed file: %v", err)
 		return
@@ -245,7 +245,7 @@ func getOldRemoteInfo(host HostMeta, targetPath string) (remoteMetadata RemoteFi
 	if err != nil {
 		return
 	}
-	if remoteMetadata.fsType != file && remoteMetadata.fsType != dir && remoteMetadata.fsType != fileEmpty {
+	if remoteMetadata.fsType != fileType && remoteMetadata.fsType != dirType && remoteMetadata.fsType != fileEmptyType {
 		err = fmt.Errorf("expected remote path to be file or directory, but got type '%s' instead", remoteMetadata.fsType)
 		return
 	}
@@ -254,11 +254,11 @@ func getOldRemoteInfo(host HostMeta, targetPath string) (remoteMetadata RemoteFi
 	remoteMetadata.name = targetPath
 
 	// Only hash if its a file
-	if remoteMetadata.fsType == file || remoteMetadata.fsType == fileEmpty {
+	if remoteMetadata.fsType == fileType || remoteMetadata.fsType == fileEmptyType {
 		// Get the SHA256 hash of the remote old conf file
 		command := buildHashCmd(targetPath)
 		var commandOutput string
-		commandOutput, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+		commandOutput, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 90)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err)
 			return
@@ -289,7 +289,7 @@ func backupOldFile(host HostMeta, remoteMetadata RemoteFileInfo) (err error) {
 
 	// Backup old config
 	command := buildCp(remoteMetadata.name, tmpBackupFilePath)
-	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("error making backup of old config file: %v", err)
 		return
@@ -313,20 +313,20 @@ func restoreOldFile(host HostMeta, targetFilePath string, remoteMetadata RemoteF
 
 	// Move backup conf into place
 	command := buildMv(backupFilePath, targetFilePath)
-	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
 		return
 	}
 	command = buildChmod(targetFilePath, remoteMetadata.permissions)
-	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
 		return
 	}
 	targetRemoteOwnerGroup := remoteMetadata.owner + ":" + remoteMetadata.group
 	command = buildChown(targetFilePath, targetRemoteOwnerGroup)
-	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
 		return
@@ -334,7 +334,7 @@ func restoreOldFile(host HostMeta, targetFilePath string, remoteMetadata RemoteF
 
 	// Check to make sure restore worked with hash
 	command = buildHashCmd(targetFilePath)
-	commandOutput, err := command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 90)
+	commandOutput, err := command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 90)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err)
 		return
@@ -356,7 +356,7 @@ func restoreOldFile(host HostMeta, targetFilePath string, remoteMetadata RemoteF
 // Also retrieve metadata for file/dir
 func checkRemoteFileDirExistence(sshClient *ssh.Client, remotePath string, SudoPassword string) (exists bool, statOutput string, err error) {
 	command := buildStat(remotePath)
-	statOutput, err = command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 10)
+	statOutput, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		exists = false
 		if strings.Contains(err.Error(), "No such file or directory") {
@@ -381,7 +381,7 @@ func transferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath
 	}
 	if !directoryExists {
 		command := buildMkdir(directoryPath)
-		_, err = command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 10)
+		_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
 		if err != nil {
 			err = fmt.Errorf("failed to create directory: %v", err)
 			return
@@ -396,7 +396,7 @@ func transferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath
 
 	// Ensure owner/group are correct
 	command := buildChown(tmpRemoteFilePath, fileOwnerGroup)
-	_, err = command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 10)
+	_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
 		return
@@ -404,7 +404,7 @@ func transferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath
 
 	// Ensure permissions are correct
 	command = buildChmod(tmpRemoteFilePath, filePermissions)
-	_, err = command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 10)
+	_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
 		return
@@ -412,7 +412,7 @@ func transferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath
 
 	// Move file from tmp dir to actual deployment path
 	command = buildMv(tmpRemoteFilePath, remoteFilePath)
-	_, err = command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 30)
+	_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 30)
 	if err != nil {
 		err = fmt.Errorf("failed to move new file into place: %v", err)
 		return
@@ -429,7 +429,7 @@ func deleteFile(host HostMeta, targetFilePath string) (fileDeleted bool, err err
 
 	// Attempt remove file
 	command := buildRm(targetFilePath)
-	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 30)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 30)
 	if err != nil {
 		// Real errors only if file was present to begin with
 		if !strings.Contains(strings.ToLower(err.Error()), "no such file or directory") {
@@ -446,16 +446,16 @@ func deleteFile(host HostMeta, targetFilePath string) (fileDeleted bool, err err
 
 	// Danger Zone: Remove empty parent dirs
 	targetPath := filepath.Dir(targetFilePath)
-	for i := 0; i < maxDirectoryLoopCount; i++ {
+	for range maxDirectoryLoopCount {
 		// Check for presence of anything in dir
 		command = buildLs(targetPath)
-		commandOutput, _ := command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
+		commandOutput, _ := command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 
 		// Empty stdout means empty dir
 		if commandOutput == "" {
 			// Safe remove directory
 			command = buildRmdir(targetPath)
-			_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 30)
+			_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 30)
 			if err != nil {
 				// Error breaks loop
 				err = fmt.Errorf("failed to remove empty parent directory '%s' for file '%s': %v", targetPath, targetFilePath, err)
@@ -494,7 +494,7 @@ func deploySymLink(host HostMeta, linkName string, linkTarget string) (linkModif
 		}
 
 		// Error if the remote file is not a link
-		if oldMetadata.fsType != symlink {
+		if oldMetadata.fsType != symlinkType {
 			err = fmt.Errorf("file already exists where symbolic link is supposed to be created")
 			return
 		}
@@ -507,7 +507,7 @@ func deploySymLink(host HostMeta, linkName string, linkTarget string) (linkModif
 
 	// Create symbolic link
 	command := buildLink(linkName, linkTarget)
-	_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("failed to create symbolic link: %v", err)
 		return
@@ -547,7 +547,7 @@ func deployFile(host HostMeta, repoFilePath string, localMetadata FileInfo, allF
 		printMessage(verbosityData, "Host %s:   File '%s' is empty and does not exist on remote, creating\n", host.name, targetFilePath)
 
 		command := buildTouch(localMetadata.targetFilePath)
-		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
+		_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("unable to create empty file: %v", err)
 			return
@@ -614,7 +614,7 @@ func deployDirectory(host HostMeta, dirInfo FileInfo) (dirModified bool, remoteM
 		printMessage(verbosityData, "Host %s:   Directory '%s' is missing, creating...\n", host.name, targetDirPath)
 
 		command := buildMkdir(targetDirPath)
-		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
+		_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 		if err != nil {
 			return
 		}
@@ -656,7 +656,7 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 		printMessage(verbosityFullData, "Host %s:    File '%s': changing permissions\n", host.name, localMetadata.targetFilePath)
 
 		command := buildChmod(localMetadata.targetFilePath, localMetadata.permissions)
-		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
+		_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
 			return
@@ -669,7 +669,7 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 		printMessage(verbosityFullData, "Host %s:    File '%s': changing ownership\n", host.name, localMetadata.targetFilePath)
 
 		command := buildChown(localMetadata.targetFilePath, localMetadata.ownerGroup)
-		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
+		_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
 			return
@@ -693,13 +693,13 @@ func checkForReload(endpointName string, totalDeployedReloadFiles map[string]int
 	}
 
 	// User requested force disable of reloads
-	if config.disableReloads {
+	if config.options.disableReloads {
 		printMessage(verbosityProgress, "Host %s:   Force disabling reloads by user request\n", endpointName)
 		executeReloads = false
 	}
 
 	// User requested force enable reloads
-	if config.forceEnabled {
+	if config.options.forceEnabled {
 		printMessage(verbosityProgress, "Host %s:   Force enabling reloads by user request\n", endpointName)
 		executeReloads = true
 	}
@@ -719,7 +719,7 @@ func cleanupRemote(host HostMeta) {
 
 	// Cleanup temporary files
 	command := buildRmAll(host.transferBufferFile, host.backupPath)
-	_, err := command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 30)
+	_, err := command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 30)
 	if err != nil {
 		// Only print error if there was a file to remove in the first place
 		if !strings.Contains(err.Error(), "No such file or directory") {

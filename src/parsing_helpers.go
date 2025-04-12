@@ -82,7 +82,7 @@ func retrieveURIFile(input string) (csv string, err error) {
 func checkForOverride(override string, current string) (skip bool) {
 	// If input is a host and state is offline and user did not request deployment state override, then skip
 	_, inputCheckIsAHost := config.hostInfo[current]
-	if inputCheckIsAHost && config.hostInfo[current].deploymentState == "offline" && !config.ignoreDeploymentState {
+	if inputCheckIsAHost && config.hostInfo[current].deploymentState == "offline" && !config.options.ignoreDeploymentState {
 		skip = true
 		return
 	}
@@ -106,7 +106,7 @@ func checkForOverride(override string, current string) (skip bool) {
 	// Check each override specified against current
 	for userChoice := range userHostChoices {
 		// Only assume override choice is regex if user requested it
-		if config.regexEnabled {
+		if config.options.regexEnabled {
 			// Prepare user choice as regex
 			userRegex, err := regexp.Compile(userChoice)
 			if err != nil {
@@ -313,7 +313,7 @@ func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string
 	}
 
 	// Ensure file is valid against config
-	if repoFileIsValid(path) {
+	if repoFileIsNotValid(path) {
 		// Not valid, skip
 		skipFile = true
 		return
@@ -330,10 +330,10 @@ func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string
 //  3. A top-level directory name that is the a valid universal config group as in UniversalGroups
 //  4. A file inside any directory (i.e. not a file just in root of repo)
 //  5. A file not inside any of the IgnoreDirectories
-func repoFileIsValid(path string) (fileIsValid bool) {
+func repoFileIsNotValid(path string) (fileIsNotValid bool) {
 	// Always ignore files in root of repository
 	if !strings.ContainsRune(path, []rune(config.osPathSeparator)[0]) {
-		fileIsValid = true
+		fileIsNotValid = true
 		printMessage(verbosityData, "    File is in root of repo, skipping\n")
 		return
 	}
@@ -347,7 +347,7 @@ func repoFileIsValid(path string) (fileIsValid bool) {
 		// When committed file directory is prefixed by an ignore directory, skip file
 		for _, ignoreDir := range config.ignoreDirectories {
 			if topLevelDir == ignoreDir {
-				fileIsValid = true
+				fileIsNotValid = true
 				printMessage(verbosityData, "    File is in an ignore directory, skipping\n")
 				return
 			}
@@ -359,20 +359,20 @@ func repoFileIsValid(path string) (fileIsValid bool) {
 		// file top-level dir is a valid host or the universal directory
 		if topLevelDir == configHost || topLevelDir == config.universalDirectory {
 			printMessage(verbosityData, "    File is valid (Dir matches Hostname or is Universal Dir)\n")
-			fileIsValid = false
+			fileIsNotValid = false
 			return
 		}
-		fileIsValid = true
+		fileIsNotValid = true
 	}
 	_, fileIsInUniversalGroup := config.allUniversalGroups[topLevelDir]
 	if fileIsInUniversalGroup {
 		printMessage(verbosityData, "    File is valid (Dir matches a Universal Group Dir)\n")
-		fileIsValid = false
+		fileIsNotValid = false
 		return
 	}
 
 	printMessage(verbosityData, "    File is not under a valid host directory or a universal directory, skipping\n")
-	fileIsValid = true
+	fileIsNotValid = true
 	return
 }
 
@@ -746,47 +746,46 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 	_, info.targetFilePath = translateLocalPathtoRemotePath(repoFilePath)
 	info.ownerGroup = json.TargetFileOwnerGroup
 	info.permissions = json.TargetFilePermissions
+
 	_, info.linkTarget = translateLocalPathtoRemotePath(json.SymbolicLinkTarget)
 	if info.linkTarget != "" {
 		info.action = "symlinkCreate"
 	}
+
 	if fileSize > 0 {
-		// Save file size if content is present
 		info.fileSize = fileSize
 	}
+
 	info.reload = json.ReloadCommands
 	if len(info.reload) > 0 {
-		// Reload commands are present, set bool to true
 		info.reloadRequired = true
 		macroToValue(repoFilePath, &info.reload)
 	} else {
-		// Reload commands are not present, set to false
 		info.reloadRequired = false
 	}
+
 	info.checks = json.CheckCommands
 	if len(info.checks) > 0 {
-		// Check commands are present, set bool to true
 		info.checksRequired = true
 		macroToValue(repoFilePath, &info.checks)
 	} else {
-		// Check commands are not present, set to false
 		info.checksRequired = false
 	}
+
 	info.install = json.InstallCommands
 	if len(info.install) > 0 {
-		// Install commands are present, set bool to true
 		info.installOptional = true
 		macroToValue(repoFilePath, &info.install)
 	} else {
-		// Install commands are not present, set to false
 		info.installOptional = false
 	}
+
 	info.dependencies = json.Dependencies
 	if len(info.dependencies) > 0 {
 		macroToValue(repoFilePath, &info.dependencies)
 	}
+
 	if len(contentHash) > 0 {
-		// Save hash of the files contents if present
 		info.hash = contentHash
 	}
 

@@ -133,7 +133,7 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 	}
 
 	// Check maxconns is valid
-	if config.maxSSHConcurrency == 0 {
+	if config.options.maxSSHConcurrency == 0 {
 		err = fmt.Errorf("max connections cannot be 0")
 		return
 	}

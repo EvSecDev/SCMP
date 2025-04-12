@@ -143,7 +143,7 @@ Secure Configuration Management Program (SCMP)
         --allow-deletions                          Allows deletions (remote files or vault entires)
                                                    Only applies to '--deploy-changes' or '--modify-vault-password'
         --install                                  Runs installation commands in config files metadata JSON header
-                                                   Commands are run before file deployments (before checks)
+                                                   Commands are run before file deployments (after checks)
         --force                                    Ignores checks and runs atomically
                                                    Forces writes and reloads of deployment files
         --disable-reloads                          Disables execution of reload commands for this deployment
