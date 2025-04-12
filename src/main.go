@@ -100,7 +100,7 @@ type EndpointInfo struct {
 }
 
 type Credential struct {
-	LoginUserPassword string `json:"loginUserPassword"`
+	LoginUserPassword string `json:"loginUserPassword"` // For secrets vault
 }
 
 // Struct for metadata json in config files
@@ -108,16 +108,17 @@ type MetaHeader struct {
 	TargetFileOwnerGroup    string   `json:"FileOwnerGroup"`
 	TargetFilePermissions   int      `json:"FilePermissions"`
 	ExternalContentLocation string   `json:"ExternalContentLocation,omitempty"`
+	SymbolicLinkTarget      string   `json:"SymbolicLinkTarget,omitempty"`
 	Dependencies            []string `json:"Dependencies,omitempty"`
 	InstallCommands         []string `json:"Install,omitempty"`
 	CheckCommands           []string `json:"Checks,omitempty"`
 	ReloadCommands          []string `json:"Reload,omitempty"`
 }
 
-// Struct for all deployment info for a file
+// Struct for deployment file metadata
 type FileInfo struct {
 	hash            string
-	name            string
+	targetFilePath  string
 	action          string
 	ownerGroup      string
 	permissions     int
@@ -132,7 +133,7 @@ type FileInfo struct {
 	reload          []string
 }
 
-// Holds metadata about remote files
+// Struct for remote file metadata
 type RemoteFileInfo struct {
 	hash        string
 	name        string
@@ -145,7 +146,7 @@ type RemoteFileInfo struct {
 	exists      bool
 }
 
-// Store deployment host metadata to easily pass between SSH functions
+// Deployment host metadata to easily pass between SSH functions
 type HostMeta struct {
 	name               string
 	password           string
@@ -243,7 +244,6 @@ func main() {
 	var gitStatusRequested bool
 	var gitCommitRequested string
 
-	// Help Menu
 	const usage = `
 Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
@@ -312,7 +312,7 @@ Secure Configuration Management Program (SCMP)
   SCMP home page: <https://github.com/EvSecDev/SCMP>
   General help using GNU software: <https://www.gnu.org/gethelp/>
 `
-	// Read Program Arguments - allowing both short and long args
+	// Read Program Arguments
 	flag.StringVar(&sshConfigPath, "c", defaultConfigPath, "")
 	flag.StringVar(&sshConfigPath, "config", defaultConfigPath, "")
 	flag.BoolVar(&deployChangesRequested, "d", false, "")
@@ -364,12 +364,10 @@ Secure Configuration Management Program (SCMP)
 	flag.BoolVar(&installDefaultConfig, "install-default-config", false, "") // Install the sample config file if it doesn't exist
 	flag.BoolVar(&installAAProf, "install-apparmor-profile", false, "")      // Install the profile if system supports it
 
-	// Custom help menu
 	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...%s", os.Args[0], usage) }
 	flag.Parse()
 
-	// Meta info print out
-	const progVersion string = "v4.4.5"
+	const progVersion string = "v4.5.0"
 	if versionInfoRequested {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
@@ -381,21 +379,17 @@ Secure Configuration Management Program (SCMP)
 		return
 	}
 
-	// Global regex
 	SHA256RegEx = regexp.MustCompile(`^[a-fA-F0-9]{64}`)
 	SHA1RegEx = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 
-	// Quick attempt at installing apparmor profile - failures are not printed under normal verbosity
 	if installAAProf {
 		installAAProfile()
 		return
 	}
-	// Install sample SSH config if it doesn't already exist
 	if installDefaultConfig {
 		installDefaultSSHConfig()
 		return
 	}
-	// New repository creation if requested
 	if createNewRepo != "" {
 		createNewRepository(createNewRepo)
 		return
@@ -407,11 +401,10 @@ Secure Configuration Management Program (SCMP)
 		logError("Failed to commit changes", err, false)
 	}
 
-	// Retrieve configuration options - file path is global
 	err := config.extractOptions(sshConfigPath)
 	logError("Error in controller configuration", err, true)
 
-	// Retrieve any files specified by URI by override arguments
+	// Pull contents of out file URIs
 	hostOverride, err = retrieveURIFile(hostOverride)
 	logError("Failed to parse remove-hosts URI", err, true)
 	remoteFileOverride, err = retrieveURIFile(remoteFileOverride)
@@ -421,14 +414,11 @@ Secure Configuration Management Program (SCMP)
 
 	// Parse User Choices - see function comment for what each does
 	if testConfig {
-		// If user wants to test config, just exit once program gets to this point (errors will quit the program earlier)
 		printMessage(verbosityStandard, "controller: configuration file %s test is successful\n", config.filePath)
 	} else if gitStatusRequested {
-		// Retrieve working tree
 		_, status, err := gitOpenCWD()
 		logError("Failed to retrieve worktree status", err, false)
 
-		// Print staged changes
 		if status.IsClean() {
 			printMessage(verbosityStandard, "no changes, working tree clean\n")
 		} else if !status.IsClean() {

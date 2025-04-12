@@ -47,17 +47,17 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 		from, to := file.Files()
 
 		// Declare vars
-		var fromPath, toPath, commitFileToType string
+		var fromPath, toPath string
 		var SkipToFile bool
 
 		// Validate the from File object
-		fromPath, _, _, err = validateCommittedFiles(from, fileOverride)
+		fromPath, _, err = validateCommittedFiles(from, fileOverride)
 		if err != nil {
 			return
 		}
 
 		// Validate the to File object
-		toPath, commitFileToType, SkipToFile, err = validateCommittedFiles(to, fileOverride)
+		toPath, SkipToFile, err = validateCommittedFiles(to, fileOverride)
 		if err != nil {
 			return
 		}
@@ -149,20 +149,6 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 			// Anything else - no idea why this would happen
 			commitFiles[fromPath] = "unsupported"
 		}
-
-		// Check for new symbolic links and add target file in actions for creation on remote hosts
-		if commitFileToType == "symlink" && commitFiles[toPath] == "create" {
-			// Get the target path of the sym link target and ensure it is valid
-			var targetPath string
-			targetPath, err = ResolveLinkToTarget(toPath)
-			if err != nil {
-				err = fmt.Errorf("failed resolving symbolic link")
-				return
-			}
-
-			// Add new action to this file that includes the expected target path for the link
-			commitFiles[toPath] = "symlinkcreate to target " + targetPath
-		}
 	}
 
 	return
@@ -222,22 +208,6 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 		} else {
 			// Add repo file to the commit map with always create action
 			commitFiles[repoFilePath] = "create"
-		}
-
-		// If its a symlink - find target and add
-		fileMode := fmt.Sprintf("%v", repoFile.Mode)
-		fileType := determineFileType(fileMode)
-		if fileType == "symlink" {
-			// Get the target path of the sym link target and ensure it is valid
-			var targetPath string
-			targetPath, err = ResolveLinkToTarget(repoFilePath)
-			if err != nil {
-				err = fmt.Errorf("failed to parse symbolic link in commit: %v", err)
-				return
-			}
-
-			// Add new action to this file that includes the expected target path for the link
-			commitFiles[repoFilePath] = "symlinkcreate to target " + targetPath
 		}
 	}
 
@@ -365,20 +335,6 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 			// Add it to the deploy target files so it can be deleted during ssh
 			allFileInfo[repoFilePath] = FileInfo{action: commitFileAction}
 			continue
-		} else if strings.Contains(commitFileAction, "symlinkCreate") {
-			// Extract target path
-			targetActionArray := strings.Split(commitFileAction, " to target ")
-			if len(targetActionArray) < 2 {
-				err = fmt.Errorf("could not extract symbolic link target from value '%s'", commitFileAction)
-				return
-			}
-
-			// Ensure link targets are formatted as they would be remotely
-			_, symLinkTarget := translateLocalPathtoRemotePath(targetActionArray[1])
-
-			// Add it to the deploy target files so it can be ln'd during ssh
-			allFileInfo[repoFilePath] = FileInfo{action: "symlinkCreate", linkTarget: symLinkTarget}
-			continue
 		} else if commitFileAction != "create" && commitFileAction != "dirCreate" && commitFileAction != "dirModify" {
 			// Skip unsupported file types - safety blocker
 			continue
@@ -416,9 +372,9 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 		// Put all metadata gathered into map
 		allFileInfo[repoFilePath] = jsonToFileInfo(repoFilePath, jsonMetadata, len(fileContent), commitFileAction, contentHash)
 
-		// Put file content into map
+		// Put file content into map (do not load sym link contents)
 		_, fileContentAlreadyStored := allFileData[contentHash]
-		if !fileContentAlreadyStored {
+		if !fileContentAlreadyStored && allFileInfo[repoFilePath].action != "symlinkCreate" {
 			allFileData[contentHash] = fileContent
 		}
 	}

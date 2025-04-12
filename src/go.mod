@@ -1,6 +1,6 @@
 module controller/m/v2
 
-go 1.24.1
+go 1.24.2
 
 require (
 	github.com/bramvdbogaerde/go-scp v1.5.0

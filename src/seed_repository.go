@@ -15,23 +15,19 @@ import (
 
 // Entry point for user to select remote files to download and format into local repository
 func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
-	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
 			logError("Controller panic while seeding repository files", fmt.Errorf("%v", fatalError), false)
 		}
 	}()
 
-	// Check local system
 	err := localSystemChecks()
 	logError("Error in system checks", err, false)
 
-	// Check working dir for git repo
 	err = retrieveGitRepoPath()
 	logError("Repository Error", err, false)
 
 	if dryRunRequested {
-		// Notify user that program is in dry run mode
 		printMessage(verbosityStandard, "Requested dry-run, aborting deployment\n")
 		if globalVerbosityLevel < 2 {
 			// If not running with higher verbosity, no need to collect deployment information
@@ -48,11 +44,9 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 			continue
 		}
 
-		// Retrieve host secrests (keys,passwords)
 		config.hostInfo[endpointName], err = retrieveHostSecrets(config.hostInfo[endpointName])
 		logError("Error retrieving host secrets", err, true)
 
-		// Retrieve proxy secrets (if proxy is needed)
 		proxyName := config.hostInfo[endpointName].proxy
 		if proxyName != "" {
 			config.hostInfo[proxyName], err = retrieveHostSecrets(config.hostInfo[proxyName])
@@ -69,7 +63,6 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 			continue
 		}
 
-		// Connect to the SSH server
 		client, proxyClient, err := connectToSSH(hostInfo, proxyInfo)
 		logError("Failed connect to SSH server", err, false)
 		if proxyClient != nil {
@@ -77,10 +70,9 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 		defer client.Close()
 
-		// Run menu for user to select desired files or direct download
 		var selectedFiles []string
 		if remoteFileOverride == "" {
-			selectedFiles, err = runSelection(endpointName, client, hostInfo.password)
+			selectedFiles, err = interactiveSelection(endpointName, client, hostInfo.password)
 			logError("Error retrieving remote file list", err, false)
 		} else {
 			// Set user choices directly
@@ -91,16 +83,15 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		err = SCPUpload(client, []byte{12}, hostInfo.remoteTransferBuffer)
 		logError(fmt.Sprintf("Failed to initialize buffer file on remote host %s", endpointName), err, false)
 
-		// Download user file choices to local repo and format
 		for _, targetFilePath := range selectedFiles {
-			err = retrieveSelectedFile(targetFilePath, endpointName, client, hostInfo.password, hostInfo.remoteTransferBuffer)
+			err = handleSelectedFile(targetFilePath, endpointName, client, hostInfo.password, hostInfo.remoteTransferBuffer)
 			logError("Error seeding repository", err, false)
 		}
 	}
 }
 
 // Runs the CLI-based menu that user will use to select which files to download
-func runSelection(endpointName string, client *ssh.Client, SudoPassword string) (selectedFiles []string, err error) {
+func interactiveSelection(endpointName string, client *ssh.Client, SudoPassword string) (selectedFiles []string, err error) {
 	// Start selection at root of filesystem - '/'
 	var directoryState DirectoryState
 	directoryState.current = "/"
@@ -156,7 +147,7 @@ func runSelection(endpointName string, client *ssh.Client, SudoPassword string) 
 }
 
 // Downloads user selected files/directories and metadata and writes information to repository
-func retrieveSelectedFile(remoteFilePath string, endpointName string, client *ssh.Client, SudoPassword string, tmpRemoteFilePath string) (err error) {
+func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.Client, SudoPassword string, tmpRemoteFilePath string) (err error) {
 	// Ensure decorators from ls do not get fed into repo
 	remoteFilePath = strings.TrimSuffix(remoteFilePath, "*")
 	remoteFilePath = strings.TrimSuffix(remoteFilePath, "@")
@@ -164,7 +155,6 @@ func retrieveSelectedFile(remoteFilePath string, endpointName string, client *ss
 	// Use target file path and hosts name for repo file location
 	localFilePath := filepath.Join(endpointName, strings.ReplaceAll(remoteFilePath, "/", config.osPathSeparator))
 
-	// Retrieve metadata for user selection
 	command := buildStat(remoteFilePath)
 	statOutput, err := command.SSHexec(client, "root", config.disableSudo, SudoPassword, 10)
 	if err != nil {
@@ -178,14 +168,18 @@ func retrieveSelectedFile(remoteFilePath string, endpointName string, client *ss
 		return
 	}
 
-	// Selected is directory, save just that and return
 	if selectionMetadata.fsType == dir {
 		err = writeNewDirectoryMetadata(localFilePath, selectionMetadata)
 		return
 	}
 
-	// Copy desired file to buffer location
+	if selectionMetadata.fsType == symlink {
+		err = writeSymbolicLinkToRepo(localFilePath, selectionMetadata)
+		return
+	}
+
 	printMessage(verbosityProgress, "  File '%s': Downloading file\n", remoteFilePath)
+
 	command = RemoteCommand{"cp '" + remoteFilePath + "' '" + tmpRemoteFilePath + "'"}
 	_, err = command.SSHexec(client, "", config.disableSudo, SudoPassword, 20)
 	if err != nil {
@@ -193,7 +187,6 @@ func retrieveSelectedFile(remoteFilePath string, endpointName string, client *ss
 		return
 	}
 
-	// Ensure buffer file can be read and then deleted later
 	command = buildChmod(tmpRemoteFilePath, 666)
 	_, err = command.SSHexec(client, "", config.disableSudo, SudoPassword, 10)
 	if err != nil {
@@ -201,7 +194,6 @@ func retrieveSelectedFile(remoteFilePath string, endpointName string, client *ss
 		return
 	}
 
-	// Download remote file contents
 	fileContents, err := SCPDownload(client, tmpRemoteFilePath)
 	if err != nil {
 		return

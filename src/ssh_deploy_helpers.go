@@ -135,9 +135,9 @@ func initBackupDirectory(host HostMeta) (err error) {
 	return
 }
 
-func runCheckCommands(host HostMeta, allFileInfo map[string]FileInfo, repoFilePath string) (err error) {
-	if allFileInfo[repoFilePath].checksRequired {
-		for _, command := range allFileInfo[repoFilePath].checks {
+func runCheckCommands(host HostMeta, localMetadata FileInfo) (err error) {
+	if localMetadata.checksRequired {
+		for _, command := range localMetadata.checks {
 			printMessage(verbosityData, "Host %s:   Running check command '%s'\n", host.name, command)
 
 			command := RemoteCommand{command}
@@ -150,9 +150,9 @@ func runCheckCommands(host HostMeta, allFileInfo map[string]FileInfo, repoFilePa
 	return
 }
 
-func runInstallationCommands(host HostMeta, allFileInfo map[string]FileInfo, repoFilePath string) (err error) {
-	if allFileInfo[repoFilePath].installOptional && config.runInstallCommands {
-		for _, command := range allFileInfo[repoFilePath].install {
+func runInstallationCommands(host HostMeta, localMetadata FileInfo) (err error) {
+	if localMetadata.installOptional && config.runInstallCommands {
+		for _, command := range localMetadata.install {
 			printMessage(verbosityData, "Host %s:   Running install command '%s'\n", host.name, command)
 
 			command := RemoteCommand{command}
@@ -516,7 +516,9 @@ func deploySymLink(host HostMeta, linkName string, linkTarget string) (linkModif
 	return
 }
 
-func deployFile(host HostMeta, targetFilePath string, repoFilePath string, localMetadata FileInfo, allFileData map[string][]byte) (fileModified bool, deployedBytes int, remoteMetadata RemoteFileInfo, err error) {
+func deployFile(host HostMeta, repoFilePath string, localMetadata FileInfo, allFileData map[string][]byte) (fileModified bool, deployedBytes int, remoteMetadata RemoteFileInfo, err error) {
+	targetFilePath := localMetadata.targetFilePath
+
 	// Retrieve metadata of remote file if it exists
 	remoteMetadata, err = getOldRemoteInfo(host, targetFilePath)
 	if err != nil {
@@ -544,7 +546,7 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 	if localMetadata.fileSize == 0 && !remoteMetadata.exists {
 		printMessage(verbosityData, "Host %s:   File '%s' is empty and does not exist on remote, creating\n", host.name, targetFilePath)
 
-		command := buildTouch(localMetadata.name)
+		command := buildTouch(localMetadata.targetFilePath)
 		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("unable to create empty file: %v", err)
@@ -597,7 +599,8 @@ func deployFile(host HostMeta, targetFilePath string, repoFilePath string, local
 	return
 }
 
-func deployDirectory(host HostMeta, targetDirPath string, dirInfo FileInfo) (dirModified bool, remoteMetadata RemoteFileInfo, err error) {
+func deployDirectory(host HostMeta, dirInfo FileInfo) (dirModified bool, remoteMetadata RemoteFileInfo, err error) {
+	targetDirPath := dirInfo.targetFilePath
 	printMessage(verbosityData, "Host %s:   Checking directory '%s'\n", host.name, targetDirPath)
 
 	// Retrieve metadata of remote file if it exists
@@ -650,9 +653,9 @@ func deployDirectory(host HostMeta, targetDirPath string, dirInfo FileInfo) (dir
 func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata FileInfo) (err error) {
 	// Change permissions if different
 	if remoteMetadata.permissions != localMetadata.permissions {
-		printMessage(verbosityFullData, "Host %s:    File '%s': changing permissions\n", host.name, localMetadata.name)
+		printMessage(verbosityFullData, "Host %s:    File '%s': changing permissions\n", host.name, localMetadata.targetFilePath)
 
-		command := buildChmod(localMetadata.name, localMetadata.permissions)
+		command := buildChmod(localMetadata.targetFilePath, localMetadata.permissions)
 		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
@@ -663,9 +666,9 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 	// Change ownership if different
 	remoteOwnerGroup := remoteMetadata.owner + ":" + remoteMetadata.group
 	if remoteOwnerGroup != localMetadata.ownerGroup {
-		printMessage(verbosityFullData, "Host %s:    File '%s': changing ownership\n", host.name, localMetadata.name)
+		printMessage(verbosityFullData, "Host %s:    File '%s': changing ownership\n", host.name, localMetadata.targetFilePath)
 
-		command := buildChown(localMetadata.name, localMetadata.ownerGroup)
+		command := buildChown(localMetadata.targetFilePath, localMetadata.ownerGroup)
 		_, err = command.SSHexec(host.sshClient, "root", config.disableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)

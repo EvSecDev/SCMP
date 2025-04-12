@@ -2,6 +2,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -275,7 +276,7 @@ func extractMetadata(fileContents string) (metadataSection string, contentSectio
 //	any files in the root of the repository
 //	dirs present in global ignoredirectories array
 //	dirs that do not have a match in the controllers config
-func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string, fileType string, skipFile bool, err error) {
+func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string, skipFile bool, err error) {
 	// Nothing to validate
 	if rawFile == nil {
 		return
@@ -285,7 +286,7 @@ func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string
 	mode := fmt.Sprintf("%v", rawFile.Mode())
 
 	// Retrieve the type for this file
-	fileType = determineFileType(mode)
+	fileType := determineFileType(mode)
 
 	// Skip processing if file is unsupported
 	if fileType == "unsupported" {
@@ -383,8 +384,8 @@ func determineFileType(fileMode string) (fileType string) {
 		// Text file
 		fileType = "regular"
 	} else if fileMode == "0120000" {
-		// Special, but able to be handled
-		fileType = "symlink"
+		// Special - links
+		fileType = "unsupported"
 	} else if fileMode == "0040000" {
 		// Directory
 		fileType = "unsupported"
@@ -741,9 +742,14 @@ func loadArtifactContent(artifactPath string, artifactPointerPath string, artifa
 
 // Parse JSON metadata into File Info Struct
 func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFileAction string, contentHash string) (info FileInfo) {
-	_, info.name = translateLocalPathtoRemotePath(repoFilePath)
+	info.action = commitFileAction
+	_, info.targetFilePath = translateLocalPathtoRemotePath(repoFilePath)
 	info.ownerGroup = json.TargetFileOwnerGroup
 	info.permissions = json.TargetFilePermissions
+	_, info.linkTarget = translateLocalPathtoRemotePath(json.SymbolicLinkTarget)
+	if info.linkTarget != "" {
+		info.action = "symlinkCreate"
+	}
 	if fileSize > 0 {
 		// Save file size if content is present
 		info.fileSize = fileSize
@@ -783,15 +789,19 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 		// Save hash of the files contents if present
 		info.hash = contentHash
 	}
-	info.action = commitFileAction
 
 	// Print verbose file metadata information
 	printMessage(verbosityFullData, "      Owner and Group:  %s\n", info.ownerGroup)
 	printMessage(verbosityFullData, "      Permissions:      %d\n", info.permissions)
+	if info.linkTarget != "" {
+		printMessage(verbosityFullData, "      Link Target  %s\n", info.linkTarget)
+	}
 	if len(info.hash) > 0 {
 		printMessage(verbosityFullData, "      Content Hash:     %s\n", info.hash)
 	}
-	printMessage(verbosityFullData, "      Dependencies  %v\n", info.dependencies)
+	if len(info.dependencies) > 0 {
+		printMessage(verbosityFullData, "      Dependencies  %v\n", info.dependencies)
+	}
 	printMessage(verbosityFullData, "      Install Required? %t\n", info.installOptional)
 	if info.installOptional {
 		printMessage(verbosityFullData, "      Install Commands  %s\n", info.install)
@@ -848,4 +858,52 @@ func macroToValue(filePath string, inputs *[]string) {
 		// Save back to original
 		(*inputs)[index] = input
 	}
+}
+
+// isText checks if a string is likely plain text or binary data based on the first 500 bytes
+func isText(inputBytes *[]byte) (isPlainText bool) {
+	// Allow 30% non-printable in input
+	const maximumNonPrintablePercentage float64 = 30
+
+	totalCharacters := len(*inputBytes)
+	if totalCharacters > 500 {
+		totalCharacters = 500
+	}
+
+	// Empty files can be treated as plain text (Avoid divide by 0)
+	if totalCharacters == 0 {
+		isPlainText = true
+		return
+	}
+
+	// PDF files have a start that is plain text, identify PDF header to reject it as plain text
+	if len(*inputBytes) > 9 {
+		PDFHeaderBytes := []byte{37, 80, 68, 70, 45, 49, 46, 52, 10}
+		headerComparison := bytes.Compare((*inputBytes)[:9], PDFHeaderBytes)
+		if headerComparison == 0 {
+			isPlainText = false
+			return
+		}
+	}
+
+	// Count the number of characters outside the ASCII printable range (32-126) - skipping DEL
+	var nonPrintableCount int
+	for i := range totalCharacters {
+		b := (*inputBytes)[i]
+		if b < 32 || b > 126 {
+			nonPrintableCount++
+		}
+	}
+
+	// Get percentage of non printable characters found
+	nonPrintablePercentage := (float64(nonPrintableCount) / float64(totalCharacters)) * 100
+	printMessage(verbosityData, "  Data is %.2f%% non-printable ASCII characters (max: %g%%)\n", nonPrintablePercentage, maximumNonPrintablePercentage)
+
+	// Determine if input is text or binary
+	if nonPrintablePercentage < maximumNonPrintablePercentage {
+		isPlainText = true
+	} else {
+		isPlainText = false
+	}
+	return
 }

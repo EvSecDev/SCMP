@@ -23,7 +23,6 @@ func parseDirEntries(lsDirOutput string) (dirList []string, maxNameLenght int) {
 
 	// Extract information from the ls output
 	for fileName := range directoryListFiles {
-		// Skip empty lines
 		if fileName == "" {
 			continue
 		}
@@ -59,10 +58,8 @@ func dirListMenu(endpointName string, maxNameLenght int, dirList []string, curre
 				continue
 			}
 
-			// Print the file name
 			fmt.Printf("%-4d %-*s", index+1, columnWidth, dirList[index])
 		}
-		// Newline before next row
 		fmt.Println()
 	}
 	// User prompt
@@ -71,7 +68,6 @@ func dirListMenu(endpointName string, maxNameLenght int, dirList []string, curre
 	fmt.Printf("     [ # # ## ### ]  [ c0 ]  [ c# ]    [ #r ]     [ ! ]\n")
 	fmt.Printf("%s:%s# Type your selections: ", endpointName, currentDirectory)
 
-	// Read user input
 	reader := bufio.NewReader(os.Stdin)
 	userInput, err := reader.ReadString('\n')
 	if err != nil {
@@ -105,19 +101,18 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 
 	printMessage(verbosityProgress, "\nParsing Selections for Current Directory: '%s'\n", directoryState.current)
 
-	// Parse user selections for this directory
 	for _, selection := range userSelections {
 		printMessage(verbosityData, "  Selection: '%s'\n", selection)
 
-		// Convert selection to integer
 		dirIndex, err := strconv.Atoi(selection)
 
-		if selection == "!" {
-			// Exit menu only after processing selections
-			userRequestedExit = true
+		if selection == "!" { // Exit menu only after processing selections
 
+			userRequestedExit = true
 			printMessage(verbosityData, "  Requested exit: will exit selections after parsing current selection\n")
+
 		} else if strings.HasSuffix(selection, "r") { // Recurse directory and grab all files
+
 			printMessage(verbosityData, "  Requested recursive selection\n")
 
 			// Remove suffix for recursive
@@ -142,7 +137,6 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 
 			printMessage(verbosityData, "  Recursing into directory '%s' for all files\n", absolutePath)
 
-			// Grab all files under directory
 			command := RemoteCommand{"find '" + absolutePath + "' -type f"}
 			findOutput, err := command.SSHexec(client, "", config.disableSudo, sudoPassword, 120)
 			if err != nil {
@@ -159,7 +153,9 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 
 			// Save all recursively found files to selection
 			selectedFiles = append(selectedFiles, filteredSelectedFiles...)
+
 		} else if strings.HasPrefix(selection, "c") { // Find which directory to move to
+
 			printMessage(verbosityData, "  Requested directory change\n")
 
 			// Get the number after 'c'
@@ -196,17 +192,15 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 				directoryStateNew.stack = append(directoryState.stack, directoryState.current)
 			}
 		} else if err == nil && dirIndex > 0 && dirIndex <= len(dirList) { // Select file by number
+
 			printMessage(verbosityData, "  Requested individual item\n")
 
 			// Get file name from user selection number
 			name := dirList[dirIndex-1]
 
-			// Format into absolute path
 			absolutePath := filepath.Join(directoryState.current, name)
 
 			printMessage(verbosityData, "    Marking item '%s' for retrieval\n", absolutePath)
-
-			// Save file path into return list
 			selectedFiles = append(selectedFiles, absolutePath)
 		} else {
 			printMessage(verbosityStandard, "Warning: unknown option '%s'\n", selection)
@@ -220,19 +214,23 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 func writeNewFileFull(localFilePath string, fileMetadata MetaHeader, fileContents *[]byte) (err error) {
 	printMessage(verbosityProgress, "Adding JSON metadata header to file '%s'\n", localFilePath)
 
-	// Marshal metadata JSON
 	metadata, errNoFatal := json.MarshalIndent(fileMetadata, "", "  ")
 	if errNoFatal != nil {
 		printMessage(verbosityStandard, "Failed to marshal metadata header into JSON format for file %s: %v\n", localFilePath, errNoFatal)
 		return
 	}
 
-	// Add header to file contents
-	file := metaDelimiter + "\n" + string(metadata) + "\n" + metaDelimiter + "\n" + string(*fileContents)
+	var fullFileContent strings.Builder
+	fullFileContent.WriteString(metaDelimiter)
+	fullFileContent.WriteString("\n")
+	fullFileContent.WriteString(string(metadata))
+	fullFileContent.WriteString("\n")
+	fullFileContent.WriteString(metaDelimiter)
+	fullFileContent.WriteString("\n")
+	fullFileContent.WriteString(string(*fileContents))
 
 	printMessage(verbosityProgress, "Writing file '%s' to repository\n", localFilePath)
 
-	// Create any missing directories in repository
 	configParentDirs := filepath.Dir(localFilePath)
 	err = os.MkdirAll(configParentDirs, 0700)
 	if err != nil {
@@ -240,7 +238,6 @@ func writeNewFileFull(localFilePath string, fileMetadata MetaHeader, fileContent
 		return
 	}
 
-	// Open/create the directory metadata file
 	localFile, err := os.OpenFile(localFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		err = fmt.Errorf("failed to open/create directory metadata file: %v", err)
@@ -248,8 +245,7 @@ func writeNewFileFull(localFilePath string, fileMetadata MetaHeader, fileContent
 	}
 	defer localFile.Close()
 
-	// Write config to file in repository
-	_, err = localFile.WriteString(file)
+	_, err = localFile.WriteString(fullFileContent.String())
 	if err != nil {
 		err = fmt.Errorf("failed to write file to local repository: %v", err)
 		return
@@ -258,19 +254,62 @@ func writeNewFileFull(localFilePath string, fileMetadata MetaHeader, fileContent
 	return
 }
 
+func writeSymbolicLinkToRepo(localLinkPath string, selectionMetadata RemoteFileInfo) (err error) {
+	var linkMetadata MetaHeader
+	linkMetadata.SymbolicLinkTarget = selectionMetadata.linkTarget
+	linkMetadata.TargetFileOwnerGroup = "root:root"
+	linkMetadata.TargetFilePermissions = 777
+
+	printMessage(verbosityData, "  Symbolic Link '%s': Target: %s\n", localLinkPath, selectionMetadata.linkTarget)
+
+	metadataJSON, err := json.MarshalIndent(linkMetadata, "", "  ")
+	if err != nil {
+		err = fmt.Errorf("failed to marshal metadata header into JSON format for symbolic link '%s': %v\n", localLinkPath, err)
+		return
+	}
+
+	var linkFileContent strings.Builder
+	linkFileContent.WriteString(metaDelimiter)
+	linkFileContent.WriteString("\n")
+	linkFileContent.WriteString(string(metadataJSON))
+	linkFileContent.WriteString("\n")
+	linkFileContent.WriteString(metaDelimiter)
+	linkFileContent.WriteString("\n")
+
+	linkDirectoryPath := filepath.Dir(localLinkPath)
+
+	err = os.MkdirAll(linkDirectoryPath, 0700)
+	if err != nil {
+		err = fmt.Errorf("failed to create missing directories in local repository for directory '%s': %v\n", linkDirectoryPath, err)
+		return
+	}
+
+	directoryMetaFile, err := os.OpenFile(localLinkPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
+	if err != nil {
+		err = fmt.Errorf("failed to open/create directory metadata file: %v", err)
+		return
+	}
+	defer directoryMetaFile.Close()
+
+	_, err = directoryMetaFile.WriteString(linkFileContent.String())
+	if err != nil {
+		err = fmt.Errorf("failed to write directory metadata to local repository: %v", err)
+		return
+	}
+
+	return
+}
+
 // Writes directory metadata of chosen dir to repo
 func writeNewDirectoryMetadata(localDirPath string, selectionMetadata RemoteFileInfo) (err error) {
-	// Metadata header
 	var dirMetadata MetaHeader
 	dirMetadata.TargetFileOwnerGroup = selectionMetadata.owner + ":" + selectionMetadata.group
 	dirMetadata.TargetFilePermissions = selectionMetadata.permissions
 
 	printMessage(verbosityData, "  Directory '%s': Metadata: %d %s\n", localDirPath, selectionMetadata.permissions, dirMetadata.TargetFileOwnerGroup)
 
-	// Paths
 	metadataFile := filepath.Join(localDirPath, directoryMetadataFileName)
 
-	// Marshal metadata JSON
 	metadataJSON, err := json.MarshalIndent(dirMetadata, "", "  ")
 	if err != nil {
 		err = fmt.Errorf("failed to marshal metadata header into JSON format for directory '%s': %v\n", localDirPath, err)
@@ -279,14 +318,12 @@ func writeNewDirectoryMetadata(localDirPath string, selectionMetadata RemoteFile
 
 	printMessage(verbosityProgress, "Writing directory metadata to repository\n")
 
-	// Create any missing directories in repository
 	err = os.MkdirAll(localDirPath, 0700)
 	if err != nil {
 		err = fmt.Errorf("failed to create missing directories in local repository for directory '%s': %v\n", localDirPath, err)
 		return
 	}
 
-	// Open/create the directory metadata file
 	directoryMetaFile, err := os.OpenFile(metadataFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		err = fmt.Errorf("failed to open/create directory metadata file: %v", err)
@@ -294,7 +331,6 @@ func writeNewDirectoryMetadata(localDirPath string, selectionMetadata RemoteFile
 	}
 	defer directoryMetaFile.Close()
 
-	// Write directory metadata file
 	_, err = directoryMetaFile.Write(metadataJSON)
 	if err != nil {
 		err = fmt.Errorf("failed to write directory metadata to local repository: %v", err)
@@ -306,7 +342,7 @@ func writeNewDirectoryMetadata(localDirPath string, selectionMetadata RemoteFile
 
 // Walks directory tree above file and retireves its metadata and writes metadata files to repo if it differs from standard system umask
 func writeNewDirectoryTreeMetadata(endpointName string, remoteFilePath string, client *ssh.Client, SudoPassword string) (err error) {
-	// Default Directory permissions (to ignore)
+	// Directory permissions to ignore
 	const defaultOwner string = "root"
 	const defaultGroup string = "root"
 	const defaultPermissions int = 755
@@ -314,8 +350,8 @@ func writeNewDirectoryTreeMetadata(endpointName string, remoteFilePath string, c
 	// Path stack (init without filename)
 	remoteDirPath := filepath.Dir(remoteFilePath)
 
-	// Loop over directories in path and retrieve metadata information that is different than linux default
-	for i := 0; i < maxDirectoryLoopCount; i++ {
+	// Searching for non-default directories
+	for range maxDirectoryLoopCount {
 		// Break if no more parent dirs
 		if remoteDirPath == "." || len(remoteDirPath) < 2 {
 			break
@@ -323,7 +359,6 @@ func writeNewDirectoryTreeMetadata(endpointName string, remoteFilePath string, c
 
 		printMessage(verbosityProgress, "  File '%s': Retrieving metadata for parent directory '%s'\n", remoteFilePath, remoteDirPath)
 
-		// Retrieve metadata
 		command := buildStat(remoteDirPath)
 		var directoryMetadata string
 		directoryMetadata, err = command.SSHexec(client, "root", config.disableSudo, SudoPassword, 10)
@@ -334,7 +369,6 @@ func writeNewDirectoryTreeMetadata(endpointName string, remoteFilePath string, c
 
 		printMessage(verbosityProgress, "  File '%s': Parsing metadata for parent directory '%s'\n", remoteFilePath, remoteDirPath)
 
-		// Extract stat information
 		var metadata RemoteFileInfo
 		metadata, err = extractMetadataFromStat(directoryMetadata)
 		if err != nil {
@@ -345,7 +379,6 @@ func writeNewDirectoryTreeMetadata(endpointName string, remoteFilePath string, c
 			continue
 		}
 
-		// File path for local repo
 		localDirPath := filepath.Join(endpointName, remoteDirPath)
 
 		// Save metadata to map if not the default
@@ -389,17 +422,14 @@ func handleNewReloadCommands(remoteFilePath string, localFilePath string) (reloa
 
 	printMessage(verbosityProgress, "  File '%s': Retrieving reload command information from user\n", remoteFilePath)
 
-	// Ask user for confirmation to use reloads
 	reloadWanted, err := promptUser("Does file '%s' need reload commands? [y/N]: ", localFilePath)
 	if err != nil {
 		return
 	}
 
-	// Format user choice
 	reloadWanted = strings.TrimSpace(reloadWanted)
 	reloadWanted = strings.ToLower(reloadWanted)
 
-	// Return early if user did not want any reloads
 	if reloadWanted != "y" {
 		printMessage(verbosityProgress, "  User did not want reload commands, skipping reload selection logic\n")
 		return
@@ -455,7 +485,6 @@ func handleNewReloadCommands(remoteFilePath string, localFilePath string) (reloa
 		for scanner.Scan() {
 			cmd := scanner.Text()
 			if cmd == "" { // Done once empty line
-				// Get confirmation of input
 				var userConfirmation string
 				userConfirmation, err = promptUser("Are these commands correct? [Y/n]: ")
 				if err != nil {
@@ -479,7 +508,6 @@ func handleNewReloadCommands(remoteFilePath string, localFilePath string) (reloa
 }
 
 func handleArtifactFiles(localFilePath *string, fileContents *[]byte) (externalContentLocation string, err error) {
-	// Check what type of data is in retrieve file
 	fileIsPlainText := isText(fileContents)
 
 	// Return early if file is not an artifact
@@ -495,7 +523,6 @@ func handleArtifactFiles(localFilePath *string, fileContents *[]byte) (externalC
 	fmt.Print("Path to External Directory: ")
 	fmt.Scanln(&userResponse)
 
-	// Return early if user did not specify anything
 	if userResponse == "" {
 		printMessage(verbosityProgress, "  Did not receive an external content location for artifact, ARTIFACT CONTENTS WILL BE STORED IN REPOSITORY\n")
 		return
@@ -506,8 +533,10 @@ func handleArtifactFiles(localFilePath *string, fileContents *[]byte) (externalC
 		*fileContents = nil
 	}()
 
-	// Combine remote file name with user supplied local path
-	artifactFilePath := filepath.Join(userResponse, filepath.Base(*localFilePath))
+	artifcateFileDirectory := userResponse
+	remoteFileName := filepath.Base(*localFilePath)
+
+	artifactFilePath := filepath.Join(artifcateFileDirectory, remoteFileName)
 
 	// Clean up user supplied path
 	artifactFilePath, err = filepath.Abs(artifactFilePath)
@@ -518,20 +547,17 @@ func handleArtifactFiles(localFilePath *string, fileContents *[]byte) (externalC
 	// Store real file path in git-tracked file (set URI prefix)
 	externalContentLocation = fileURIPrefix + artifactFilePath
 
-	// Ensure all parent directories exist for the file
 	err = os.MkdirAll(filepath.Dir(artifactFilePath), 0750)
 	if err != nil {
 		return
 	}
 
-	// Create/Truncate artifact file
 	artifactFile, err := os.OpenFile(artifactFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return
 	}
 	defer artifactFile.Close()
 
-	// Write artifact file contents to the file
 	_, err = artifactFile.Write(*fileContents)
 	if err != nil {
 		return
@@ -540,46 +566,5 @@ func handleArtifactFiles(localFilePath *string, fileContents *[]byte) (externalC
 	// Add extension to mark file as external
 	*localFilePath += artifactPointerFileExtension
 
-	return
-}
-
-// isText checks if a string is likely plain text or binary data based on the first 500 bytes
-func isText(inputBytes *[]byte) (isPlainText bool) {
-	// Allow 30% non-printable in input
-	const maximumNonPrintablePercentage float64 = 30
-
-	// Check for non-printable characters in the first 500 bytes
-	nonPrintableCount := 0
-
-	// Limit to first 500 bytes to avoid excessive processing
-	totalCharacters := len(*inputBytes)
-	if totalCharacters > 500 {
-		totalCharacters = 500
-	}
-
-	// Empty files can be treated as plain text (Avoid divide by 0)
-	if totalCharacters == 0 {
-		isPlainText = true
-		return
-	}
-
-	// Count the number of characters outside the ASCII printable range (32-126) - skipping DEL
-	for i := range totalCharacters {
-		b := (*inputBytes)[i]
-		if b < 32 || b > 126 {
-			nonPrintableCount++
-		}
-	}
-
-	// Get percentage of non printable characters found
-	nonPrintablePercentage := (float64(nonPrintableCount) / float64(totalCharacters)) * 100
-	printMessage(verbosityData, "  Data is %.2f%% non-printable ASCII characters (max: %g%%)\n", nonPrintablePercentage, maximumNonPrintablePercentage)
-
-	// Determine if input is text or binary
-	if nonPrintablePercentage < maximumNonPrintablePercentage {
-		isPlainText = true
-	} else {
-		isPlainText = false
-	}
 	return
 }

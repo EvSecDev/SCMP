@@ -20,12 +20,11 @@ func createNewRepository(newRepoInfo string) {
 	const autoCommitUserName string = "SCMPController"
 	const autoCommitUserEmail string = "scmpc@localhost"
 
-	// Split user choices
 	userRepoChoices := strings.Split(newRepoInfo, ":")
 
 	// Default repo values
 	repoPath := expandHomeDirectory("~/SCMPGit")
-	initialBranchName := "main" // Default to "main"
+	initialBranchName := "main"
 
 	// Set user choice if provided
 	switch len(userRepoChoices) {
@@ -43,7 +42,6 @@ func createNewRepository(newRepoInfo string) {
 		logError("Invalid Argument", fmt.Errorf("invalid new repository option length"), false)
 	}
 
-	// Local os separator char
 	config.osPathSeparator = string(os.PathSeparator)
 
 	// Only take absolute paths from user choice
@@ -192,6 +190,7 @@ func createNewRepository(newRepoInfo string) {
 	logError("Failed to create first commit", err, false)
 }
 
+// Install sample SSH config if it doesn't already exist
 func installDefaultSSHConfig() {
 	configPath := expandHomeDirectory(defaultConfigPath)
 	const defaultConfig string = `
@@ -278,7 +277,6 @@ Host *
 		return
 	}
 
-	// Write example config to default location
 	err = os.WriteFile(configPath, []byte(defaultConfig), 0640)
 	if err != nil {
 		printMessage(verbosityProgress, "Failed to write sample SSH config: %v\n", err)
@@ -286,7 +284,7 @@ Host *
 	}
 }
 
-// If apparmor LSM is available on this system and running as root, auto install the profile
+// If apparmor LSM is available on this system and running as root, auto install the profile - failures are not printed under normal verbosity
 func installAAProfile() {
 	const AppArmorProfilePath string = "/etc/apparmor.d/scmpcontroller"
 	const AppArmorProfile = `### Apparmor Profile for the Secure Configuration Management Controller

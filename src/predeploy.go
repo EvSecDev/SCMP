@@ -10,7 +10,6 @@ import (
 
 // Parses and prepares deployment information
 func preDeployment(deployMode string, commitID string, hostOverride string, fileOverride string) {
-	// Check working dir for git repo
 	err := retrieveGitRepoPath()
 	logError("Repository Error", err, false)
 
@@ -26,7 +25,6 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	tree, commit, err := getCommit(&commitID)
 	logError("Error retrieving commit details", err, true)
 
-	// Retrieve all files/hosts for deployment
 	var commitFiles map[string]string
 	if deployMode == "deployChanges" {
 		// Use changed files
@@ -70,7 +68,6 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		return
 	}
 
-	// Load the files for deployment
 	allFileInfo, allFileData, err := loadFiles(allDeploymentFiles, tree)
 	logError("Error loading files", err, true)
 
@@ -86,11 +83,9 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		config.hostInfo[host] = hostInfo
 	}
 
-	// Ensure local system is in a state that is able to deploy
 	err = localSystemChecks()
 	logError("Error in local system checks", err, true)
 
-	// Show progress to user
 	printMessage(verbosityStandard, "Beginning deployment of %d files(s) to %d host(s)\n", len(allFileInfo), len(allDeploymentHosts))
 
 	// Post deployment metrics
@@ -174,6 +169,5 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		}
 	}
 
-	// Show progress to user
 	printMessage(verbosityStandard, "Deployment Completed Successfully. Metrics: {\"Hosts\":%d,\"Items\":%d,\"ElapsedTime\":\"%s\",\"TransferredBytes\":\"%s\"}\n", postDeployMetrics.hosts, postDeployMetrics.files, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
 }

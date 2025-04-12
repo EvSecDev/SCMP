@@ -120,7 +120,6 @@ func SSHIdentityToKey(SSHIdentityFile string) (privateKey ssh.Signer, keyAlgo st
 			}
 		}
 	} else if SSHKeyType == "private" {
-		// Parse the private key
 		privateKey, err = ssh.ParsePrivateKey(SSHIdentity)
 		if err != nil {
 			err = fmt.Errorf("invalid private key in identity file: %v", err)
@@ -130,7 +129,6 @@ func SSHIdentityToKey(SSHIdentityFile string) (privateKey ssh.Signer, keyAlgo st
 		// Add key algorithm to return value for later connect
 		keyAlgo = privateKey.PublicKey().Type()
 	} else if SSHKeyType == "encrypted" {
-		// Ask user for key password
 		var passphrase []byte
 		passphrase, err = promptUserForSecret("Enter passphrase for the SSH key `%s`: ", SSHIdentityFile)
 		if err != nil {
@@ -328,7 +326,6 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	knownHostMutex.Lock()
 	defer knownHostMutex.Unlock()
 
-	// Open the known_hosts file
 	knownHostsfile, err := os.OpenFile(config.knownHostsFilePath, os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {
 		err = fmt.Errorf("failed to open known_hosts file: %v", err)
@@ -336,32 +333,27 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	}
 	defer knownHostsfile.Close()
 
-	// Write the new known host string followed by a newline
 	if _, err = knownHostsfile.WriteString(newKnownHost + "\n"); err != nil {
 		err = fmt.Errorf("failed to write new known host to known_hosts file: %v", err)
 		return
 	}
 
-	// Show progress to user
 	printMessage(verbosityStandard, "Success\n")
 	return
 }
 
 func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuffer string, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) (out string, err error) {
-	// Upload script contents
 	err = SCPUpload(sshClient, scriptFileBytes, remoteTransferBuffer)
 	if err != nil {
 		return
 	}
 
-	// Move script into execution location
 	command := buildMv(remoteTransferBuffer, remoteFilePath)
 	_, err = command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 10)
 	if err != nil {
 		return
 	}
 
-	// Hash remote script file
 	command = buildHashCmd(remoteFilePath)
 	remoteScriptHash, err := command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 90)
 	if err != nil {
@@ -378,21 +370,19 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuf
 		return
 	}
 
-	// Change permissions on remote file
 	command = buildChmod(remoteFilePath, 700)
 	_, err = command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 10)
 	if err != nil {
 		return
 	}
 
-	// Execute script
 	command = RemoteCommand{scriptInterpreter + " '" + remoteFilePath + "'"}
 	out, err = command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 900)
 	if err != nil {
 		return
 	}
 
-	// Cleanup: Remove script
+	// Cleanup
 	command = buildRm(remoteFilePath)
 	_, err = command.SSHexec(sshClient, "root", config.disableSudo, SudoPassword, 10)
 	if err != nil {

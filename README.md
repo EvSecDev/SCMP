@@ -58,6 +58,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Create/modify files/file content and directories
   - Modify permissions, owner, and group of files and directories
   - Removing 'managed' files and directories
+  - Creating symbolic links
   - Group files together to apply to multiple hosts
   - Options to ignore specific directories in the repository
   - Track binary/artifact files (executables, images, videos, documents)
@@ -83,7 +84,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - File/Directory Management
   - File/Directory names containing newlines or DEL characters
   - File/Directory names containing non-printable ASCII as well as non-ASCII characters
-  - Handle some special files (device, pipes, sockets, ect.)
+  - Handle special files (links, device, pipes, sockets, ect.)
 - SSH
   - 2FA (TOTP) logins
   - Use Control Sockets
@@ -404,6 +405,23 @@ Example of metadata header:
     "/etc/apt/sources.list"
   ]
 ```
+
+### Symbolic Links
+
+This program intentionally ignores OS-level symbolic links in order to decouple the file/directory management from the local filesystem.
+This also frees the use of symbolic/hard links to be used within the repository itself without duplicating the link functionality on the remote system.
+
+In order to manage symbolic links on the remote system, a dedicated metadata header field is used.
+
+```json
+  "SymbolicLinkTarget": "Host1/etc/service/file.conf"
+```
+
+The presence of this key indicates that the local file is actually a link.
+The contents of the file are ignored.
+The ownership/permissions are ignored.
+
+The use of installation/checks/reload/dependency fields are still valid.
 
 ### Install commands
 

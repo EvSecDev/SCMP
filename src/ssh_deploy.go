@@ -106,14 +106,8 @@ func DeployFiles(host HostMeta, deploymentFiles []string, allFileInfo map[string
 	for commitIndex, repoFilePath := range deploymentFiles {
 		printMessage(verbosityData, "Host %s: Starting deployment for '%s'\n", host.name, repoFilePath)
 
-		// Split repository host dir and config file path for obtaining the absolute target file path
-		// Reminder:
-		// targetFilePath   should be the file path as expected on the remote system
-		// repoFilePath     should be the local file path within the commit repository - is REQUIRED to reference keys in the big config information maps (commitFileData, commitFileActions, ect.)
-		_, targetFilePath := translateLocalPathtoRemotePath(repoFilePath)
-
 		// Run Check commands first
-		err := runCheckCommands(host, allFileInfo, repoFilePath)
+		err := runCheckCommands(host, allFileInfo[repoFilePath])
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during check command: %v", err)
 			recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
@@ -121,7 +115,7 @@ func DeployFiles(host HostMeta, deploymentFiles []string, allFileInfo map[string
 		}
 
 		// Run installation commands before deployments
-		err = runInstallationCommands(host, allFileInfo, repoFilePath)
+		err = runInstallationCommands(host, allFileInfo[repoFilePath])
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during installation command: %v", err)
 			recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
@@ -135,7 +129,7 @@ func DeployFiles(host HostMeta, deploymentFiles []string, allFileInfo map[string
 		// Deploy based on action (fs type)
 		switch allFileInfo[repoFilePath].action {
 		case "delete":
-			remoteModified, err = deleteFile(host, targetFilePath)
+			remoteModified, err = deleteFile(host, allFileInfo[repoFilePath].targetFilePath)
 			if err != nil {
 				if strings.Contains(err.Error(), "failed to remove file") {
 					// Record errors where removal of the specific file failed
@@ -147,21 +141,21 @@ func DeployFiles(host HostMeta, deploymentFiles []string, allFileInfo map[string
 				continue
 			}
 		case "symlinkCreate":
-			remoteModified, err = deploySymLink(host, targetFilePath, allFileInfo[repoFilePath].linkTarget)
+			remoteModified, err = deploySymLink(host, allFileInfo[repoFilePath].targetFilePath, allFileInfo[repoFilePath].linkTarget)
 			if err != nil {
 				err = fmt.Errorf("failed deployment of symbolic link: %v", err)
 				recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
 				continue
 			}
 		case "dirCreate", "dirModify":
-			remoteModified, remoteFileMetadatas[repoFilePath], err = deployDirectory(host, targetFilePath, allFileInfo[repoFilePath])
+			remoteModified, remoteFileMetadatas[repoFilePath], err = deployDirectory(host, allFileInfo[repoFilePath])
 			if err != nil {
 				err = fmt.Errorf("failed deployment of directory: %v", err)
 				recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
 				continue
 			}
 		case "create":
-			remoteModified, transferredBytes, remoteFileMetadatas[repoFilePath], err = deployFile(host, targetFilePath, repoFilePath, allFileInfo[repoFilePath], allFileData)
+			remoteModified, transferredBytes, remoteFileMetadatas[repoFilePath], err = deployFile(host, repoFilePath, allFileInfo[repoFilePath], allFileData)
 			if err != nil {
 				err = fmt.Errorf("failed deployment of file: %v", err)
 				recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
@@ -181,10 +175,10 @@ func DeployFiles(host HostMeta, deploymentFiles []string, allFileInfo map[string
 				err = runReloadCommands(host, allFileInfo[repoFilePath].reload)
 				if err != nil {
 					failedFiles := reloadIDtoRepoFile[reloadID]
-					for _, file := range failedFiles {
+					for _, failedFile := range failedFiles {
 						// Restore the failed files
-						printMessage(verbosityData, "Host %s:   Restoring config file %s due to failed reload command\n", host.name, targetFilePath)
-						lerr := restoreOldFile(host, targetFilePath, remoteFileMetadatas[file])
+						printMessage(verbosityData, "Host %s:   Restoring config file %s due to failed reload command\n", host.name, allFileInfo[repoFilePath].targetFilePath)
+						lerr := restoreOldFile(host, allFileInfo[repoFilePath].targetFilePath, remoteFileMetadatas[failedFile])
 						if lerr != nil {
 							// Only warning for restoration failures
 							printMessage(verbosityStandard, "Warning: Host %s:   File restoration failed: %v\n", host.name, lerr)

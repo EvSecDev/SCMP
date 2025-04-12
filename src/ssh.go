@@ -46,7 +46,6 @@ func connectToSSH(hostInfo EndpointInfo, proxyInfo EndpointInfo) (client *ssh.Cl
 		proxySSHconfig = setupSSHConfig(proxyInfo)
 	}
 
-	// Setup config for client
 	SSHconfig := setupSSHConfig(hostInfo)
 
 	// Only attempt connection x times
@@ -131,7 +130,7 @@ func connectToSSH(hostInfo EndpointInfo, proxyInfo EndpointInfo) (client *ssh.Cl
 }
 
 // Checks for recoverable network connection errors
-func checkConnection(err error) (retryAvailable bool, success bool) {
+func checkConnection(err error) (retryAvailable bool, connectionSucceeded bool) {
 	// Determine if error is recoverable
 	if err != nil {
 		if strings.Contains(err.Error(), "no route to host") {
@@ -139,18 +138,17 @@ func checkConnection(err error) (retryAvailable bool, success bool) {
 			time.Sleep(200 * time.Millisecond)
 
 			// Return to try the connection again
-			success = false
+			connectionSucceeded = false
 			retryAvailable = true
 			return
 		} else {
 			// All other errors, bail from connection attempts
-			success = false
+			connectionSucceeded = false
 			retryAvailable = false
 			return
 		}
 	} else {
-		// Connection worked
-		success = true
+		connectionSucceeded = true
 		retryAvailable = false
 		return
 	}
@@ -158,7 +156,6 @@ func checkConnection(err error) (retryAvailable bool, success bool) {
 
 // Uploads content to specified remote file path via SCP
 func SCPUpload(client *ssh.Client, localFileContent []byte, remoteFilePath string) (err error) {
-	// Open SCP client
 	transferClient, err := scp.NewClientBySSHWithTimeout(client, 90*time.Second)
 	if err != nil {
 		err = fmt.Errorf("failed to create scp session: %v", err)
@@ -186,7 +183,6 @@ func SCPUpload(client *ssh.Client, localFileContent []byte, remoteFilePath strin
 
 // Downloads a remote files content via SCP
 func SCPDownload(client *ssh.Client, remoteFilePath string) (fileContentBytes []byte, err error) {
-	// Open SCP client
 	transferClient, err := scp.NewClientBySSHWithTimeout(client, 90*time.Second)
 	if err != nil {
 		err = fmt.Errorf("failed to create scp session: %v", err)
@@ -197,7 +193,6 @@ func SCPDownload(client *ssh.Client, remoteFilePath string) (fileContentBytes []
 	// Buffer to receive bytes from remote
 	var localTransferBuffer bytes.Buffer
 
-	// Get remote contents
 	_, err = transferClient.CopyFromRemoteFileInfos(context.Background(), &localTransferBuffer, remoteFilePath, nil)
 	if err != nil {
 		err = fmt.Errorf("failed scp transfer: %v", err)
@@ -223,21 +218,18 @@ func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSu
 	}
 	defer session.Close()
 
-	// Command output
 	stdout, err := session.StdoutPipe()
 	if err != nil {
 		err = fmt.Errorf("failed to get stdout pipe: %v", err)
 		return
 	}
 
-	// Command Error
 	stderr, err := session.StderrPipe()
 	if err != nil {
 		err = fmt.Errorf("failed to get stderr pipe: %v", err)
 		return
 	}
 
-	// Command stdin
 	stdin, err := session.StdinPipe()
 	if err != nil {
 		err = fmt.Errorf("failed to get stdin pipe: %v", err)
@@ -245,7 +237,6 @@ func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSu
 	}
 	defer stdin.Close()
 
-	// Prepare command prefix
 	cmdPrefix := "sudo "
 	if sudoPassword != "" {
 		// sudo password provided, adding stdin arg to sudo
@@ -265,21 +256,18 @@ func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSu
 
 	printMessage(verbosityDebug, "  Running command '%s'\n", command)
 
-	// Start the command
 	err = session.Start(command.string)
 	if err != nil {
 		err = fmt.Errorf("failed to start command: %v", err)
 		return
 	}
 
-	// Write sudo password to stdin - write even if password is empty
 	_, err = stdin.Write([]byte(sudoPassword))
 	if err != nil {
 		err = fmt.Errorf("failed to write to command stdin: %v", err)
 		return
 	}
 
-	// Close stdin to signal no more writing
 	err = stdin.Close()
 	if err != nil {
 		if strings.Contains(err.Error(), "EOF") {
@@ -332,21 +320,18 @@ func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSu
 		return
 	}
 
-	// Read commands output from session
 	commandstdout, err := io.ReadAll(stdout)
 	if err != nil {
 		err = fmt.Errorf("error reading from io.Reader: %v", err)
 		return
 	}
 
-	// Read commands error output from session
 	commandstderr, err = io.ReadAll(stderr)
 	if err != nil {
 		err = fmt.Errorf("error reading from io.Reader: %v", err)
 		return
 	}
 
-	// Convert bytes to string
 	commandOutput = string(commandstdout)
 	commandError := string(commandstderr)
 
