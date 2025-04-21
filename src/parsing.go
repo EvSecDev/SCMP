@@ -311,9 +311,48 @@ func retrieveHostSecrets(oldHostInfo EndpointInfo) (newHostInfo EndpointInfo, er
 }
 
 // Retrieves all file content for this deployment
-// Return vales provide the content keyed on local file path for the file data, metadata, hashes, and actions
-func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFileMeta map[string]FileInfo, allFileData map[string][]byte, err error) {
+func loadGitFileContent(allDeploymentFiles map[string]string, tree *object.Tree) (rawFileContent map[string][]byte, err error) {
 	printMessage(verbosityProgress, "Loading files for deployment... \n")
+
+	rawFileContent = make(map[string][]byte)
+
+	for repoFilePath, commitFileAction := range allDeploymentFiles {
+		if commitFileAction == "delete" {
+			continue
+		}
+
+		printMessage(verbosityData, "  Loading repository file %s\n", repoFilePath)
+
+		// Get file from git tree
+		file, lerr := tree.File(repoFilePath)
+		if lerr != nil {
+			err = fmt.Errorf("failed retrieving file information from git tree: %v", lerr)
+			return
+		}
+
+		reader, lerr := file.Reader()
+		if lerr != nil {
+			err = fmt.Errorf("failed retrieving file reader: %v", lerr)
+			return
+		}
+		defer reader.Close()
+
+		content, lerr := io.ReadAll(reader)
+		if lerr != nil {
+			err = fmt.Errorf("failed reading file content: %v", lerr)
+			return
+		}
+
+		rawFileContent[repoFilePath] = content
+	}
+
+	return
+}
+
+// Parses loaded file content and retrieves needed metadata
+// Return vales provide the content keyed on local file path for the file data, metadata, hashes, and actions
+func parseFileContent(allDeploymentFiles map[string]string, rawFileContent map[string][]byte) (allFileMeta map[string]FileInfo, allFileData map[string][]byte, err error) {
+	printMessage(verbosityProgress, "Parsing files for deployment... \n")
 
 	// Initialize maps
 	allFileMeta = make(map[string]FileInfo) // File metadata
@@ -321,29 +360,26 @@ func loadFiles(allDeploymentFiles map[string]string, tree *object.Tree) (allFile
 
 	// Load file contents, metadata, hashes, and actions into their own maps
 	for repoFilePath, commitFileAction := range allDeploymentFiles {
-		printMessage(verbosityData, "  Loading repository file %s\n", repoFilePath)
+		printMessage(verbosityData, "  Parsing repository file %s\n", repoFilePath)
 		printMessage(verbosityData, "    Marked as '%s'\n", commitFileAction)
 
 		// Actions that do not require content loading
 		if commitFileAction == "delete" {
 			// Add it to the deploy target files so it can be deleted during ssh
-			allFileMeta[repoFilePath] = FileInfo{action: commitFileAction}
+			_, deletedFilePath := translateLocalPathtoRemotePath(repoFilePath)
+			allFileMeta[repoFilePath] = FileInfo{action: commitFileAction, targetFilePath: deletedFilePath}
 			continue
 		} else if commitFileAction != "create" && commitFileAction != "dirCreate" && commitFileAction != "dirModify" {
 			// Skip unsupported file types - safety blocker
 			continue
 		}
 
-		content, lerr := loadFileFromGit(tree, repoFilePath)
-		if lerr != nil {
-			err = fmt.Errorf("failed to load file from git tree: %v", lerr)
-			return
-		}
+		content := rawFileContent[repoFilePath]
 
 		// Retrieve metadata depending on if this is a directory or a file
 		fileContent, jsonMetadata, lerr := extractMetadataFromContents(repoFilePath, content)
 		if lerr != nil {
-			err = fmt.Errorf("Failed to separate metadata from file content: %v", lerr)
+			err = fmt.Errorf("failed to separate metadata from file content: %v", lerr)
 			return
 		}
 

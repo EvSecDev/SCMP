@@ -647,34 +647,6 @@ func formatBytes(bytes int) (bytesWithUnits string) {
 	return
 }
 
-// Takes a git tree object and a file path and returns that files contents from git
-func loadFileFromGit(tree *object.Tree, repoFilePath string) (content []byte, err error) {
-	printMessage(verbosityData, "    Retrieving file contents\n")
-
-	// Get file from git tree
-	file, err := tree.File(repoFilePath)
-	if err != nil {
-		return
-	}
-
-	// Open reader for file contents
-	reader, err := file.Reader()
-	if err != nil {
-		err = fmt.Errorf("failed retrieving file reader: %v", err)
-		return
-	}
-	defer reader.Close()
-
-	// Read file contents (as bytes)
-	content, err = io.ReadAll(reader)
-	if err != nil {
-		err = fmt.Errorf("failed reading file content: %v", err)
-		return
-	}
-
-	return
-}
-
 // Takes raw local file content and separates the metadata header from actual file content
 func extractMetadataFromContents(repoFilePath string, content []byte) (fileContent []byte, jsonMetadata MetaHeader, err error) {
 	printMessage(verbosityData, "    Extracting file metadata\n")

@@ -425,7 +425,7 @@ func deleteFile(host HostMeta, targetFilePath string) (fileDeleted bool, err err
 	// Note: technically inefficient; if a file is moved within same directory, this will delete the file and parent dir(maybe)
 	//                                then when deploying the moved file, it will recreate folder that was just deleted.
 
-	printMessage(verbosityData, "Host %s:   Deleting config %s\n", host.name, targetFilePath)
+	printMessage(verbosityData, "Host %s:   Deleting file '%s'\n", host.name, targetFilePath)
 
 	// Attempt remove file
 	command := buildRm(targetFilePath)
@@ -444,6 +444,8 @@ func deleteFile(host HostMeta, targetFilePath string) (fileDeleted bool, err err
 	// Deletion occured, signal as such
 	fileDeleted = true
 
+	printMessage(verbosityData, "Host %s:   Checking for empty directories to delete\n", host.name)
+
 	// Danger Zone: Remove empty parent dirs
 	targetPath := filepath.Dir(targetFilePath)
 	for range maxDirectoryLoopCount {
@@ -453,6 +455,8 @@ func deleteFile(host HostMeta, targetFilePath string) (fileDeleted bool, err err
 
 		// Empty stdout means empty dir
 		if commandOutput == "" {
+			printMessage(verbosityData, "Host %s:   Removing empty directory '%s'\n", host.name, targetPath)
+
 			// Safe remove directory
 			command = buildRmdir(targetPath)
 			_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 30)

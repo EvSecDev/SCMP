@@ -2,6 +2,7 @@
 package main
 
 import (
+	"fmt"
 	"sort"
 	"testing"
 )
@@ -214,6 +215,128 @@ func TestFilterHostsAndFiles(t *testing.T) {
 				if !compareArrays(expectedDeploymentFiles, deploymentFiles) {
 					t.Errorf("Host %s: expected files %v, but got %v", endpointName, expectedDeploymentFiles, deploymentFiles)
 				}
+			}
+		})
+	}
+}
+
+func TestParseFileContent(t *testing.T) {
+	type TestCase struct {
+		name                string
+		allDeploymentFiles  map[string]string
+		rawFileContent      map[string][]byte
+		expectedallFileMeta map[string]FileInfo
+		expectedallFileData map[string][]byte
+		expectedErr         bool
+	}
+	testCases := []TestCase{
+		{
+			name: "Standard single input",
+			allDeploymentFiles: map[string]string{
+				"host1/etc/file1.conf": "create",
+			},
+			rawFileContent: map[string][]byte{
+				"host1/etc/file1.conf": []byte(`#|^^^|#
+{
+  "FileOwnerGroup": "root:root",
+  "FilePermissions": 644,
+  "Dependencies": [
+    "/etc/file2.conf"
+  ],
+  "Install": [
+    "apt-get install pkg1 -y"
+  ],
+  "Checks": [
+    "ip a | grep ens18"
+  ],
+  "Reload": [
+    "systemctl restart service1",
+	"systemctl is-active service1"
+  ]
+}
+#|^^^|#
+some data here
+more data here`),
+			},
+			expectedallFileMeta: map[string]FileInfo{
+				"host1/etc/file1.conf": {
+					hash:            "72fd888f1aaeea80dd9d8da0082e2c2f6df9c796175b27066c2f71872547b8a9",
+					targetFilePath:  "/etc/file1.conf",
+					action:          "create",
+					ownerGroup:      "root:root",
+					permissions:     644,
+					fileSize:        29,
+					linkTarget:      "",
+					dependencies:    []string{"/etc/file2.conf"},
+					installOptional: true,
+					install:         []string{"apt-get install pkg1 -y"},
+					checksRequired:  true,
+					checks:          []string{"ip a | grep ens18"},
+					reloadRequired:  true,
+					reload:          []string{"systemctl restart service1", "systemctl is-active service1"},
+				},
+			},
+			expectedallFileData: map[string][]byte{
+				"72fd888f1aaeea80dd9d8da0082e2c2f6df9c796175b27066c2f71872547b8a9": []byte(`some data here
+more data here`),
+			},
+			expectedErr: false,
+		},
+		{
+			name: "Standard delete input",
+			allDeploymentFiles: map[string]string{
+				"host1/etc/exm.conf": "delete",
+			},
+			rawFileContent: map[string][]byte{
+				"host1/etc/exm.conf": {},
+			},
+			expectedallFileMeta: map[string]FileInfo{
+				"host1/etc/exm.conf": {
+					hash:            "",
+					targetFilePath:  "/etc/exm.conf",
+					action:          "delete",
+					ownerGroup:      "",
+					permissions:     0,
+					fileSize:        0,
+					linkTarget:      "",
+					dependencies:    []string{""},
+					installOptional: false,
+					install:         []string{""},
+					checksRequired:  false,
+					checks:          []string{""},
+					reloadRequired:  false,
+					reload:          []string{""},
+				},
+			},
+			expectedallFileData: map[string][]byte{},
+			expectedErr:         false,
+		},
+		{
+			name:                "No input",
+			allDeploymentFiles:  map[string]string{},
+			rawFileContent:      map[string][]byte{},
+			expectedallFileMeta: map[string]FileInfo{},
+			expectedallFileData: map[string][]byte{},
+			expectedErr:         true,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			allFileMeta, allFileData, err := parseFileContent(test.allDeploymentFiles, test.rawFileContent)
+
+			if err != nil && !test.expectedErr {
+				t.Fatalf("Expected no error - but got error '%v'", err)
+			}
+			if err == nil && test.expectedErr {
+				t.Fatalf("Expected err '%v' - but got no error", test.expectedErr)
+			}
+
+			if fmt.Sprintf("%v", test.expectedallFileMeta) != fmt.Sprintf("%v", allFileMeta) {
+				t.Errorf("Expected metadata does not match output metadata:\nOutput:\n%v\n\nExpected Output:\n%v\n", allFileMeta, test.expectedallFileMeta)
+			}
+			if fmt.Sprintf("%v", test.expectedallFileData) != fmt.Sprintf("%v", allFileData) {
+				t.Errorf("Expected data does not match output data:\nOutput:\n%v\n\nExpected Output:\n%v\n", allFileData, test.expectedallFileData)
 			}
 		})
 	}

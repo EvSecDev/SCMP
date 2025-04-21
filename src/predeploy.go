@@ -26,52 +26,45 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	logError("Error retrieving commit details", err, true)
 
 	var commitFiles map[string]string
-	if deployMode == "deployChanges" {
-		// Use changed files
+
+	switch deployMode {
+	case "deployChanges":
 		commitFiles, err = getCommitFiles(commit, fileOverride)
-	} else if deployMode == "deployAll" {
-		// Use changed and unchanged files
+	case "deployAll":
 		commitFiles, err = getRepoFiles(tree, fileOverride)
-	} else if deployMode == "deployFailures" {
-		// Use failed files/hosts from last failtracker
+	case "deployFailures":
 		commitFiles, hostOverride, err = getFailedFiles(failures, fileOverride)
-	} else {
+	default:
 		logError("Unknown deployment mode", fmt.Errorf("mode must be deployChanges, deployAll, or deployFailures"), true)
 	}
 
-	// Check error after retrieving files
 	if err != nil {
 		logError("Failed to retrieve files", err, true)
-	}
-
-	// Ensure files were actually retrieved - Non-error because this can happen under normal operations
-	// Usually when committing files outside of host directories
-	if len(commitFiles) == 0 {
+	} else if len(commitFiles) == 0 {
+		// Non-error - can happen under normal operations: When committing files outside of host directories
 		printMessage(verbosityStandard, "No files available for deployment.\n")
 		return
 	}
 
-	// Gather map of files per host and per universal directory
 	allHostsFiles, universalFiles, err := parseAllRepoFiles(tree)
 	logError("Failed to track files by host/universal directory", err, true)
 
-	// Create map of denied Universal files per host
 	deniedUniversalFiles := mapDeniedUniversalFiles(allHostsFiles, universalFiles)
 
-	// Create map of deployment files/info per host and list of all deployment files across hosts
 	allDeploymentHosts, allDeploymentFiles := filterHostsAndFiles(deniedUniversalFiles, commitFiles, hostOverride)
 
-	// Ensure files/hosts weren't all filtered out - Non-error because this can happen under normal operations
-	// Can happen if user specifies change deploy mode with a host that didn't have any changes in the specified commit
 	if len(allDeploymentFiles) == 0 || len(allDeploymentHosts) == 0 {
+		// Non-error - can happen under normal operations: if user specifies change deploy mode with a host that didn't have any changes in the specified commit
 		printMessage(verbosityStandard, "No deployment files for available hosts.\n")
 		return
 	}
 
-	allFileMeta, allFileData, err := loadFiles(allDeploymentFiles, tree)
+	rawFileContent, err := loadGitFileContent(allDeploymentFiles, tree)
 	logError("Error loading files", err, true)
 
-	// Correct order of file deployment to account for file dependency
+	allFileMeta, allFileData, err := parseFileContent(allDeploymentFiles, rawFileContent)
+	logError("Error parsing loaded files", err, true)
+
 	for _, host := range allDeploymentHosts {
 		// Reorder deployment list
 		newDeploymentFiles, err := handleFileDependencies(config.hostInfo[host].deploymentFiles, allFileMeta)
@@ -86,14 +79,6 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	err = localSystemChecks()
 	logError("Error in local system checks", err, true)
 
-	printMessage(verbosityStandard, "Beginning deployment of %d files(s) to %d host(s)\n", len(allFileMeta), len(allDeploymentHosts))
-
-	// Post deployment metrics
-	postDeployMetrics := &PostDeploymentMetrics{}
-
-	// Semaphore to limit concurrency of host deployment go routines as specified in main config
-	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
-
 	// Retrieve keys and passwords for any hosts that require it
 	for _, endpointName := range allDeploymentHosts {
 		// Retrieve host secrets
@@ -107,6 +92,14 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 			logError("Error retrieving proxy secrets", err, true)
 		}
 	}
+
+	printMessage(verbosityStandard, "Beginning deployment of %d files(s) to %d host(s)\n", len(allFileMeta), len(allDeploymentHosts))
+
+	// Post deployment metrics
+	postDeployMetrics := &PostDeploymentMetrics{}
+
+	// Semaphore to limit concurrency of host deployment go routines as specified in main config
+	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
 
 	// Get current timestamp for deployment elapsed time metric
 	deploymentStartTime := time.Now().UnixMilli()

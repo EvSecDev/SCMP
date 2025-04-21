@@ -17,7 +17,7 @@ import (
 //	Loads known_hosts file into global variable
 func localSystemChecks() (err error) {
 	printMessage(verbosityProgress, "Running local system checks...\n")
-	printMessage(verbosityProgress, "Ensuring system has an active network interface\n")
+	printMessage(verbosityProgress, "  Ensuring system has an active network interface\n")
 
 	// Get list of local systems network interfaces
 	systemNetInterfaces, err := net.Interfaces()
