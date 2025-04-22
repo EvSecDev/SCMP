@@ -15,14 +15,10 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
-// Retrieves file names and associated host names for given commit
-// Returns the changed files (file paths) between commit and previous commit
-// Marks files with create/delete action for deployment
-func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map[string]string, err error) {
-	// Show progress to user
-	printMessage(verbosityProgress, "Retrieving files from commit... \n")
+// Retrieves file paths and file mode for a given commit
+func getChangedFiles(commit *object.Commit) (changedFiles []GitChangedFileMetadata, err error) {
+	printMessage(verbosityProgress, "Retrieving changed files from commit... \n")
 
-	// Get the parent commit
 	parentCommit, err := commit.Parents().Next()
 	if err != nil {
 		err = fmt.Errorf("failed retrieving parent commit: %v", err)
@@ -36,62 +32,14 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 		return
 	}
 
-	printMessage(verbosityProgress, "Parsing commit files\n")
-
-	// Initialize maps
-	commitFiles = make(map[string]string)
-
-	// Determine what to do with each file in the commit
 	for _, file := range patch.FilePatches() {
-		// Get the old file and new file info
+		var changedFile GitChangedFileMetadata
+
 		from, to := file.Files()
 
-		// Declare vars
-		var fromPath, toPath string
-		var SkipToFile bool
-
-		// Validate the from File object
-		fromPath, _, err = validateCommittedFiles(from, fileOverride)
-		if err != nil {
-			return
-		}
-
-		// Validate the to File object
-		toPath, SkipToFile, err = validateCommittedFiles(to, fileOverride)
-		if err != nil {
-			return
-		}
-
-		// Skip if not valid - only check tofile (valid deployment with tofile could include invalid fromfile)
-		if SkipToFile {
-			printMessage(verbosityFullData, "  Skipping Invalid File '%s'\n", toPath)
-			continue
-		}
-
-		// Add file to map depending on how it changed in this commit
-		if from == nil {
-			// Newly created files
-			//   like `touch etc/file.txt`
-			if strings.HasSuffix(toPath, directoryMetadataFileName) {
-				printMessage(verbosityFullData, "  Dir Metadata '%s' is brand new and will affect parent\n", toPath)
-				commitFiles[toPath] = "dirCreate"
-			} else {
-				printMessage(verbosityFullData, "  File '%s' is brand new and to be created\n", toPath)
-				commitFiles[toPath] = "create"
-			}
-		} else if to == nil {
-			// Deleted Files
-			//   like `rm etc/file.txt`
-			if config.options.allowDeletions {
-				printMessage(verbosityFullData, "  File '%s' is to be deleted\n", fromPath)
-				commitFiles[fromPath] = "delete"
-			} else {
-				printMessage(verbosityProgress, "  Skipping deletion of file '%s'\n", fromPath)
-			}
-		} else if fromPath != toPath {
-			// Copied or renamed files
-			//   like `cp etc/file.txt etc/file2.txt` or `mv etc/file.txt etc/file2.txt`
-			_, err = os.Stat(fromPath)
+		// Must safely retrieve file information to avoid panic
+		if from != nil {
+			_, err = os.Stat(changedFile.fromPath)
 			if err != nil {
 				// Any error other than file is not present, return
 				if !strings.Contains(err.Error(), "no such file or directory") {
@@ -99,44 +47,123 @@ func getCommitFiles(commit *object.Commit, fileOverride string) (commitFiles map
 				}
 				err = nil
 
-				fromDirs := strings.Split(fromPath, "/")
+				// Actual on-disk file is missing
+				changedFile.fromNotOnFS = true
+			}
+
+			changedFile.fromPath = from.Path()
+			changedFile.fromMode = from.Mode().String()
+		}
+		if to != nil {
+			_, err = os.Stat(changedFile.fromPath)
+			if err != nil {
+				// Any error other than file is not present, return
+				if !strings.Contains(err.Error(), "no such file or directory") {
+					return
+				}
+				err = nil
+
+				// Actual on-disk file is missing
+				changedFile.toNotOnFS = true
+			}
+
+			changedFile.toPath = to.Path()
+			changedFile.toMode = to.Mode().String()
+		}
+
+		changedFiles = append(changedFiles, changedFile)
+	}
+	return
+}
+
+// Parses changed files according to presence, path, and mode validity
+// Marks files with create/delete/modify action for deployment
+func parseChangedFiles(changedFiles []GitChangedFileMetadata, fileOverride string) (commitFiles map[string]string, err error) {
+	printMessage(verbosityProgress, "Parsing commit files\n")
+
+	commitFiles = make(map[string]string)
+
+	for _, changedFile := range changedFiles {
+		// If either from/to path matches user request, continue parsing
+		// TODO:
+		//  If user provided override for a deleted file
+		//   (that was moved, so source was deleted, destination is still present)
+		//   both the deletion and the moved file will be added to deployment
+		//  So user specifying only delete will actually get delete and create
+		skipFromFile := checkForOverride(fileOverride, changedFile.fromPath)
+		skipToFile := checkForOverride(fileOverride, changedFile.toPath)
+		if skipToFile && skipFromFile {
+			printMessage(verbosityFullData, "  File not desired\n")
+			continue
+		}
+
+		fromFileIsValid := fileIsValid(changedFile.fromPath, changedFile.fromMode)
+		toFileIsValid := fileIsValid(changedFile.toPath, changedFile.toMode)
+
+		if changedFile.fromPath == "" && changedFile.toPath == "" {
+			continue
+		} else if changedFile.fromPath == "" && toFileIsValid {
+			// Newly created files
+			//   like `touch etc/file.txt`
+			if strings.HasSuffix(changedFile.toPath, directoryMetadataFileName) {
+				printMessage(verbosityFullData, "  Dir Metadata '%s' is brand new and will affect parent\n", changedFile.toPath)
+				commitFiles[changedFile.toPath] = "dirCreate"
+			} else {
+				printMessage(verbosityFullData, "  File '%s' is brand new and to be created\n", changedFile.toPath)
+				commitFiles[changedFile.toPath] = "create"
+			}
+		} else if changedFile.toPath == "" && fromFileIsValid {
+			// Deleted Files
+			//   like `rm etc/file.txt`
+			if config.options.allowDeletions {
+				printMessage(verbosityFullData, "  File '%s' is to be deleted\n", changedFile.fromPath)
+				commitFiles[changedFile.fromPath] = "delete"
+			} else {
+				printMessage(verbosityProgress, "  Skipping deletion of file '%s'\n", changedFile.fromPath)
+			}
+		} else if changedFile.fromPath != changedFile.toPath && fromFileIsValid && toFileIsValid {
+			// Copied or renamed files
+			//   like `cp etc/file.txt etc/file2.txt` or `mv etc/file.txt etc/file2.txt`
+
+			if changedFile.fromNotOnFS {
+				fromDirs := strings.Split(changedFile.fromPath, "/")
 				topLevelDirFrom := fromDirs[0]
-				toDirs := strings.Split(toPath, "/")
+				toDirs := strings.Split(changedFile.toPath, "/")
 				topLevelDirTo := toDirs[0]
 
 				if topLevelDirFrom != topLevelDirTo {
+					// File was moved between hosts - must remove source
 					if config.options.allowDeletions {
-						printMessage(verbosityFullData, "  File '%s' is to be deleted\n", fromPath)
-						commitFiles[fromPath] = "delete"
+						printMessage(verbosityFullData, "  File '%s' is to be deleted\n", changedFile.fromPath)
+						commitFiles[changedFile.fromPath] = "delete"
 					} else {
-						printMessage(verbosityProgress, "  Skipping deletion of file '%s'\n", fromPath)
+						printMessage(verbosityProgress, "  Skipping deletion of file '%s'\n", changedFile.fromPath)
 					}
 				} else if config.options.allowDeletions {
-					printMessage(verbosityFullData, "  File '%s' is to be deleted\n", fromPath)
-					commitFiles[fromPath] = "delete"
+					printMessage(verbosityFullData, "  File '%s' is to be deleted\n", changedFile.fromPath)
+					commitFiles[changedFile.fromPath] = "delete"
 				}
 			}
 
-			if strings.HasSuffix(toPath, directoryMetadataFileName) {
-				printMessage(verbosityFullData, "  Dir Metadata '%s' is modified and will modify target directory\n", toPath)
-				commitFiles[toPath] = "dirModify"
+			if strings.HasSuffix(changedFile.toPath, directoryMetadataFileName) {
+				printMessage(verbosityFullData, "  Dir Metadata '%s' is modified and will modify target directory\n", changedFile.toPath)
+				commitFiles[changedFile.toPath] = "dirModify"
 			} else {
-				printMessage(verbosityProgress, "  File '%s' is modified and to be created\n", toPath)
-				commitFiles[toPath] = "create"
+				printMessage(verbosityProgress, "  File '%s' is modified and to be created\n", changedFile.toPath)
+				commitFiles[changedFile.toPath] = "create"
 			}
-		} else if fromPath == toPath {
+		} else if changedFile.fromPath == changedFile.toPath && fromFileIsValid && toFileIsValid {
 			// Editted in place
 			//   like `nano etc/file.txt`
-			if strings.HasSuffix(toPath, directoryMetadataFileName) {
-				printMessage(verbosityFullData, "  Dir Metadata '%s' is modified in place and will modify target directory\n", toPath)
-				commitFiles[toPath] = "dirModify"
+			if strings.HasSuffix(changedFile.toPath, directoryMetadataFileName) {
+				printMessage(verbosityFullData, "  Dir Metadata '%s' is modified in place and will modify target directory\n", changedFile.toPath)
+				commitFiles[changedFile.toPath] = "dirModify"
 			} else {
-				printMessage(verbosityFullData, "  File '%s' is modified in place and to be created\n", toPath)
-				commitFiles[toPath] = "create"
+				printMessage(verbosityFullData, "  File '%s' is modified in place and to be created\n", changedFile.toPath)
+				commitFiles[changedFile.toPath] = "create"
 			}
 		} else {
-			printMessage(verbosityFullData, "  File '%s' unknown and unsupported\n", fromPath)
-			commitFiles[fromPath] = "unsupported"
+			printMessage(verbosityFullData, "  File '%s' unsupported\n", changedFile.fromPath)
 		}
 	}
 
@@ -181,9 +208,7 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 
 		printMessage(verbosityData, "  Filtering file %s\n", repoFilePath)
 
-		// Ensure file is valid against config
-		if repoFileIsNotValid(repoFilePath) {
-			// Not valid, skip
+		if !fileIsValid(repoFilePath, repoFile.Mode.String()) {
 			continue
 		}
 

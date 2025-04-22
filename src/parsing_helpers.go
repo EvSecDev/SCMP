@@ -13,7 +13,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/go-git/go-git/v5/plumbing/format/diff"
+	"slices"
+
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
@@ -276,51 +277,27 @@ func extractMetadata(fileContents string) (metadataSection string, contentSectio
 //	any files in the root of the repository
 //	dirs present in global ignoredirectories array
 //	dirs that do not have a match in the controllers config
-func validateCommittedFiles(rawFile diff.File, fileOverride string) (path string, skipFile bool, err error) {
-	// Nothing to validate
-	if rawFile == nil {
-		return
-	}
-
-	// Retrieve integer representation of the files mode
-	mode := fmt.Sprintf("%v", rawFile.Mode())
+func fileIsValid(path string, mode string) (valid bool) {
+	printMessage(verbosityData, "  Validating file %s\n", path)
 
 	// Retrieve the type for this file
 	fileType := determineFileType(mode)
-
-	// Skip processing if file is unsupported
 	if fileType == "unsupported" {
-		skipFile = true
 		return
 	}
 
-	// Get the path
-	path = rawFile.Path()
-
-	printMessage(verbosityData, "  Validating committed file %s\n", path)
-
-	// Skip file if not user requested file (if requested)
-	skipFile = checkForOverride(fileOverride, path)
-	if skipFile {
-		printMessage(verbosityFullData, "  File not desired\n")
-		skipFile = true
-		return
-	}
-
-	// File exists, but no path - technically valid
+	// File exists, but no path
 	if path == "" {
 		return
 	}
 
-	// Ensure file is valid against config
+	// Ensure path conforms to SCMP directory structure
 	if repoFileIsNotValid(path) {
-		// Not valid, skip
-		skipFile = true
 		return
 	}
 
-	printMessage(verbosityData, "  Validated committed file %s\n", path)
-
+	// File is valid
+	valid = true
 	return
 }
 
@@ -345,12 +322,10 @@ func repoFileIsNotValid(path string) (fileIsNotValid bool) {
 	// fileIsValid if inside ignore directories array
 	if len(config.ignoreDirectories) > 0 {
 		// When committed file directory is prefixed by an ignore directory, skip file
-		for _, ignoreDir := range config.ignoreDirectories {
-			if topLevelDir == ignoreDir {
-				fileIsNotValid = true
-				printMessage(verbosityData, "    File is in an ignore directory, skipping\n")
-				return
-			}
+		if slices.Contains(config.ignoreDirectories, topLevelDir) {
+			fileIsNotValid = true
+			printMessage(verbosityData, "    File is in an ignore directory, skipping\n")
+			return
 		}
 	}
 

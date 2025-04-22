@@ -7,6 +7,244 @@ import (
 	"testing"
 )
 
+func TestParseChangedFiles(t *testing.T) {
+	// Mock Globals
+	globalVerbosityLevel = 0
+	config.osPathSeparator = "/"
+	config.hostInfo = map[string]EndpointInfo{
+		"host1": {},
+		"host2": {},
+		"host3": {},
+		"host4": {},
+	}
+
+	type TestCase struct {
+		name                string
+		changedFiles        []GitChangedFileMetadata
+		fileOverride        string
+		expectedCommitFiles map[string]string
+		expectedErr         bool
+	}
+	testCases := []TestCase{
+		{
+			name: "Single - New File",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: true,
+					fromPath:    "",
+					fromMode:    "",
+					toNotOnFS:   false,
+					toPath:      "host1/etc/network/interfaces",
+					toMode:      "0100644",
+				},
+			},
+			fileOverride: "",
+			expectedCommitFiles: map[string]string{
+				"host1/etc/network/interfaces": "create",
+			},
+			expectedErr: false,
+		},
+		{
+			name: "Single - New Dir Meta",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: true,
+					fromPath:    "",
+					fromMode:    "",
+					toNotOnFS:   false,
+					toPath:      "host1/var/www/site/" + directoryMetadataFileName,
+					toMode:      "0100644",
+				},
+			},
+			fileOverride: "",
+			expectedCommitFiles: map[string]string{
+				"host1/var/www/site/" + directoryMetadataFileName: "dirCreate",
+			},
+			expectedErr: false,
+		},
+		{
+			name: "Single - Modified Dir Meta",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: false,
+					fromPath:    "host2/opt/prog/" + directoryMetadataFileName,
+					fromMode:    "0100644",
+					toNotOnFS:   false,
+					toPath:      "host2/opt/prog/" + directoryMetadataFileName,
+					toMode:      "0100644",
+				},
+			},
+			fileOverride: "",
+			expectedCommitFiles: map[string]string{
+				"host2/opt/prog/" + directoryMetadataFileName: "dirModify",
+			},
+			expectedErr: false,
+		},
+		{
+			name: "Single - Moved to another host",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: true,
+					fromPath:    "host1/etc/network/interfaces",
+					fromMode:    "0100644",
+					toNotOnFS:   false,
+					toPath:      "host2/etc/network/interfaces",
+					toMode:      "0100644",
+				},
+			},
+			fileOverride: "",
+			expectedCommitFiles: map[string]string{
+				"host2/etc/network/interfaces": "create",
+			},
+			expectedErr: false,
+		},
+		{
+			name: "Multiple - User override",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: false,
+					fromPath:    "host2/etc/hostname",
+					fromMode:    "0100644",
+					toNotOnFS:   true,
+					toPath:      "host2/etc/hostname",
+					toMode:      "0100644",
+				},
+				{
+					fromNotOnFS: false,
+					fromPath:    "host3/etc/resolv.conf",
+					fromMode:    "0100644",
+					toNotOnFS:   false,
+					toPath:      "host3/etc/resolv.conf",
+					toMode:      "0100644",
+				},
+				{
+					fromNotOnFS: false,
+					fromPath:    "host4/etc/rsyslog.conf",
+					fromMode:    "0100644",
+					toNotOnFS:   false,
+					toPath:      "host4/etc/rsyslog.conf",
+					toMode:      "0100644",
+				},
+			},
+			fileOverride: "host3/etc/resolv.conf",
+			expectedCommitFiles: map[string]string{
+				"host3/etc/resolv.conf": "create",
+			},
+			expectedErr: false,
+		},
+		{
+			name: "Single - Same Name",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: false,
+					fromPath:    "host1/etc/hosts",
+					fromMode:    "0100644",
+					toNotOnFS:   false,
+					toPath:      "host1/etc/hosts",
+					toMode:      "0100644",
+				},
+			},
+			fileOverride: "",
+			expectedCommitFiles: map[string]string{
+				"host1/etc/hosts": "create",
+			},
+			expectedErr: false,
+		},
+		{
+			name: "Single - Copied to Other Host",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: false,
+					fromPath:    "host1/etc/default/grub",
+					fromMode:    "0100644",
+					toNotOnFS:   false,
+					toPath:      "host3/etc/default/grub",
+					toMode:      "0100644",
+				},
+			},
+			fileOverride: "",
+			expectedCommitFiles: map[string]string{
+				"host3/etc/default/grub": "create",
+			},
+			expectedErr: false,
+		},
+		{
+			name: "Dual - Rename and In-Place",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: true,
+					fromPath:    "host1/etc/hosts",
+					fromMode:    "0100644",
+					toNotOnFS:   false,
+					toPath:      "host1/etc/backup.hosts",
+					toMode:      "0100644",
+				},
+				{
+					fromNotOnFS: false,
+					fromPath:    "host2/etc/conf1",
+					fromMode:    "0100644",
+					toNotOnFS:   false,
+					toPath:      "host2/etc/conf1",
+					toMode:      "0100644",
+				},
+			},
+			fileOverride: "",
+			expectedCommitFiles: map[string]string{
+				"host1/etc/backup.hosts": "create",
+				"host2/etc/conf1":        "create",
+			},
+			expectedErr: false,
+		},
+		{
+			name: "Modified Unsupported File Type",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: false,
+					fromPath:    "host4/dev/sda",
+					fromMode:    "0100664",
+					toNotOnFS:   false,
+					toPath:      "host4/dev/sda",
+					toMode:      "0100664",
+				},
+			},
+			fileOverride:        "",
+			expectedCommitFiles: map[string]string{},
+			expectedErr:         true,
+		},
+		{
+			name:                "No input",
+			changedFiles:        []GitChangedFileMetadata{},
+			fileOverride:        "",
+			expectedCommitFiles: map[string]string{},
+			expectedErr:         true,
+		},
+		{
+			name:                "Only override input",
+			changedFiles:        []GitChangedFileMetadata{},
+			fileOverride:        "host1/etc/file.conf,host2/etc/conf.file",
+			expectedCommitFiles: map[string]string{},
+			expectedErr:         true,
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			commitFiles, err := parseChangedFiles(test.changedFiles, test.fileOverride)
+
+			if err != nil && !test.expectedErr {
+				t.Fatalf("Expected no error - but got error '%v'", err)
+			}
+			if err == nil && test.expectedErr {
+				t.Fatalf("Expected err '%v' - but got no error", test.expectedErr)
+			}
+
+			if fmt.Sprintf("%v", test.expectedCommitFiles) != fmt.Sprintf("%v", commitFiles) {
+				t.Errorf("Expected metadata does not match output metadata:\nOutput:\n%v\n\nExpected Output:\n%v\n", commitFiles, test.expectedCommitFiles)
+			}
+		})
+	}
+}
+
 func TestFilterHostsAndFiles(t *testing.T) {
 	// Lower verbosity for standard prints
 	globalVerbosityLevel = 0
@@ -281,6 +519,49 @@ more data here`),
 more data here`),
 			},
 			expectedErr: false,
+		},
+		{
+			name: "Standard directory metadata input",
+			allDeploymentFiles: map[string]string{
+				"host1/var/www/site1/" + directoryMetadataFileName: "dirModify",
+			},
+			rawFileContent: map[string][]byte{
+				"host1/var/www/site1/" + directoryMetadataFileName: []byte(`{
+  "FileOwnerGroup": "root:www-data",
+  "FilePermissions": 775,
+  "Install": [
+    "apt-get install nginx -y"
+  ],
+  "Checks": [
+    "ss -taplnu | grep 443"
+  ],
+  "Reload": [
+    "systemctl restart php8.3-fpm",
+	"systemctl is-active php8.3-fpm"
+  ]
+}
+`),
+			},
+			expectedallFileMeta: map[string]FileInfo{
+				"host1/var/www/site1/" + directoryMetadataFileName: {
+					hash:            "",
+					targetFilePath:  "/var/www/site1",
+					action:          "dirModify",
+					ownerGroup:      "root:www-data",
+					permissions:     775,
+					fileSize:        0,
+					linkTarget:      "",
+					dependencies:    []string{},
+					installOptional: true,
+					install:         []string{"apt-get install nginx -y"},
+					checksRequired:  true,
+					checks:          []string{"ss -taplnu | grep 443"},
+					reloadRequired:  true,
+					reload:          []string{"systemctl restart php8.3-fpm", "systemctl is-active php8.3-fpm"},
+				},
+			},
+			expectedallFileData: map[string][]byte{"": {}},
+			expectedErr:         false,
 		},
 		{
 			name: "Standard delete input",

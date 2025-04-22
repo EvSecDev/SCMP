@@ -29,7 +29,10 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 	switch deployMode {
 	case "deployChanges":
-		commitFiles, err = getCommitFiles(commit, fileOverride)
+		changedFiles, lerr := getChangedFiles(commit)
+		logError("Failed to retrieve changed files", lerr, true)
+
+		commitFiles, err = parseChangedFiles(changedFiles, fileOverride)
 	case "deployAll":
 		commitFiles, err = getRepoFiles(tree, fileOverride)
 	case "deployFailures":
