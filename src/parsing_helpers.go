@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"slices"
 
@@ -567,8 +568,23 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 	return
 }
 
+func convertMStoTimestamp(milliseconds int64) (timestamp string) {
+	// Convert milliseconds to seconds and nanoseconds
+	secs := milliseconds / 1000
+	nanos := (milliseconds % 1000) * int64(time.Millisecond)
+
+	// Create a Time object
+	t := time.Unix(secs, nanos)
+
+	// Format to ISO 8601 (RFC3339 is a subset of ISO8601)
+	timestamp = t.UTC().Format(time.RFC3339)
+	return
+}
+
 // Format elapsed millisecond time to its max unit size plus one smaller unit
-func formatElapsedTime(elapsed int64) (elapsedWithUnits string) {
+func formatElapsedTime(metrics *DeploymentMetrics) (elapsedWithUnits string) {
+	elapsed := metrics.endTime - metrics.startTime
+
 	// Handle days
 	days := elapsed / (1000 * 60 * 60 * 24)
 	elapsed %= (1000 * 60 * 60 * 24)

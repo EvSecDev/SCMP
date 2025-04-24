@@ -156,6 +156,8 @@ Secure Configuration Management Program (SCMP)
                                                    Supported arguments: '-r', '-R', '-l'
         --log-file                                 Write out events to log file
                                                    Output verbosity follows program-wide '--verbose'
+        --with-summary                             Generate detailed summary report of the deployment
+                                                   Output is JSON
     -t, --test-config                              Test controller configuration syntax
                                                    and configuration option validity
     -v, --verbose <0...5>                          Increase details and frequency of progress messages
@@ -474,7 +476,7 @@ _controller() {
     local cur prev opts
 
     # Define all available options
-    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --verbose --help --version --versionid"
+    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --with-summary --verbose --help --version --versionid"
 
     # Get the current word the user is typing
     cur="${COMP_WORDS[COMP_CWORD]}"

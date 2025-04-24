@@ -44,18 +44,17 @@ func localSystemChecks() (err error) {
 	return
 }
 
-// Post-deployment if an error occured
-// Takes global failure tracker and current commit id and writes it to the fail tracker file in the root of the repository
-// Also prints custom stdout to user to show the errors and how to initiate redeploy when fixed
-func recordDeploymentError(commitID string) (err error) {
-	// Create decoder for raw failtracker JSON
+// Prints custom stdout to user to show the root-cause errors
+func printDeploymentFailures() (err error) {
+	if failTracker.buffer.Len() > 0 {
+		return
+	}
+
 	failReader := bytes.NewReader(failTracker.buffer.Bytes())
 	failDecoder := json.NewDecoder(failReader)
 
-	// Print pretty version of failtracker
 	var failures ErrorInfo
 	for {
-		// unmarshal JSON object using struct
 		err = failDecoder.Decode(&failures)
 		if err != nil {
 			// Done with errors - exit loop
@@ -68,10 +67,8 @@ func recordDeploymentError(commitID string) (err error) {
 			return
 		}
 
-		// Print host name that failed
 		printMessage(verbosityStandard, "Host:  %s\n", failures.EndpointName)
 
-		// Print failed file in local path format
 		if len(failures.Files) > 0 {
 			printMessage(verbosityStandard, "Local Files: %v\n", failures.Files)
 		}
@@ -87,7 +84,11 @@ func recordDeploymentError(commitID string) (err error) {
 			indentSpaces += 1
 		}
 	}
+	return
+}
 
+// Takes global failure tracker and current commit id and writes it to the fail tracker file in the users ssh config directory
+func recordDeploymentError(commitID string) (err error) {
 	// Convert fail buffer back to string
 	failTrackerText := failTracker.buffer.String()
 	if failTrackerText == "" {
@@ -208,4 +209,79 @@ func printHostInformation(hostInfo EndpointInfo) {
 	printMessage(verbosityProgress, "       Password:          %s\n", hostInfo.password)
 	printMessage(verbosityProgress, "       Transfer Buffer:   %s\n", hostInfo.remoteTransferBuffer)
 	printMessage(verbosityProgress, "       Backup Dir:        %s\n", hostInfo.remoteBackupDir)
+}
+
+func (deployMetrics *DeploymentMetrics) createReport() (deploymentSummary DeploymentSummary, err error) {
+	deploymentSummary.ElapsedTime = formatElapsedTime(deployMetrics)
+	deploymentSummary.StartTime = convertMStoTimestamp(deployMetrics.startTime)
+	deploymentSummary.EndTime = convertMStoTimestamp(deployMetrics.endTime)
+
+	var allHostBytes int
+	for _, bytes := range deployMetrics.hostBytes {
+		allHostBytes += bytes
+	}
+	deploymentSummary.TransferredData = formatBytes(allHostBytes)
+
+	deploymentSummary.Counters.Hosts = len(deployMetrics.hostFiles)
+
+	for host, files := range deployMetrics.hostFiles {
+		var hostSummary HostSummary
+		hostSummary.Name = host
+		hostSummary.ErrorMsg = deployMetrics.hostErr[host]
+		hostSummary.TotalItems = len(files)
+
+		if deploymentSummary.Counters.Hosts > 1 {
+			hostSummary.TransferredData = formatBytes(deployMetrics.hostBytes[host])
+		}
+
+		deploymentSummary.Counters.Items += hostSummary.TotalItems
+
+		var hostItemsDeployed int
+		for _, file := range files {
+			var fileSummary ItemSummary
+			fileSummary.Name = file
+			fileSummary.ErrorMsg = deployMetrics.fileErr[file]
+
+			if fileSummary.ErrorMsg != "" {
+				fileSummary.Status = "Failed"
+				deploymentSummary.Counters.FailedItems++
+			} else {
+				fileSummary.Status = "Deployed"
+				hostItemsDeployed++
+				deploymentSummary.Counters.CompletedItems++
+			}
+
+			hostSummary.Items = append(hostSummary.Items, fileSummary)
+		}
+
+		if hostItemsDeployed == hostSummary.TotalItems {
+			hostSummary.Status = "Deployed"
+			deploymentSummary.Counters.CompletedHosts++
+		} else if hostItemsDeployed > 0 {
+			hostSummary.Status = "Partial"
+			deploymentSummary.Counters.FailedHosts++
+		} else if hostItemsDeployed == 0 {
+			hostSummary.Status = "Failed"
+			deploymentSummary.Counters.FailedHosts++
+		} else {
+			hostSummary.Status = "Unknown"
+			deploymentSummary.Counters.FailedHosts++
+		}
+
+		deploymentSummary.Hosts = append(deploymentSummary.Hosts, hostSummary)
+	}
+
+	if deploymentSummary.Counters.CompletedHosts == deploymentSummary.Counters.Hosts {
+		deploymentSummary.Status = "Deployed"
+	} else if deploymentSummary.Counters.CompletedHosts > 0 && deploymentSummary.Counters.FailedHosts > 0 {
+		deploymentSummary.Status = "Partial"
+	} else if deploymentSummary.Counters.CompletedHosts == 0 && deploymentSummary.Counters.FailedHosts > 0 {
+		deploymentSummary.Status = "Failed"
+	} else if deploymentSummary.Counters.Hosts == 0 {
+		deploymentSummary.Status = "UpToDate"
+	} else {
+		deploymentSummary.Status = "Unknown"
+	}
+
+	return
 }

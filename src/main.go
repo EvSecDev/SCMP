@@ -74,14 +74,15 @@ type Config struct {
 }
 
 type Opts struct {
-	maxSSHConcurrency     int  // Maximum threads for ssh sessions
-	disableSudo           bool // Disable using sudo for remote commands
-	allowDeletions        bool // Allow deletions in local repo to delete files on remote hosts or vault entries
-	disableReloads        bool // Disables all deployment reload commands for this deployment
-	runInstallCommands    bool // Run the install command section of all relevant files metadata header section (within the given deployment)
-	ignoreDeploymentState bool // Ignore any deployment state for a host in the config
-	regexEnabled          bool // Globally enable the use of regex for matching hosts/files
-	forceEnabled          bool // Atomic mode
+	maxSSHConcurrency        int  // Maximum threads for ssh sessions
+	disableSudo              bool // Disable using sudo for remote commands
+	allowDeletions           bool // Allow deletions in local repo to delete files on remote hosts or vault entries
+	disableReloads           bool // Disables all deployment reload commands for this deployment
+	runInstallCommands       bool // Run the install command section of all relevant files metadata header section (within the given deployment)
+	ignoreDeploymentState    bool // Ignore any deployment state for a host in the config
+	regexEnabled             bool // Globally enable the use of regex for matching hosts/files
+	forceEnabled             bool // Atomic mode
+	detailedSummaryRequested bool // Generate a summary report of the deployment
 }
 
 // Struct for host-specific Information
@@ -172,15 +173,51 @@ type ErrorInfo struct {
 }
 
 // Used for metrics - counting post deployment
-type PostDeploymentMetrics struct {
-	files           int
-	filesMutex      sync.Mutex
-	hosts           int
-	hostsMutex      sync.Mutex
-	bytes           int
-	bytesMutex      sync.Mutex
-	sizeTransferred string
-	timeElapsed     string
+type DeploymentMetrics struct {
+	startTime      int64
+	hostFiles      map[string][]string
+	hostFilesMutex sync.Mutex
+	hostErr        map[string]string
+	hostErrMutex   sync.Mutex
+	fileErr        map[string]string
+	fileErrMutex   sync.Mutex
+	hostBytes      map[string]int
+	hostBytesMutex sync.Mutex
+	endTime        int64
+}
+
+// Summary of actions done and collected metrics
+// Status could be UpToDate,Deployed,Partial,Failed
+type DeploymentSummary struct {
+	Status          string `json:"Status"`
+	StartTime       string `json:"Start-Time"`
+	EndTime         string `json:"End-Time"`
+	ElapsedTime     string `json:"Elapsed-Time"`     // Human readable
+	TransferredData string `json:"Transferred-Size"` // Human readable
+	Counters        struct {
+		Hosts          int `json:"Hosts" `
+		Items          int `json:"Items"`
+		CompletedHosts int `json:"Hosts-Completed"`
+		CompletedItems int `json:"Items-Completed"`
+		FailedHosts    int `json:"Hosts-Failed"`
+		FailedItems    int `json:"Items-Failed"`
+	} `json:"Counters"`
+	Hosts []HostSummary `json:"Hosts,omitempty"`
+}
+
+type HostSummary struct {
+	Name            string        `json:"Name"`
+	Status          string        `json:"Status"`
+	ErrorMsg        string        `json:"Error-Message,omitempty"`
+	TotalItems      int           `json:"Total-Items,omitempty"`
+	TransferredData string        `json:"Transferred-Size,omitempty"`
+	Items           []ItemSummary `json:"Items,omitempty"`
+}
+
+type ItemSummary struct {
+	Name     string `json:"Name"`
+	Status   string `json:"Status"`
+	ErrorMsg string `json:"Error-Message,omitempty"`
 }
 
 // FailureTracker holds the failure tracker state
@@ -314,6 +351,8 @@ Secure Configuration Management Program (SCMP)
                                                    Supported arguments: '-r', '-R', '-l'
         --log-file                                 Write out events to log file
                                                    Output verbosity follows program-wide '--verbose'
+        --with-summary                             Generate detailed summary report of the deployment
+                                                   Output is JSON
     -t, --test-config                              Test controller configuration syntax
                                                    and configuration option validity
     -v, --verbose <0...5>                          Increase details and frequency of progress messages
@@ -364,6 +403,7 @@ Secure Configuration Management Program (SCMP)
 	flag.BoolVar(&config.options.disableSudo, "disable-privilege-escalation", false, "")
 	flag.BoolVar(&config.options.ignoreDeploymentState, "ignore-deployment-state", false, "")
 	flag.BoolVar(&config.options.regexEnabled, "regex", false, "")
+	flag.BoolVar(&config.options.detailedSummaryRequested, "with-summary", false, "")
 	flag.StringVar(&config.logFilePath, "log-file", "", "")
 	flag.BoolVar(&versionInfoRequested, "V", false, "")
 	flag.BoolVar(&versionInfoRequested, "version", false, "")
@@ -381,7 +421,7 @@ Secure Configuration Management Program (SCMP)
 	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...%s", os.Args[0], usage) }
 	flag.Parse()
 
-	const progVersion string = "v4.5.1"
+	const progVersion string = "v4.5.2"
 	if versionInfoRequested {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)

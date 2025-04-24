@@ -14,27 +14,31 @@ import (
 //      DEPLOYMENT HANDLING FUNCTIONS
 // ###########################################
 
-func (metric *PostDeploymentMetrics) updateCount(deployedFiles int, deployedBytes int, deployedHosts int) {
+func (metric *DeploymentMetrics) addHostBytes(host string, deployedBytes int) {
 	// Lock and write to metric var - increment total transferred bytes
 	if deployedBytes > 0 {
-		metric.bytesMutex.Lock()
-		metric.bytes += deployedBytes
-		metric.bytesMutex.Unlock()
+		metric.hostBytesMutex.Lock()
+		metric.hostBytes[host] += deployedBytes
+		metric.hostBytesMutex.Unlock()
 	}
+}
 
-	// Lock and write to metric var - increment success configs by local file counter
-	if deployedFiles > 0 {
-		metric.filesMutex.Lock()
-		metric.files += deployedFiles
-		metric.filesMutex.Unlock()
-	}
+func (metric *DeploymentMetrics) addFile(host string, files ...string) {
+	metric.hostFilesMutex.Lock()
+	metric.hostFiles[host] = append(metric.hostFiles[host], files...)
+	metric.hostFilesMutex.Unlock()
+}
 
-	// Lock and write to metric var - increment success hosts by 1 (only if any config was deployed)
-	if deployedHosts > 0 {
-		metric.hostsMutex.Lock()
-		metric.hosts++
-		metric.hostsMutex.Unlock()
-	}
+func (metric *DeploymentMetrics) addFileFailure(file string, err error) {
+	metric.fileErrMutex.Lock()
+	metric.fileErr[file] = fmt.Sprintf("%v", err)
+	metric.fileErrMutex.Unlock()
+}
+
+func (metric *DeploymentMetrics) addHostFailure(host string, err error) {
+	metric.hostErrMutex.Lock()
+	metric.hostErr[host] = fmt.Sprintf("%v", err)
+	metric.hostErrMutex.Unlock()
 }
 
 // Assigns unique groups for file reload commands

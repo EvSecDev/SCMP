@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
@@ -96,18 +97,22 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		}
 	}
 
-	printMessage(verbosityStandard, "Beginning deployment of %d files(s) to %d host(s)\n", len(allFileMeta), len(allDeploymentHosts))
+	// Metric collection
+	deployMetrics := &DeploymentMetrics{}
+	deployMetrics.hostFiles = make(map[string][]string)
+	deployMetrics.hostBytes = make(map[string]int)
+	deployMetrics.fileErr = make(map[string]string)
+	deployMetrics.hostErr = make(map[string]string)
 
-	// Post deployment metrics
-	postDeployMetrics := &PostDeploymentMetrics{}
-
-	// Semaphore to limit concurrency of host deployment go routines as specified in main config
-	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
+	printMessage(verbosityStandard, "Deploying %d item(s) to %d host(s)\n", len(allFileMeta), len(allDeploymentHosts))
 
 	// Get current timestamp for deployment elapsed time metric
-	deploymentStartTime := time.Now().UnixMilli()
+	deployMetrics.startTime = time.Now().UnixMilli()
 
-	// Start SSH Deployments by host
+	// Concurrency Limiter
+	connLimiter := make(chan struct{}, config.options.maxSSHConcurrency)
+
+	// Start SSH Deployments
 	var wg sync.WaitGroup
 	for _, endpointName := range allDeploymentHosts {
 		hostInfo := config.hostInfo[endpointName]
@@ -117,9 +122,9 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
 		if config.options.maxSSHConcurrency > 1 {
-			go sshDeploy(&wg, semaphore, hostInfo, proxyInfo, allFileMeta, allFileData, postDeployMetrics)
+			go sshDeploy(&wg, connLimiter, hostInfo, proxyInfo, allFileMeta, allFileData, deployMetrics)
 		} else {
-			sshDeploy(&wg, semaphore, hostInfo, proxyInfo, allFileMeta, allFileData, postDeployMetrics)
+			sshDeploy(&wg, connLimiter, hostInfo, proxyInfo, allFileMeta, allFileData, deployMetrics)
 			if failTracker.buffer.Len() > 0 {
 				// Deployment error occured, don't continue with deployments
 				break
@@ -129,41 +134,50 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	wg.Wait()
 
 	// Get final timestamp to mark end of deployment
-	deploymentEndTime := time.Now().UnixMilli()
+	deployMetrics.endTime = time.Now().UnixMilli()
 
-	// Diff deployment time
-	deploymentElapsedTime := deploymentEndTime - deploymentStartTime
-
-	// Make pretty string with units for user
-	postDeployMetrics.timeElapsed = formatElapsedTime(deploymentElapsedTime)
-
-	// If user requested dry run - print collected information
 	if dryRunRequested {
 		printDeploymentInformation(allFileMeta, allDeploymentHosts)
 		return
 	}
 
-	// Format byte metric to string
-	postDeployMetrics.sizeTransferred = formatBytes(postDeployMetrics.bytes)
+	deploymentSummary, err := deployMetrics.createReport()
+	logError("Failed to calculate deployment metrics", err, false)
 
-	// Save deployment errors to fail tracker
+	if config.options.detailedSummaryRequested {
+		// Detailed Summary
+		deploymentSummaryJson, err := json.MarshalIndent(deploymentSummary, "", " ")
+		logError("Failed to marshal detailed deployment summary JSON", err, false)
+
+		printMessage(verbosityStandard, "%s\n", string(deploymentSummaryJson))
+	} else {
+		// Short Summary
+		printMessage(verbosityStandard,
+			"Status: %s. Deployed %d item(s) (%s) to %d host(s). Deployment took %s\n",
+			deploymentSummary.Status,
+			deploymentSummary.Counters.CompletedItems,
+			deploymentSummary.TransferredData,
+			deploymentSummary.Counters.CompletedHosts,
+			deploymentSummary.ElapsedTime,
+		)
+
+		err = printDeploymentFailures()
+		logError("Error in printing failures", err, false)
+	}
+
 	if failTracker.buffer.Len() > 0 {
-		printMessage(verbosityStandard, "Deployment Completed with Failures: Metrics: {\"Hosts\":%d,\"Items\":%d,\"ElapsedTime\":\"%s\",\"TransferredBytes\":\"%s\"}\n", postDeployMetrics.hosts, postDeployMetrics.files, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
 		err := recordDeploymentError(commitID)
 		logError("Error in failure recording", err, false)
-		return
-	}
-
-	// Remove fail tracker file after successful redeployment if it exists - best effort
-	err = os.Remove(config.failTrackerFilePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			// No warning if the file doesn't exist
-		} else {
-			// Print a warning for any other error
-			printMessage(verbosityStandard, "Warning: Failed to remove file %s: %v\n", config.failTrackerFilePath, err)
+	} else {
+		// Remove fail tracker file after successful redeployment if it exists - best effort
+		err = os.Remove(config.failTrackerFilePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// No warning if the file doesn't exist
+			} else {
+				// Print a warning for any other error
+				printMessage(verbosityStandard, "Warning: Failed to remove file %s: %v\n", config.failTrackerFilePath, err)
+			}
 		}
 	}
-
-	printMessage(verbosityStandard, "Deployment Completed Successfully. Metrics: {\"Hosts\":%d,\"Items\":%d,\"ElapsedTime\":\"%s\",\"TransferredBytes\":\"%s\"}\n", postDeployMetrics.hosts, postDeployMetrics.files, postDeployMetrics.timeElapsed, postDeployMetrics.sizeTransferred)
 }
