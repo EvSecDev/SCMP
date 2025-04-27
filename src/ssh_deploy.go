@@ -57,16 +57,16 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	}
 	defer host.sshClient.Close()
 
-	// Create the backup directory - Error here is fatal to entire host deployment
-	err = initBackupDirectory(host)
+	// Predeployment checks
+	err = remoteDeploymentPreparation(&host)
 	if err != nil {
-		err = fmt.Errorf("failed SSH Command on host during creation of backup directory: %v", err)
+		err = fmt.Errorf("Remote system preparation failed: %v", err)
 		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentFiles...)
 		deployMetrics.addHostFailure(host.name, err)
 		return
 	}
 
-	// Deploy files that dont need any reload commands run
+	// Deploy files
 	deployFiles(host, endpointInfo.deploymentFiles, allFileMeta, allFileData, deployMetrics)
 
 	// Do any remote cleanups are required (non-fatal)

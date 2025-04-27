@@ -481,6 +481,7 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 	// - 6 = Derefenced name if applicable, otherwise just file name in single quotes
 	//[/etc/rmt],[symbolic link],[root],[root],[777],[13],['/etc/rmt' -> '/usr/sbin/rmt']
 	const linkDelimiter string = "' -> '"
+	const bsdLinkPrefix string = "target="
 
 	// Trim stray newlines from input if they exist
 	statOutput = strings.TrimSuffix(statOutput, "\n")
@@ -512,7 +513,7 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 		statFields[fieldIndex] = strings.TrimSuffix(statFields[fieldIndex], "]")
 	}
 
-	// Handle symlink field parsing if present
+	// Handle linux symlink field parsing if present
 	if strings.Contains(statFields[6], linkDelimiter) {
 		// Split on the link point string
 		dereferencedFields := strings.Split(statFields[6], linkDelimiter)
@@ -529,8 +530,13 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 
 		// Save back into array
 		statFields[6] = dereferencedFields[1]
-	} else if !strings.Contains(statFields[6], linkDelimiter) {
-		// Zero out the string
+	} else if strings.HasPrefix(statFields[6], bsdLinkPrefix) {
+		linkTarget := strings.TrimPrefix(statFields[6], bsdLinkPrefix)
+
+		// Not checking if anything is present, stat will put the prefix in always
+		statFields[6] = linkTarget
+	} else {
+		// Linux stat puts file name in link field - must remove
 		statFields[6] = ""
 	}
 
@@ -542,7 +548,7 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 
 	// Put all parsed data into structured return
 	fileInfo.name = statFields[0]
-	fileInfo.fsType = statFields[1]
+	fileInfo.fsType = strings.ToLower(statFields[1]) // BSD uses capitals, linux does not
 	fileInfo.owner = statFields[2]
 	fileInfo.group = statFields[3]
 	fileInfo.linkTarget = statFields[6]

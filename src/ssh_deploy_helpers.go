@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
-
-	"golang.org/x/crypto/ssh"
 )
 
 // ###########################################
@@ -147,13 +145,33 @@ func checkForDiff(remoteMetadata RemoteFileInfo, localMetadata FileInfo) (conten
 //      REMOTE ACTION HANDLING
 // #################################
 
-func initBackupDirectory(host HostMeta) (err error) {
+func remoteDeploymentPreparation(host *HostMeta) (err error) {
+	printMessage(verbosityProgress, "Host %s: Determining remote OS\n", host.name)
+
+	command := buildUnameKernel()
+	unameOutput, err := command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 5)
+	if err != nil {
+		err = fmt.Errorf("failed to determine OS, cannot deploy: %v", err)
+		return
+	}
+	osName := strings.ToLower(unameOutput)
+	if strings.Contains(osName, "bsd") {
+		host.osFamily = "bsd"
+	} else if strings.Contains(osName, "linux") {
+		host.osFamily = "linux"
+	} else {
+		err = fmt.Errorf("received unknown os type: %s", unameOutput)
+		host.osFamily = "unknown"
+		return
+	}
+
 	printMessage(verbosityProgress, "Host %s: Preparing remote config backup directory\n", host.name)
 
 	// Create backup directory
-	command := buildMkdir(host.backupPath)
+	command = buildMkdir(host.backupPath)
 	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 	if err != nil {
+		err = fmt.Errorf("failed to setup remote temporary backup directory: %v", err)
 		// Since we blindly try to create the directory, ignore errors about it already existing
 		if strings.Contains(strings.ToLower(err.Error()), "file exists") {
 			err = nil // reset err so caller doesnt think function failed
@@ -215,14 +233,14 @@ func runReloadCommands(host HostMeta, reloadCommands []string) (err error) {
 // Run full deployment of a new file to remote host
 func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte, fileContentHash string, fileOwnerGroup string, filePermissions int) (err error) {
 	// Transfer local file to remote
-	err = transferFile(host.sshClient, fileContents, targetFilePath, host.password, host.transferBufferFile, fileOwnerGroup, filePermissions)
+	err = transferFile(host, fileContents, targetFilePath, fileOwnerGroup, filePermissions)
 	if err != nil {
 		err = fmt.Errorf("failed SCP file transfer to remote host: %v", err)
 		return
 	}
 
 	// Check if deployed file is present on disk
-	newFileExists, _, err := checkRemoteFileDirExistence(host.sshClient, targetFilePath, host.password)
+	newFileExists, _, err := checkRemoteFileDirExistence(host, targetFilePath)
 	if err != nil {
 		err = fmt.Errorf("error checking deployed file presence on remote host: %v", err)
 		return
@@ -256,7 +274,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 // Retrieves metadata about file/dir from ls
 func getOldRemoteInfo(host HostMeta, targetPath string) (remoteMetadata RemoteFileInfo, err error) {
 	// Find if target file exists on remote
-	exists, statOutput, err := checkRemoteFileDirExistence(host.sshClient, targetPath, host.password)
+	exists, statOutput, err := checkRemoteFileDirExistence(host, targetPath)
 	if err != nil {
 		err = fmt.Errorf("failed checking file presence on remote host: %v", err)
 		return
@@ -382,9 +400,15 @@ func restoreOldFile(host HostMeta, targetFilePath string, remoteMetadata RemoteF
 
 // Checks if file/dir is already present on remote host
 // Also retrieve metadata for file/dir
-func checkRemoteFileDirExistence(sshClient *ssh.Client, remotePath string, SudoPassword string) (exists bool, statOutput string, err error) {
-	command := buildStat(remotePath)
-	statOutput, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
+func checkRemoteFileDirExistence(host HostMeta, remotePath string) (exists bool, statOutput string, err error) {
+	var command RemoteCommand
+	if host.osFamily == "bsd" {
+		command = buildBSDStat(remotePath)
+	} else if host.osFamily == "linux" {
+		command = buildStat(remotePath)
+	}
+
+	statOutput, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 	if err != nil {
 		exists = false
 		if strings.Contains(err.Error(), "No such file or directory") {
@@ -399,17 +423,17 @@ func checkRemoteFileDirExistence(sshClient *ssh.Client, remotePath string, SudoP
 
 // Transfers file content in variable to remote temp buffer, then moves into remote file path location
 // Uses global var for remote temp buffer file path location
-func transferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath string, SudoPassword string, tmpRemoteFilePath string, fileOwnerGroup string, filePermissions int) (err error) {
+func transferFile(host HostMeta, localFileContent []byte, remoteFilePath string, fileOwnerGroup string, filePermissions int) (err error) {
 	// Check if remote dir exists, if not create
 	directoryPath := filepath.Dir(remoteFilePath)
-	directoryExists, _, err := checkRemoteFileDirExistence(sshClient, directoryPath, SudoPassword)
+	directoryExists, _, err := checkRemoteFileDirExistence(host, directoryPath)
 	if err != nil {
 		err = fmt.Errorf("failed checking directory existence: %v", err)
 		return
 	}
 	if !directoryExists {
 		command := buildMkdir(directoryPath)
-		_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
+		_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 		if err != nil {
 			err = fmt.Errorf("failed to create directory: %v", err)
 			return
@@ -417,30 +441,30 @@ func transferFile(sshClient *ssh.Client, localFileContent []byte, remoteFilePath
 	}
 
 	// SCP to temp file
-	err = SCPUpload(sshClient, localFileContent, tmpRemoteFilePath)
+	err = SCPUpload(host.sshClient, localFileContent, host.transferBufferFile)
 	if err != nil {
 		return
 	}
 
 	// Ensure owner/group are correct
-	command := buildChown(tmpRemoteFilePath, fileOwnerGroup)
-	_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
+	command := buildChown(host.transferBufferFile, fileOwnerGroup)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
 		return
 	}
 
 	// Ensure permissions are correct
-	command = buildChmod(tmpRemoteFilePath, filePermissions)
-	_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
+	command = buildChmod(host.transferBufferFile, filePermissions)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
 		return
 	}
 
 	// Move file from tmp dir to actual deployment path
-	command = buildMv(tmpRemoteFilePath, remoteFilePath)
-	_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 30)
+	command = buildMv(host.transferBufferFile, remoteFilePath)
+	_, err = command.SSHexec(host.sshClient, "root", config.options.disableSudo, host.password, 30)
 	if err != nil {
 		err = fmt.Errorf("failed to move new file into place: %v", err)
 		return
@@ -511,7 +535,7 @@ func deploySymLink(host HostMeta, linkName string, linkTarget string) (linkModif
 	printMessage(verbosityData, "Host %s:   Creating symlink %s\n", host.name, linkName)
 
 	// Check if a file is already there
-	oldSymLinkExists, statOutput, err := checkRemoteFileDirExistence(host.sshClient, linkName, host.password)
+	oldSymLinkExists, statOutput, err := checkRemoteFileDirExistence(host, linkName)
 	if err != nil {
 		err = fmt.Errorf("failed checking file existence before creating symbolic link: %v", err)
 		return

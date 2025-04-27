@@ -155,13 +155,31 @@ func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.
 	// Use target file path and hosts name for repo file location
 	localFilePath := filepath.Join(endpointName, strings.ReplaceAll(remoteFilePath, "/", config.osPathSeparator))
 
-	command := buildStat(remoteFilePath)
+	command := buildUnameKernel()
+	unameOutput, err := command.SSHexec(client, "root", config.options.disableSudo, SudoPassword, 5)
+	if err != nil {
+		err = fmt.Errorf("failed to determine OS, cannot continue: %v", err)
+		return
+	}
+	osName := strings.ToLower(unameOutput)
+
+	// Build stat command based on remote OS
+	if strings.Contains(osName, "bsd") {
+		command = buildBSDStat(remoteFilePath)
+	} else if strings.Contains(osName, "linux") {
+		command = buildStat(remoteFilePath)
+	} else {
+		err = fmt.Errorf("received unknown os type: %s", unameOutput)
+		return
+	}
 	statOutput, err := command.SSHexec(client, "root", config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
 	}
+
 	printMessage(verbosityProgress, "  Selection '%s': Parsing metadata...\n", remoteFilePath)
+	
 	selectionMetadata, err := extractMetadataFromStat(statOutput)
 	if err != nil {
 		err = fmt.Errorf("failed parsing stat output: %v", err)

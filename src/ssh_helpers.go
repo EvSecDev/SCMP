@@ -395,10 +395,23 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuf
 // Constructors for remote SSH commands
 // Standardizes command names and their arguments
 
+func buildUnameKernel() (remoteCommand RemoteCommand) {
+	const unameCmd string = "uname -s"
+	remoteCommand.string = unameCmd
+	return
+}
+
 func buildStat(remotePath string) (remoteCommand RemoteCommand) {
 	// Fixed output for extractMetadataFromStat function parsing
 	const statCmd string = "stat --format='[%n],[%F],[%U],[%G],[%a],[%s],[%N]' "
 	remoteCommand.string = statCmd + "'" + remotePath + "'"
+	return
+}
+
+func buildBSDStat(remotePath string) (remoteCommand RemoteCommand) {
+	// Fixed output for extractMetadataFromStat function parsing
+	const statBsdCmd string = "stat -f '[%N],[%HT],[%Su],[%Sg],[%Lp],[%z],[target=%Y]' "
+	remoteCommand.string = statBsdCmd + "'" + remotePath + "'"
 	return
 }
 
