@@ -2,7 +2,6 @@
 package main
 
 import (
-	"bytes"
 	"flag"
 	"fmt"
 	"os"
@@ -165,25 +164,20 @@ type RemoteCommand struct {
 	string
 }
 
-// Fail tracker json line format
-type ErrorInfo struct {
-	EndpointName string   `json:"endpointName"`
-	Files        []string `json:"files"`
-	ErrorMessage string   `json:"errorMessage"`
-}
-
 // Used for metrics - counting post deployment
 type DeploymentMetrics struct {
-	startTime      int64
-	hostFiles      map[string][]string
-	hostFilesMutex sync.Mutex
-	hostErr        map[string]string
-	hostErrMutex   sync.Mutex
-	fileErr        map[string]string
-	fileErrMutex   sync.Mutex
-	hostBytes      map[string]int
-	hostBytesMutex sync.Mutex
-	endTime        int64
+	startTime       int64
+	hostFiles       map[string][]string
+	hostFilesMutex  sync.Mutex
+	hostErr         map[string]string
+	hostErrMutex    sync.Mutex
+	fileErr         map[string]string
+	fileErrMutex    sync.Mutex
+	fileAction      map[string]string
+	fileActionMutex sync.Mutex
+	hostBytes       map[string]int
+	hostBytesMutex  sync.Mutex
+	endTime         int64
 }
 
 // Summary of actions done and collected metrics
@@ -202,12 +196,13 @@ type DeploymentSummary struct {
 		FailedHosts    int `json:"Hosts-Failed"`
 		FailedItems    int `json:"Items-Failed"`
 	} `json:"Counters"`
-	Hosts []HostSummary `json:"Hosts,omitempty"`
+	CommitID string        `json:"Deployment-Commit-Hash"`
+	Hosts    []HostSummary `json:"Hosts,omitempty"`
 }
 
 type HostSummary struct {
 	Name            string        `json:"Name"`
-	Status          string        `json:"Status"`
+	Status          string        `json:"Status,omitempty"`
 	ErrorMsg        string        `json:"Error-Message,omitempty"`
 	TotalItems      int           `json:"Total-Items,omitempty"`
 	TransferredData string        `json:"Transferred-Size,omitempty"`
@@ -216,14 +211,9 @@ type HostSummary struct {
 
 type ItemSummary struct {
 	Name     string `json:"Name"`
-	Status   string `json:"Status"`
+	Action   string `json:"Deployment-Action"`
+	Status   string `json:"Status,omitempty"`
 	ErrorMsg string `json:"Error-Message,omitempty"`
-}
-
-// FailureTracker holds the failure tracker state
-type FailureTracker struct {
-	buffer bytes.Buffer
-	mutex  sync.Mutex
 }
 
 // For seed repository - keeping track of directories in menu
@@ -264,9 +254,6 @@ var globalVerbosityLevel int
 // Global for checking remote hosts keys
 var addAllUnknownHosts bool
 var knownHostMutex sync.Mutex
-
-// Global to track failed go routines' hosts, files, and errors to be able to retry deployment on user request
-var failTracker = &FailureTracker{}
 
 // ###################################
 //	MAIN - START

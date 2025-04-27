@@ -23,7 +23,6 @@ func TestParseChangedFiles(t *testing.T) {
 		changedFiles        []GitChangedFileMetadata
 		fileOverride        string
 		expectedCommitFiles map[string]string
-		expectedErr         bool
 	}
 	testCases := []TestCase{
 		{
@@ -42,7 +41,6 @@ func TestParseChangedFiles(t *testing.T) {
 			expectedCommitFiles: map[string]string{
 				"host1/etc/network/interfaces": "create",
 			},
-			expectedErr: false,
 		},
 		{
 			name: "Single - New Dir Meta",
@@ -60,7 +58,6 @@ func TestParseChangedFiles(t *testing.T) {
 			expectedCommitFiles: map[string]string{
 				"host1/var/www/site/" + directoryMetadataFileName: "dirCreate",
 			},
-			expectedErr: false,
 		},
 		{
 			name: "Single - Modified Dir Meta",
@@ -78,7 +75,6 @@ func TestParseChangedFiles(t *testing.T) {
 			expectedCommitFiles: map[string]string{
 				"host2/opt/prog/" + directoryMetadataFileName: "dirModify",
 			},
-			expectedErr: false,
 		},
 		{
 			name: "Single - Moved to another host",
@@ -96,7 +92,6 @@ func TestParseChangedFiles(t *testing.T) {
 			expectedCommitFiles: map[string]string{
 				"host2/etc/network/interfaces": "create",
 			},
-			expectedErr: false,
 		},
 		{
 			name: "Multiple - User override",
@@ -130,7 +125,6 @@ func TestParseChangedFiles(t *testing.T) {
 			expectedCommitFiles: map[string]string{
 				"host3/etc/resolv.conf": "create",
 			},
-			expectedErr: false,
 		},
 		{
 			name: "Single - Same Name",
@@ -148,7 +142,6 @@ func TestParseChangedFiles(t *testing.T) {
 			expectedCommitFiles: map[string]string{
 				"host1/etc/hosts": "create",
 			},
-			expectedErr: false,
 		},
 		{
 			name: "Single - Copied to Other Host",
@@ -166,7 +159,6 @@ func TestParseChangedFiles(t *testing.T) {
 			expectedCommitFiles: map[string]string{
 				"host3/etc/default/grub": "create",
 			},
-			expectedErr: false,
 		},
 		{
 			name: "Dual - Rename and In-Place",
@@ -193,7 +185,6 @@ func TestParseChangedFiles(t *testing.T) {
 				"host1/etc/backup.hosts": "create",
 				"host2/etc/conf1":        "create",
 			},
-			expectedErr: false,
 		},
 		{
 			name: "Modified Unsupported File Type",
@@ -209,34 +200,24 @@ func TestParseChangedFiles(t *testing.T) {
 			},
 			fileOverride:        "",
 			expectedCommitFiles: map[string]string{},
-			expectedErr:         true,
 		},
 		{
 			name:                "No input",
 			changedFiles:        []GitChangedFileMetadata{},
 			fileOverride:        "",
 			expectedCommitFiles: map[string]string{},
-			expectedErr:         true,
 		},
 		{
 			name:                "Only override input",
 			changedFiles:        []GitChangedFileMetadata{},
 			fileOverride:        "host1/etc/file.conf,host2/etc/conf.file",
 			expectedCommitFiles: map[string]string{},
-			expectedErr:         true,
 		},
 	}
 
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
-			commitFiles, err := parseChangedFiles(test.changedFiles, test.fileOverride)
-
-			if err != nil && !test.expectedErr {
-				t.Fatalf("Expected no error - but got error '%v'", err)
-			}
-			if err == nil && test.expectedErr {
-				t.Fatalf("Expected err '%v' - but got no error", test.expectedErr)
-			}
+			commitFiles := parseChangedFiles(test.changedFiles, test.fileOverride)
 
 			if fmt.Sprintf("%v", test.expectedCommitFiles) != fmt.Sprintf("%v", commitFiles) {
 				t.Errorf("Expected metadata does not match output metadata:\nOutput:\n%v\n\nExpected Output:\n%v\n", commitFiles, test.expectedCommitFiles)

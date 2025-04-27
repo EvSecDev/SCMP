@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 
@@ -78,7 +77,7 @@ func getChangedFiles(commit *object.Commit) (changedFiles []GitChangedFileMetada
 
 // Parses changed files according to presence, path, and mode validity
 // Marks files with create/delete/modify action for deployment
-func parseChangedFiles(changedFiles []GitChangedFileMetadata, fileOverride string) (commitFiles map[string]string, err error) {
+func parseChangedFiles(changedFiles []GitChangedFileMetadata, fileOverride string) (commitFiles map[string]string) {
 	printMessage(verbosityProgress, "Parsing commit files\n")
 
 	commitFiles = make(map[string]string)
@@ -167,11 +166,6 @@ func parseChangedFiles(changedFiles []GitChangedFileMetadata, fileOverride strin
 		}
 	}
 
-	if len(commitFiles) == 0 {
-		err = fmt.Errorf("something went wrong, no changed files found in commit")
-		return
-	}
-
 	return
 }
 
@@ -230,6 +224,27 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 		}
 	}
 
+	return
+}
+
+func getFailTrackerCommit() (commitID string, prevDeploymentSummary DeploymentSummary, err error) {
+	printMessage(verbosityProgress, "Retrieving commit ID from failtracker file\n")
+
+	lastSummary, err := os.ReadFile(config.failTrackerFilePath)
+	if err != nil {
+		return
+	}
+
+	err = json.Unmarshal(lastSummary, &prevDeploymentSummary)
+	if err != nil {
+		err = fmt.Errorf("error unmarshaling json: %v", err)
+		return
+	}
+
+	if prevDeploymentSummary.CommitID == "" {
+		err = fmt.Errorf("commitid missing from failtracker file")
+		return
+	}
 	return
 }
 
@@ -442,97 +457,49 @@ func parseFileContent(allDeploymentFiles map[string]string, rawFileContent map[s
 	return
 }
 
-func getFailTrackerCommit() (commitID string, failures []string, err error) {
-	printMessage(verbosityProgress, "Retrieving commit ID from failtracker file\n")
-
-	// Regex to match commitid line from fail tracker
-	failCommitRegEx := regexp.MustCompile(`commitid:([0-9a-fA-F]+)\n`)
-
-	// Read in contents of fail tracker file
-	lastFailTrackerBytes, err := os.ReadFile(config.failTrackerFilePath)
-	if err != nil {
-		return
-	}
-
-	// Convert tracker to string
-	lastFailTracker := string(lastFailTrackerBytes)
-
-	// Use regex to extract commit hash from line in fail tracker (should be the first line)
-	commitRegexMatches := failCommitRegEx.FindStringSubmatch(lastFailTracker)
-
-	// Extract the commit hash hex from the failtracker
-	if len(commitRegexMatches) < 2 {
-		err = fmt.Errorf("commitid missing from failtracker file")
-		return
-	}
-	commitID = commitRegexMatches[1]
-
-	// Remove commit line from the failtracker contents using the commit regex
-	lastFailTracker = failCommitRegEx.ReplaceAllString(lastFailTracker, "")
-
-	// Put failtracker failures into array
-	failures = strings.Split(lastFailTracker, "\n")
-
-	return
-}
-
-// Reads in last failtracker file and retrieves individual failures and the commitHash of the failure
-func getFailedFiles(failures []string, fileOverride string) (commitFiles map[string]string, hostOverride string, err error) {
-	// Initialize maps
+// Reads in last deployment summary and retrieves failed files and hosts for retry
+func (lastDeploymentSummary DeploymentSummary) getFailures(fileOverride string) (commitFiles map[string]string, hostOverride string, err error) {
 	commitFiles = make(map[string]string)
 
-	printMessage(verbosityProgress, "Parsing failtracker lines\n")
+	printMessage(verbosityProgress, "Parsing last deployment failures\n")
 
-	// Retrieve failed hosts and files from failtracker json by line
+	// Deployment override host selection by failed hosts
 	var hostOverrideArray []string
-	for _, fail := range failures {
-		// Skip any empty lines
-		if fail == "" {
+
+	for _, hostReport := range lastDeploymentSummary.Hosts {
+		if hostReport.Name == "" {
+			err = fmt.Errorf("hostname is empty: failtracker line: %v", hostReport)
+			return
+		}
+
+		if hostReport.Status != "Failed" && hostReport.Status != "Partial" {
 			continue
 		}
 
-		// Use global struct for errors json format
-		var errorInfo ErrorInfo
-
-		// Unmarshal the line into vars
-		err = json.Unmarshal([]byte(fail), &errorInfo)
-		if err != nil {
-			err = fmt.Errorf("issue unmarshaling json: %v", err)
-			return
-		}
-
-		// error if no hostname
-		if errorInfo.EndpointName == "" {
-			err = fmt.Errorf("hostname is empty: failtracker line: %s", fail)
-			return
-		}
-
-		printMessage(verbosityData, "Parsing failure for host %v\n", errorInfo.EndpointName)
+		printMessage(verbosityData, "  Parsing failure for host %v\n", hostReport.Name)
 
 		// Add host to override to isolate deployment to just the failed hosts
-		hostOverrideArray = append(hostOverrideArray, errorInfo.EndpointName)
+		hostOverrideArray = append(hostOverrideArray, hostReport.Name)
 
-		// error if no files
-		if len(errorInfo.Files) == 0 {
-			err = fmt.Errorf("no files in failtracker line: %s", fail)
-			return
-		}
+		for _, itemReport := range hostReport.Items {
+			printMessage(verbosityData, "   Parsing failure for file %s\n", itemReport.Name)
 
-		// Add failed files to array (Only create, deleted/symlinks dont get added to failtracker)
-		for _, failedFile := range errorInfo.Files {
-			printMessage(verbosityData, "Parsing failure for file %s\n", failedFile)
+			if itemReport.Status != "Failed" {
+				continue
+			}
 
 			// Skip this file if not in override (if override was requested)
-			skipFile := checkForOverride(fileOverride, failedFile)
+			skipFile := checkForOverride(fileOverride, itemReport.Name)
 			if skipFile {
 				continue
 			}
 
-			printMessage(verbosityData, "Marked host %s - file %s for redeployment\n", errorInfo.EndpointName, failedFile)
+			printMessage(verbosityData, "    File %s for redeployment\n", itemReport.Name)
 
-			commitFiles[failedFile] = "create"
+			commitFiles[itemReport.Name] = itemReport.Action
 		}
 	}
+
 	// Convert to standard format for override
 	hostOverride = strings.Join(hostOverrideArray, ",")
 

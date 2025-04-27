@@ -2,7 +2,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -41,94 +40,6 @@ func localSystemChecks() (err error) {
 		return
 	}
 
-	return
-}
-
-// Prints custom stdout to user to show the root-cause errors
-func printDeploymentFailures() (err error) {
-	if failTracker.buffer.Len() > 0 {
-		return
-	}
-
-	failReader := bytes.NewReader(failTracker.buffer.Bytes())
-	failDecoder := json.NewDecoder(failReader)
-
-	var failures ErrorInfo
-	for {
-		err = failDecoder.Decode(&failures)
-		if err != nil {
-			// Done with errors - exit loop
-			if err.Error() == "EOF" {
-				break
-			}
-
-			// Actual error, return
-			err = fmt.Errorf("failed to unmarshal failtracker JSON for pretty print: %v", err)
-			return
-		}
-
-		printMessage(verbosityStandard, "Host:  %s\n", failures.EndpointName)
-
-		if len(failures.Files) > 0 {
-			printMessage(verbosityStandard, "Local Files: %v\n", failures.Files)
-		}
-
-		// Print all the errors in a cascading format to show root cause
-		errorLayers := strings.Split(failures.ErrorMessage, ": ")
-		indentSpaces := 1
-		for _, errorLayer := range errorLayers {
-			// Print error at this layer with indent
-			printMessage(verbosityStandard, "%s%s\n", strings.Repeat(" ", indentSpaces), errorLayer)
-
-			// Increase indent for next line
-			indentSpaces += 1
-		}
-	}
-	return
-}
-
-// Takes global failure tracker and current commit id and writes it to the fail tracker file in the users ssh config directory
-func recordDeploymentError(commitID string) (err error) {
-	// Convert fail buffer back to string
-	failTrackerText := failTracker.buffer.String()
-	if failTrackerText == "" {
-		printMessage(verbosityStandard, "Warning: Failed to read failtracker buffer. Manual redeploy using '--deploy-failures' will not work.\n")
-		printMessage(verbosityStandard, "  Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A)\n")
-		err = fmt.Errorf("failTracker buffer is empty")
-		return
-	}
-
-	// Remove errors that are not root-cause failures before writing to tracker file
-	// If a redeploy can't re-attempt the failed action, then it shouldn't be in failtracker file
-	var rootCauseErrors []string
-	errorLines := strings.SplitSeq(failTrackerText, "\n")
-	for errorLine := range errorLines {
-		// File restoration errors are not root cause
-		if !strings.Contains(errorLine, "failed old config restoration") {
-			rootCauseErrors = append(rootCauseErrors, errorLine)
-		}
-	}
-	failTrackerText = strings.Join(rootCauseErrors, "\n")
-
-	// Add FailTracker string to repo working directory fail file
-	failTrackerFile, err := os.Create(config.failTrackerFilePath)
-	if err != nil {
-		printMessage(verbosityStandard, "Warning: Failed to create failtracker file. Manual redeploy using '--use-failtracker-only' will not work.\n")
-		printMessage(verbosityStandard, "  Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A)\n")
-		return
-	}
-	defer failTrackerFile.Close()
-
-	// Add commitid line to top of fail tracker
-	failTrackerAndCommit := "commitid:" + commitID + "\n" + failTrackerText
-
-	// Write string to file (overwrite old contents)
-	_, err = failTrackerFile.WriteString(failTrackerAndCommit)
-	if err != nil {
-		printMessage(verbosityStandard, "Warning: Failed to create failtracker file. Manual redeploy using '--use-failtracker-only' will not work.\n")
-		printMessage(verbosityStandard, "  Please use the above errors to create a new commit with ONLY those failed files (or all per host if file is N/A)\n")
-		return
-	}
 	return
 }
 
@@ -211,10 +122,11 @@ func printHostInformation(hostInfo EndpointInfo) {
 	printMessage(verbosityProgress, "       Backup Dir:        %s\n", hostInfo.remoteBackupDir)
 }
 
-func (deployMetrics *DeploymentMetrics) createReport() (deploymentSummary DeploymentSummary, err error) {
+func (deployMetrics *DeploymentMetrics) createReport(commitID string) (deploymentSummary DeploymentSummary) {
 	deploymentSummary.ElapsedTime = formatElapsedTime(deployMetrics)
 	deploymentSummary.StartTime = convertMStoTimestamp(deployMetrics.startTime)
 	deploymentSummary.EndTime = convertMStoTimestamp(deployMetrics.endTime)
+	deploymentSummary.CommitID = commitID
 
 	var allHostBytes int
 	for _, bytes := range deployMetrics.hostBytes {
@@ -241,11 +153,18 @@ func (deployMetrics *DeploymentMetrics) createReport() (deploymentSummary Deploy
 			var fileSummary ItemSummary
 			fileSummary.Name = file
 			fileSummary.ErrorMsg = deployMetrics.fileErr[file]
+			fileSummary.Action = deployMetrics.fileAction[file]
 
 			if fileSummary.ErrorMsg != "" {
+				// Individual file failure
+				fileSummary.Status = "Failed"
+				deploymentSummary.Counters.FailedItems++
+			} else if hostSummary.ErrorMsg != "" {
+				// Entire host failures indicate every file failed
 				fileSummary.Status = "Failed"
 				deploymentSummary.Counters.FailedItems++
 			} else {
+				// No file errors indicate it was deployed
 				fileSummary.Status = "Deployed"
 				hostItemsDeployed++
 				deploymentSummary.Counters.CompletedItems++
@@ -255,15 +174,19 @@ func (deployMetrics *DeploymentMetrics) createReport() (deploymentSummary Deploy
 		}
 
 		if hostItemsDeployed == hostSummary.TotalItems {
+			// If all items were successful, whole host deploy was successfuly
 			hostSummary.Status = "Deployed"
 			deploymentSummary.Counters.CompletedHosts++
 		} else if hostItemsDeployed > 0 {
+			// If at least one file deployed, host is partially successful
 			hostSummary.Status = "Partial"
 			deploymentSummary.Counters.FailedHosts++
 		} else if hostItemsDeployed == 0 {
+			// No successful files, whole host marked failed
 			hostSummary.Status = "Failed"
 			deploymentSummary.Counters.FailedHosts++
 		} else {
+			// Catch all
 			hostSummary.Status = "Unknown"
 			deploymentSummary.Counters.FailedHosts++
 		}
@@ -281,6 +204,103 @@ func (deployMetrics *DeploymentMetrics) createReport() (deploymentSummary Deploy
 		deploymentSummary.Status = "UpToDate"
 	} else {
 		deploymentSummary.Status = "Unknown"
+	}
+
+	return
+}
+
+// Prints custom stdout to user to show the root-cause errors
+func (deploymentSummary DeploymentSummary) printFailures() (err error) {
+	if deploymentSummary.Counters.FailedHosts == 0 && deploymentSummary.Counters.FailedItems == 0 {
+		return
+	}
+
+	for _, hostDeployReport := range deploymentSummary.Hosts {
+		printMessage(verbosityStandard, "Host: %s\n", hostDeployReport.Name)
+
+		if hostDeployReport.ErrorMsg != "" {
+			printMessage(verbosityStandard, "  Host Error: %s\n", hostDeployReport.ErrorMsg)
+		}
+
+		for _, fileDeployReport := range hostDeployReport.Items {
+			fileErrorMessage := fileDeployReport.ErrorMsg
+			if fileErrorMessage == "" {
+				continue
+			}
+
+			printMessage(verbosityStandard, "  File: '%s'\n", fileDeployReport.Name)
+
+			// Print all the errors in a cascading format to show root cause
+			errorLayers := strings.Split(fileErrorMessage, ": ")
+			indentSpaces := 1
+			for _, errorLayer := range errorLayers {
+				// Print error at this layer with indent
+				printMessage(verbosityStandard, "%s%s\n", strings.Repeat(" ", indentSpaces), errorLayer)
+
+				// Increase indent for next line
+				indentSpaces += 1
+			}
+		}
+	}
+	return
+}
+
+// Writes deployment summary to disk for deploy retry use
+func (deploymentSummary DeploymentSummary) saveReport() (err error) {
+	if deploymentSummary.Counters.FailedHosts == 0 && deploymentSummary.Counters.FailedItems == 0 {
+		return
+	}
+
+	defer func() {
+		// General warning on any err on return
+		if err != nil {
+			printMessage(verbosityStandard, "Warning: Recording of deployment failures encountered an error. Manual redeploy using '--deploy-failures' will not work.\n")
+			printMessage(verbosityStandard, "  Please use the above errors to create a new commit with ONLY those failed files\n")
+		}
+	}()
+
+	// Create JSON text
+	deploymentSummaryJSON, err := json.MarshalIndent(deploymentSummary, "", " ")
+	if err != nil {
+		return
+	}
+	deploymentSummaryText := string(deploymentSummaryJSON)
+
+	// Send error to journald
+	err = CreateJournaldLog(deploymentSummaryText, "err")
+	if err != nil {
+		return
+	}
+
+	// Add FailTracker string to fail file
+	failTrackerFile, err := os.Create(config.failTrackerFilePath)
+	if err != nil {
+		return
+	}
+	defer failTrackerFile.Close()
+
+	deploymentSummaryText = deploymentSummaryText + "\n"
+
+	// Write string to file (overwrite old contents)
+	_, err = failTrackerFile.WriteString(deploymentSummaryText)
+	if err != nil {
+		return
+	}
+	return
+}
+
+func postDeployCleanup(deployMetrics *DeploymentMetrics) (err error) {
+	if len(deployMetrics.fileErr) > 0 {
+		// Remove fail tracker file after successful redeployment - best effort
+		err = os.Remove(config.failTrackerFilePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// No warning if the file doesn't exist
+			} else {
+				err = fmt.Errorf("failed removing failtracker file: %v", err)
+				return
+			}
+		}
 	}
 
 	return

@@ -23,21 +23,45 @@ func (metric *DeploymentMetrics) addHostBytes(host string, deployedBytes int) {
 	}
 }
 
-func (metric *DeploymentMetrics) addFile(host string, files ...string) {
+func (metric *DeploymentMetrics) addFile(host string, allFileMeta map[string]FileInfo, files ...string) {
 	metric.hostFilesMutex.Lock()
 	metric.hostFiles[host] = append(metric.hostFiles[host], files...)
 	metric.hostFilesMutex.Unlock()
+
+	metric.fileActionMutex.Lock()
+	for _, file := range files {
+		metric.fileAction[file] = allFileMeta[file].action
+	}
+	metric.fileActionMutex.Unlock()
 }
 
 func (metric *DeploymentMetrics) addFileFailure(file string, err error) {
+	if err == nil {
+		return
+	}
+
+	// Ensure error string has no newlines
+	message := err.Error()
+	message = strings.ReplaceAll(message, "\n", " ")
+	message = strings.ReplaceAll(message, "\r", " ")
+
 	metric.fileErrMutex.Lock()
-	metric.fileErr[file] = fmt.Sprintf("%v", err)
+	metric.fileErr[file] = message
 	metric.fileErrMutex.Unlock()
 }
 
 func (metric *DeploymentMetrics) addHostFailure(host string, err error) {
+	if err == nil {
+		return
+	}
+
+	// Ensure error string has no newlines
+	message := err.Error()
+	message = strings.ReplaceAll(message, "\n", " ")
+	message = strings.ReplaceAll(message, "\r", " ")
+
 	metric.hostErrMutex.Lock()
-	metric.hostErr[host] = fmt.Sprintf("%v", err)
+	metric.hostErr[host] = message
 	metric.hostErrMutex.Unlock()
 }
 

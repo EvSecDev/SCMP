@@ -4,7 +4,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 )
@@ -15,9 +14,9 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	logError("Repository Error", err, false)
 
 	// Override commitID with one from failtracker if redeploy requested
-	var failures []string
+	var lastDeploymentSummary DeploymentSummary
 	if deployMode == "deployFailures" {
-		commitID, failures, err = getFailTrackerCommit()
+		commitID, lastDeploymentSummary, err = getFailTrackerCommit()
 		logError("Failed to extract commitID/failures from failtracker file", err, false)
 	}
 
@@ -33,11 +32,11 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		changedFiles, lerr := getChangedFiles(commit)
 		logError("Failed to retrieve changed files", lerr, true)
 
-		commitFiles, err = parseChangedFiles(changedFiles, fileOverride)
+		commitFiles = parseChangedFiles(changedFiles, fileOverride)
 	case "deployAll":
 		commitFiles, err = getRepoFiles(tree, fileOverride)
 	case "deployFailures":
-		commitFiles, hostOverride, err = getFailedFiles(failures, fileOverride)
+		commitFiles, hostOverride, err = lastDeploymentSummary.getFailures(fileOverride)
 	default:
 		logError("Unknown deployment mode", fmt.Errorf("mode must be deployChanges, deployAll, or deployFailures"), true)
 	}
@@ -103,6 +102,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	deployMetrics.hostBytes = make(map[string]int)
 	deployMetrics.fileErr = make(map[string]string)
 	deployMetrics.hostErr = make(map[string]string)
+	deployMetrics.fileAction = make(map[string]string)
 
 	printMessage(verbosityStandard, "Deploying %d item(s) to %d host(s)\n", len(allFileMeta), len(allDeploymentHosts))
 
@@ -125,7 +125,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 			go sshDeploy(&wg, connLimiter, hostInfo, proxyInfo, allFileMeta, allFileData, deployMetrics)
 		} else {
 			sshDeploy(&wg, connLimiter, hostInfo, proxyInfo, allFileMeta, allFileData, deployMetrics)
-			if failTracker.buffer.Len() > 0 {
+			if len(deployMetrics.fileErr) > 0 {
 				// Deployment error occured, don't continue with deployments
 				break
 			}
@@ -141,9 +141,9 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 		return
 	}
 
-	deploymentSummary, err := deployMetrics.createReport()
-	logError("Failed to calculate deployment metrics", err, false)
+	deploymentSummary := deployMetrics.createReport(commitID)
 
+	// Show user what was done during deployment
 	if config.options.detailedSummaryRequested {
 		// Detailed Summary
 		deploymentSummaryJson, err := json.MarshalIndent(deploymentSummary, "", " ")
@@ -161,23 +161,13 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 			deploymentSummary.ElapsedTime,
 		)
 
-		err = printDeploymentFailures()
-		logError("Error in printing failures", err, false)
+		err = deploymentSummary.printFailures()
+		logError("Error in printing deployment failures", err, false)
 	}
 
-	if failTracker.buffer.Len() > 0 {
-		err := recordDeploymentError(commitID)
-		logError("Error in failure recording", err, false)
-	} else {
-		// Remove fail tracker file after successful redeployment if it exists - best effort
-		err = os.Remove(config.failTrackerFilePath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				// No warning if the file doesn't exist
-			} else {
-				// Print a warning for any other error
-				printMessage(verbosityStandard, "Warning: Failed to remove file %s: %v\n", config.failTrackerFilePath, err)
-			}
-		}
-	}
+	err = deploymentSummary.saveReport()
+	logError("Error in recording deployment failures", err, false)
+
+	err = postDeployCleanup(deployMetrics)
+	logError("Error running post-deployment cleanup", err, false)
 }

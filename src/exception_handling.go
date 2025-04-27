@@ -2,7 +2,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -91,58 +90,4 @@ func CreateJournaldLog(errorMessage string, requestedPriority string) (err error
 		}
 	}
 	return
-}
-
-// Called from within go routines (-1 means all files in array)
-// Creates JSON line of error host, files, and err
-// Writes into global failure tracker
-// Always returns
-func recordDeploymentFailure(endpointName string, allFileArray []string, fileIndex int, errorMessage error) {
-	// Ensure multiline error messages dont make their way into json
-	message := errorMessage.Error()
-	message = strings.ReplaceAll(message, "\n", " ")
-	message = strings.ReplaceAll(message, "\r", " ")
-
-	// Array to hold files that failed
-	var fileArray []string
-
-	// Determine which file to add to array
-	if fileIndex < 0 {
-		// Add all files to failtracker if host failed early (index -1)
-		fileArray = allFileArray
-	} else {
-		// Specific file that failed
-		fileArray = append(fileArray, allFileArray[fileIndex])
-	}
-
-	// Parseable one line json for failures
-	info := ErrorInfo{
-		EndpointName: endpointName,
-		Files:        fileArray,
-		ErrorMessage: message,
-	}
-
-	// Marshal info string to a json format
-	failedInfo, err := json.Marshal(info)
-	if err != nil {
-		printMessage(verbosityStandard, "Failed to create Fail Tracker Entry for host %s file(s) %v\n", endpointName, fileArray)
-		printMessage(verbosityStandard, "    Error: %s\n", message)
-		return
-	}
-
-	// Send error to journald
-	err = CreateJournaldLog(string(failedInfo), "err")
-	if err != nil {
-		printMessage(verbosityStandard, "Failed to create journald entry: %v\n", err)
-	}
-
-	// Append error to global log
-	config.eventLogMutex.Lock()
-	config.eventLog = append(config.eventLog, string(failedInfo))
-	config.eventLogMutex.Unlock()
-
-	// Write (append) fail info for this go routine to global failures - dont conflict with other host go routines
-	failTracker.mutex.Lock()
-	failTracker.buffer.WriteString(string(failedInfo) + "\n")
-	failTracker.mutex.Unlock()
 }

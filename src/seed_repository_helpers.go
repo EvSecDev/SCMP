@@ -418,6 +418,7 @@ func handleNewReloadCommands(remoteFilePath string, localFilePath string) (reloa
 		"/etc/squid/":              {"squid -f /etc/squid/squid.conf -k check", "systemctl restart squid.service", "systemctl is-active squid.service"},
 		"/etc/syslog-ng":           {"syslog-ng -s", "systemctl restart syslog-ng", "systemctl is-active syslog-ng"},
 		"/etc/chrony":              {"chronyd -f /etc/chrony/chrony.conf -p", "systemctl restart chrony.service", "systemctl is-active chrony.service"},
+		"/etc/postfix":             {"postfix check", "systemctl restart postfix.service", "systemctl is-active postfix.service"},
 	}
 
 	printMessage(verbosityProgress, "  File '%s': Retrieving reload command information from user\n", remoteFilePath)

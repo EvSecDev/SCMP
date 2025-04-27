@@ -48,8 +48,7 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	host.sshClient, proxyClient, err = connectToSSH(endpointInfo, proxyInfo)
 	if err != nil {
 		err = fmt.Errorf("failed connect to SSH server %v", err)
-		recordDeploymentFailure(host.name, endpointInfo.deploymentFiles, -1, err)
-		deployMetrics.addFile(host.name, endpointInfo.deploymentFiles...)
+		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentFiles...)
 		deployMetrics.addHostFailure(host.name, err)
 		return
 	}
@@ -62,8 +61,7 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	err = initBackupDirectory(host)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during creation of backup directory: %v", err)
-		recordDeploymentFailure(host.name, endpointInfo.deploymentFiles, -1, err)
-		deployMetrics.addFile(host.name, endpointInfo.deploymentFiles...)
+		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentFiles...)
 		deployMetrics.addHostFailure(host.name, err)
 		return
 	}
@@ -100,15 +98,14 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 	remoteFileMetadatas := make(map[string]RemoteFileInfo)
 
 	// Loop through target files and deploy (non-reload required configs)
-	for commitIndex, repoFilePath := range deploymentFiles {
+	for _, repoFilePath := range deploymentFiles {
 		printMessage(verbosityData, "Host %s: Starting deployment for '%s'\n", host.name, repoFilePath)
 
 		// Run Check commands first
 		err := runCheckCommands(host, allFileMeta[repoFilePath])
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during check command: %v", err)
-			recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
-			deployMetrics.addFile(host.name, repoFilePath)
+			deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
 			deployMetrics.addFileFailure(repoFilePath, err)
 			continue
 		}
@@ -117,8 +114,7 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 		err = runInstallationCommands(host, allFileMeta[repoFilePath])
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during installation command: %v", err)
-			recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
-			deployMetrics.addFile(host.name, repoFilePath)
+			deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
 			deployMetrics.addFileFailure(repoFilePath, err)
 			continue
 		}
@@ -134,8 +130,7 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 			if err != nil {
 				if strings.Contains(err.Error(), "failed to remove file") {
 					// Record errors where removal of the specific file failed
-					recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
-					deployMetrics.addFile(host.name, repoFilePath)
+					deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
 					deployMetrics.addFileFailure(repoFilePath, err)
 				} else {
 					// Show warning to user for other errors (removing empty parent dirs)
@@ -147,8 +142,7 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 			remoteModified, err = deploySymLink(host, allFileMeta[repoFilePath].targetFilePath, allFileMeta[repoFilePath].linkTarget)
 			if err != nil {
 				err = fmt.Errorf("failed deployment of symbolic link: %v", err)
-				recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
-				deployMetrics.addFile(host.name, repoFilePath)
+				deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
 				deployMetrics.addFileFailure(repoFilePath, err)
 				continue
 			}
@@ -156,8 +150,7 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 			remoteModified, remoteFileMetadatas[repoFilePath], err = deployDirectory(host, allFileMeta[repoFilePath])
 			if err != nil {
 				err = fmt.Errorf("failed deployment of directory: %v", err)
-				recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
-				deployMetrics.addFile(host.name, repoFilePath)
+				deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
 				deployMetrics.addFileFailure(repoFilePath, err)
 				continue
 			}
@@ -165,8 +158,7 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 			remoteModified, transferredBytes, remoteFileMetadatas[repoFilePath], err = deployFile(host, repoFilePath, allFileMeta[repoFilePath], allFileData)
 			if err != nil {
 				err = fmt.Errorf("failed deployment of file: %v", err)
-				recordDeploymentFailure(host.name, deploymentFiles, commitIndex, err)
-				deployMetrics.addFile(host.name, repoFilePath)
+				deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
 				deployMetrics.addFileFailure(repoFilePath, err)
 				continue
 			}
@@ -197,8 +189,7 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 					}
 
 					// Record all the files for the reload group and skip to next file deployment
-					recordDeploymentFailure(host.name, reloadIDtoRepoFile[reloadID], -1, err)
-					deployMetrics.addFile(host.name, reloadIDtoRepoFile[reloadID]...)
+					deployMetrics.addFile(host.name, allFileMeta, reloadIDtoRepoFile[reloadID]...)
 					continue
 				}
 			} else if totalDeployedReloadFiles[reloadID] != reloadIDfileCount[reloadID] {
@@ -208,7 +199,7 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 
 		// Increment metric for modification
 		if remoteModified {
-			deployMetrics.addFile(host.name, repoFilePath)
+			deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
 		}
 	}
 }
