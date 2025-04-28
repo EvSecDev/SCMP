@@ -64,7 +64,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Track binary/artifact files (executables, images, videos, documents)
   - Support standard ASCII naming
 - Host Management
-  - Use standard SSH client config to management endpoints
+  - Use standard SSH client config to manage endpoints
   - Ability to mark individual hosts as offline to prevent deployments to that host
   - Apply file groups to distribute single file version to all or a subset of all hosts
 - SSH

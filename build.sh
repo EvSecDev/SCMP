@@ -1,7 +1,7 @@
 #!/bin/bash
 if [ -z "$BASH_VERSION" ]
 then
-	echo "This script must be run in BASH."
+	echo "This script must be run in BASH." >&2
 	exit 1
 fi
 
@@ -10,46 +10,70 @@ set -e
 
 # Check for required commands
 command -v go >/dev/null
-command -v base64 >/dev/null
+command -v curl >/dev/null
+command -v jq >/dev/null
 command -v sha256sum >/dev/null
+command -v git >/dev/null
 
-# Vars
+# Check for required external variables
+if [[ -z $HOME ]]
+then
+	echo "Missing HOME variable" >&2
+	exit 1
+fi
+
+# Global Constants/Variables
 repoRoot=$(pwd)
-SRCdir="src"
+readonly SRCdir="src"
+readonly sourceFileGlob='*.go'
+readonly outputEXE="controller"
+readonly READMEmdFileName="README.md"
+readonly packagePrintLine='fmt.Print("Direct Package Imports: ' # Line in src file that prints package list for program version argument
+readonly readmeHelpMenuStartDelimiter="### Controller Help Menu"
+readonly readmeHelpMenuEndDelimiter='```'
+readonly srcHelpMenuStartDelimiter="const usage = "
 
-function usage {
-	echo "Usage $0
+readonly temporaryReleaseDir="$HOME/Downloads/releasetemp"
+readonly githubReleaseNotesFile="$temporaryReleaseDir/release-notes.md"
+readonly githubRepoName="SCMP"
+readonly githubUser="EvSecDev"
 
-Options:
-  -b          Build the program using defaults
-  -r          Replace binary in path with updated one
-  -a <arch>   Architecture of compiled binary (amd64, arm64) [default: amd64]
-  -o <os>     Which operating system to build for (linux, windows) [default: linux]
-  -f          Build nicely named binary
-  -u          Update go packages for program
-  -g          Generate releases for github
-"
-}
+# Define colors - unsupported terminals fail safe
+if [ -t 1 ] && { [[ "$TERM" =~ "xterm" ]] || [[ "$COLORTERM" == "truecolor" ]] || tput setaf 1 &>/dev/null; }
+then
+	readonly RED='\033[31m'
+	readonly GREEN='\033[32m'
+	readonly YELLOW='\033[33m'
+	readonly BLUE='\033[34m'
+	readonly RESET='\033[0m'
+	readonly BOLD='\033[1m'
+fi
 
-# Always update README with help menu from code
+##################################
+# BUILD HELPERS
+##################################
+
 function update_readme {
-	fileName="README.md"
-	helpMenuFromMain=$(cat $SRCdir/main.go | sed -n '/const usage = `/,/`/{/^const usage = `$/d; /^`$/d; p;}')
-	helpMenu=$(echo "$helpMenuFromMain" | grep -Ev "const usage")
+	local helpMenu menuSectionStartLineNumber helpMenuDelimiter helpMenuStartLine helpMenuEndLine
+
+	echo "[*] Copying program help menu from source file to README..."
+
+	# Extract help menu from source code main.go file
+	helpMenu=$(cat $SRCdir/main.go | sed -n '/'"$srcHelpMenuStartDelimiter"'`/,/`/{/^'"$srcHelpMenuStartDelimiter"'`$/d; /^`$/d; p;}' | grep -Ev "const usage")
 
 	# Line number for start of md section
-	menuSectionStartLineNumber=$(grep -n "### Controller Help Menu" $fileName | cut -d":" -f1)
-	helpMenuDelimiter='```'
+	menuSectionStartLineNumber=$(grep -n "$readmeHelpMenuStartDelimiter" $READMEmdFileName | cut -d":" -f1)
+	helpMenuDelimiter=$readmeHelpMenuEndDelimiter
 
 	# Line number for start of code block
 	helpMenuStartLine=$(awk -v startLine="$menuSectionStartLineNumber" -v delimiter="$helpMenuDelimiter" '
 	  NR > startLine && $0 ~ delimiter { print NR; exit }
-	' "$fileName")
+	' "$READMEmdFileName")
 
 	# Line number for end of code block
 	helpMenuEndLine=$(awk -v startLine="$helpMenuStartLine" -v delimiter="$helpMenuDelimiter" '
           NR > startLine && $0 ~ delimiter { print NR; exit }
-        ' "$fileName")
+        ' "$READMEmdFileName")
 
 	# Replace existing code block with new one
 	awk -v start="$helpMenuStartLine" -v end="$helpMenuEndLine" -v replacement="$helpMenu" '
@@ -61,59 +85,73 @@ function update_readme {
 	    NR > start && NR < end { next }     # Skip lines between start and end
 	    NR == end { print }                 # Print the end line
 	    NR > end { print }                  # Print lines after the end range
-	' $fileName > .t && mv .t $fileName
+	' $READMEmdFileName > .t && mv .t $READMEmdFileName
+
+	echo -e "   ${GREEN}[+] DONE${RESET}"
 }
 
 function check_for_dev_artifacts {
-	# function args
+	local srcDir headCommitHash lastReleaseCommitHash lastReleaseVersionNumber currentVersionNumber
 	srcDir=$1
+
+	echo "[*] Checking for development artifacts in source code..."
 
 	# Get head commit hash
 	headCommitHash=$(git rev-parse HEAD)
 
-        # Get commit where last release was generated from
-        lastReleaseCommitHash=$(cat $repoRoot/.last_release_commit)
+    # Get commit where last release was generated from
+    lastReleaseCommitHash=$(cat "$repoRoot"/.last_release_commit)
 
 	# Retrieve the program version from the last release commit
-	lastReleaseVersionNumber=$(git show $lastReleaseCommitHash:$srcDir/main.go 2>/dev/null | grep "progVersion string" | cut -d" " -f5 | sed 's/"//g')
+	lastReleaseVersionNumber=$(git show "$lastReleaseCommitHash":"$srcDir"/main.go 2>/dev/null | grep "progVersion string" | cut -d" " -f5 | sed 's/"//g')
 
 	# Get the current version number
-	currentVersionNumber=$(grep "progVersion string" $srcDir/main.go | cut -d" " -f5 | sed 's/"//g')
+	currentVersionNumber=$(grep "progVersion string" "$srcDir"/main.go | cut -d" " -f5 | sed 's/"//g')
 
 	# Exit if version number hasn't been upped since last commit
-	if [[ $lastReleaseVersionNumber == $currentVersionNumber ]] && ! [[ $headCommitHash == $lastReleaseCommitHash ]] && ! [[ -z $lastReleaseVersionNumber ]]
+	if [[ $lastReleaseVersionNumber == $currentVersionNumber ]] && ! [[ $headCommitHash == $lastReleaseCommitHash ]] && [[ -n $lastReleaseVersionNumber ]]
 	then
-		echo "  [-] Version number in $srcDir/main.go has not been bumped since last commit, exiting build"
+		echo -e "   ${RED}[-] ERROR${RESET}: Version number in $srcDir/main.go has not been bumped since last commit, exiting build"
 		exit 1
 	fi
 
-        # Quick check for any left over debug prints
-        if egrep -R "DEBUG" $srcDir/*.go
-        then
-                echo "  [-] Debug print found in source code. You might want to remove that before release."
-        fi
+    # Quick check for any left over debug prints
+    if grep -ER "DEBUG" "$srcDir"/*.go
+    then
+        echo -e "   ${YELLOW}[?] WARNING${RESET}: Debug print found in source code. You might want to remove that before release."
+    fi
 
 	# Quick staticcheck check - ignoring punctuation in error strings
 	cd $SRCdir
 	set +e
-	staticcheck *.go | egrep -v "error strings should not"
+	staticcheck ./*.go | grep -Ev "error strings should not"
 	set -e
-	cd $repoRoot/
+	cd "$repoRoot"/
+
+	echo -e "   ${GREEN}[+] DONE${RESET}"
 }
 
 function fix_program_package_list_print {
-        searchDir="$repoRoot/$SRCdir"
-        mainFile=$(grep -il "func main() {" $searchDir/*.go | egrep -v "testing")
+	local searchDir mainFile allImports IFS pkg allPackages newPackagePrintLine
+
+	echo "[*] Updating import package list in main source file..."
+
+    searchDir="$repoRoot/$SRCdir"
 
 	# Hold cumulative (duplicated) imports from all go source files
 	allImports=""
 
-	# Loop all go source files
-	for gosrcfile in $(find "$searchDir/" -maxdepth 1 -iname *.go)
+	while IFS= read -r -d '' gosrcfile
 	do
-	        # Get space delimited single line list of imported package names (no quotes) for this go file
-	        allImports+=$(cat $gosrcfile | awk '/import \(/,/\)/' | egrep -v "import \(|\)|^\n$" | sed -e 's/"//g' -e 's/\s//g' | tr '\n' ' ' | sed 's/  / /g')
-	done
+        # Get space delimited single line list of imported package names (no quotes) for this go file
+        allImports+=$(awk '/import \(/,/\)/' "$gosrcfile" | grep -Ev "import \(|\)|^\n$" | sed -e 's/"//g' -e 's/\s//g' | tr '\n' ' ' | sed 's/  / /g')
+	done < <(find "$searchDir/" -maxdepth 1 -type f -iname "*.go" -print0)
+
+	if [[ -z $allImports ]]
+	then
+		echo -e "   ${RED}[-] ERROR${RESET}: Package import search returned no results"
+		exit 1
+	fi
 
 	# Put space delimited list of all the imports into an array
 	IFS=' ' read -r -a pkgarr <<< "$allImports"
@@ -130,28 +168,46 @@ function fix_program_package_list_print {
 	# Convert back to regular array
 	allPackages=("${!packages[@]}")
 
-	# search line in each program that contains package import list for version print
-	packagePrintLine='fmt.Print("Direct Package Imports: '
+	if [[ ${#allPackages[@]} == 0 ]]
+	then
+		echo -e "   ${RED}[-] ERROR${RESET}: Package import deduplication returned no results"
+		exit 1
+	fi
 
 	# Format package list into go print line
-	newPackagePrintLine=$'\t\tfmt.Print("Direct Package Imports: '"${allPackages[@]}"'\\n")'
+	newPackagePrintLine=$'\t\t'"${packagePrintLine}${allPackages[*]}"'\\n")'
 
 	# Remove testing package
-	newPackagePrintLine=$(echo "$newPackagePrintLine" | sed 's/ testing//')
+	newPackagePrintLine=${newPackagePrintLine// testing/}
+
+	# Identify if there are no packages in the output
+	if echo "$newPackagePrintLine" | grep -qE "^Direct Package Imports:\s+\\\n$"
+	then
+		echo -e "   ${RED}[-] ERROR${RESET}: New generated package import list is empty"
+		exit 1
+	fi
+
+    mainFile=$(grep -il "func main() {" "$searchDir"/*.go | grep -Ev "testing")
 
 	# Write new package line into go source file that has main function
-	sed -i "/$packagePrintLine/c\\$newPackagePrintLine" $mainFile
+	sed -i "/$packagePrintLine/c\\$newPackagePrintLine" "$mainFile"
+
+	echo -e "   ${GREEN}[+] DONE${RESET}"
 }
 
-function controller_binary {
-	# function args
-	buildFull=$3
+##################################
+# MAIN BUILD
+##################################
 
-	# Move built binary to path location
+function controller_binary() {
+	local GOARCH GOOS buildFull replaceDeployedExe deployedBinaryPath buildVersion
+	GOARCH=$1
+	GOOS=$2
+	buildFull=$3
 	replaceDeployedExe=$4
 
 	# Always ensure we start in the root of the repository
-	cd $repoRoot/
+	cd "$repoRoot"/
 
 	# Check for things not supposed to be in a release
 	check_for_dev_artifacts "$SRCdir"
@@ -166,109 +222,109 @@ function controller_binary {
 	cd $SRCdir
 
 	# Run tests
+	echo "[*] Running all tests..."
 	go test
+	echo -e "   ${GREEN}[+] DONE${RESET}"
+
+	echo "[*] Compiling program binary..."
 
 	# Vars for build
-	inputGoSource="*.go"
-	outputEXE="controller"
 	export CGO_ENABLED=0
-	export GOARCH=$1
-	export GOOS=$2
+	export GOARCH
+	export GOOS
 
 	# Build binary
-	go build -o $repoRoot/$outputEXE -a -ldflags '-s -w -buildid= -extldflags "-static"' $inputGoSource
-	cd $repoRoot
+	go build -o "$repoRoot"/"$outputEXE" -a -ldflags '-s -w -buildid= -extldflags "-static"' $sourceFileGlob
+	cd "$repoRoot"
+
+	# Get version
+	buildVersion=$(./$outputEXE --versionid)
 
 	# Rename to more descriptive if full build was requested
 	if [[ $buildFull == true ]]
 	then
-		# Get version
-		version=$(./$outputEXE --versionid)
-		controllerEXE=""$outputEXE"_"$version"_$GOOS-$GOARCH-static"
+		local fullNameEXE
 
 		# Rename with version
-		mv $outputEXE $controllerEXE
-		sha256sum $controllerEXE > "$controllerEXE".sha256
+		fullNameEXE="${outputEXE}_${buildVersion}_${GOOS}-${GOARCH}-static"
+		mv "$outputEXE" "$fullNameEXE"
+
+		# Create hash for built binary
+		sha256sum "$fullNameEXE" > "$fullNameEXE".sha256
 	elif [[ $replaceDeployedExe == true ]]
 	then
 		# Replace existing binary with new one
 		deployedBinaryPath=$(which $outputEXE)
-		mv $outputEXE $deployedBinaryPath
+		if [[ -z $deployedBinaryPath ]]
+		then
+			echo -e "${RED}[-] ERROR${RESET}: Could not determine path of existing program binary, refusing to continue" >&2
+			rm "$outputEXE"
+			exit 1
+		fi
+
+		mv "$outputEXE" "$deployedBinaryPath"
 	fi
+
+	echo -e "   ${GREEN}[+] DONE${RESET}: Built version ${BOLD}${BLUE}$buildVersion${RESET}"
 }
 
-function update_go_packages {
-	# Always ensure we start in the root of the repository
-	cd $repoRoot/
+##################################
+# GITHUB Automation
+##################################
 
-	# Move into src dir
-	cd $SRCdir
+function create_release_notes() {
+	local lastReleaseCommitHash commitMsgsSinceLastRelease IFS commitMsg currentReleaseCommitHash
 
-	# Run go updates
-	echo "==== Updating Controller Go packages ===="
-	go get -u all
-	go mod verify
-	go mod tidy
-	echo "==== Updates Finished ===="
-}
-
-function generate_github_release {
-	# Function args
-	architecture=$1
-	os=$2
-
-	# Build binary and package - call this script (i dont want to figure out why calling the compile functions doesn't work)
-	./build.sh -b -f
-	mv controller_v* ~/Downloads/
+	echo "[*] Retrieving all git commit messages since last release..."
 
 	# Get commit where last release was generated from
-	lastReleaseCommitHash=$(cat $repoRoot/.last_release_commit)
+	lastReleaseCommitHash=$(cat "$repoRoot"/.last_release_commit)
 	if [[ -z $lastReleaseCommitHash ]]
 	then
-		echo "Could not determine when last release was by commit, refusing to continue"
+		echo -e "${RED}[-] ERROR${RESET}: Could not determine when last release was by commit, refusing to continue" >&2
 		exit 1
 	fi
 
 	# Collect commit messages up until the last release commit (not including the release commit messages
-	commitMsgsSinceLastRelease=$(git log --format=%B $lastReleaseCommitHash~0..HEAD)
+	commitMsgsSinceLastRelease=$(git log --format=%B "$lastReleaseCommitHash"~0..HEAD)
 
-        echo "=================================================="
-	# Return early if HEAD is where last release was generated (no messages to format)
 	if [[ -z $commitMsgsSinceLastRelease ]]
 	then
-		echo "No commits since last release"
-		return
+		# Return early if HEAD is where last release was generated (no messages to format)
+		echo -e "${RED}[-] ERROR${RESET}: No commits since last release" >&2
+		exit 1
 	fi
 
 	# Format each commit message line by section
 	IFS=$'\n'
-	for line in $commitMsgsSinceLastRelease
+	for commitMsg in $commitMsgsSinceLastRelease
 	do
 		# Skip empty lines
-		if [[ -z $line ]]
+		if [[ -z $commitMsg ]]
 		then
 			continue
 		fi
 
 		# Parse out release message sections
-		if [[ $(echo "$line" | egrep "^Added") ]]
+		if echo "$commitMsg" | grep -qE "^[aA]dded"
 		then
-			comment_Added="$comment_Added$(echo $line | sed 's/^[ \t]*Added/\n -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
-		elif [[ $(echo "$line" | egrep "^Changed") ]]
+			comment_Added="$comment_Added$(echo "$commitMsg" | sed 's/^[ \t]*[aA]dded/\n -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
+		elif echo "$commitMsg" | grep -qE "^[cC]hanged"
 		then
-			comment_Changed="$comment_Changed$(echo $line | sed 's/^[ \t]*Changed/\n -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
-		elif [[ $(echo "$line" | egrep "^Removed") ]]
+			comment_Changed="$comment_Changed$(echo "$commitMsg" | sed 's/^[ \t]*[cC]hanged/\n -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
+		elif echo "$commitMsg" | grep -qE "^[rR]emoved"
 		then
-			comment_Removed="$comment_Removed$(echo $line | sed 's/^[ \t]*Removed/\n -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
-		elif [[ $(echo "$line" | egrep "^Fixed") ]]
+			comment_Removed="$comment_Removed$(echo "$commitMsg" | sed 's/^[ \t]*[rR]emoved/\n -/g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
+		elif echo "$commitMsg" | grep -qE "^[fF]ixed"
 		then
-			comment_Fixed="$comment_Fixed$(echo $line | sed 's/^[ \t]*Fixed/\n -/g' | sed 's/bug where //g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
+			comment_Fixed="$comment_Fixed$(echo "$commitMsg" | sed 's/^[ \t]*[fF]ixed/\n -/g' | sed 's/bug where //g' | sed 's/^\([^a-zA-Z]*\)\([a-zA-Z]\)/\1\U\2/')"
 		else
-			echo "    WARNING: UNSUPPORTED LINE PREFIX: '$line'"
+			echo -e "   ${YELLOW}[?] WARNING${RESET}: UNSUPPORTED LINE PREFIX: '$commitMsg'"
 		fi
 	done
 
-	# Section headers
+	# Release Notes Section headers
+	local addedHeader changedHeader removedHeader fixedHeader trailerHeader trailerComment combinedMsg
 	addedHeader="### :white_check_mark: Added"
 	changedHeader="### :arrows_counterclockwise: Changed"
 	removedHeader="### :x: Removed"
@@ -276,7 +332,7 @@ function generate_github_release {
 	trailerHeader="### :information_source: Instructions"
 	trailerComment=" - Please refer to the README.md file for instructions"
 
-	# Combine release message sections
+	# Combine release notes sections
 	combinedMsg=""
 	if [[ -n $comment_Added ]]
 	then
@@ -298,29 +354,179 @@ function generate_github_release {
 	# Add standard trailer
 	combinedMsg="$combinedMsg\n$trailerHeader\n$trailerComment"
 
-	echo "=================================================="
-	echo "RELEASE MESSAGE - CHECK GRAMMA BEFORE PUBLISHING:"
-	echo "=================================================="
-	echo -e "$combinedMsg"
-	echo "=================================================="
-	echo "RELEASE ATTACHMENTS"
-	ls -l ~/Downloads/
-        echo "=================================================="
+	# Save notes to file
+	echo -e "$combinedMsg" > "$githubReleaseNotesFile"
 
 	# Save commit that this release was made for to track file
 	currentReleaseCommitHash=$(git show HEAD --pretty=format:"%H" --no-patch)
-	echo $currentReleaseCommitHash > $repoRoot/.last_release_commit
+	echo "$currentReleaseCommitHash" > "$repoRoot"/.last_release_commit
+
+	echo "====================================================================="
+	echo "RELEASE MESSAGE in $githubReleaseNotesFile - CHECK BEFORE PUBLISHING:"
+	echo "====================================================================="
+	echo -e "$combinedMsg"
+	echo "====================================================================="
+	echo "RELEASE ATTACHMENTS in $temporaryReleaseDir"
+	echo "====================================================================="
+	find "$temporaryReleaseDir"/ -maxdepth 1 -type f ! -iwholename "$githubReleaseNotesFile"
 }
 
-## START
+function create_github_release() {
+	local versionTag releaseNotes releaseMeta curlOutput releaseID finalReleaseURL
+	versionTag=$1
+
+	if [[ -z $GITHUB_API_TOKEN ]]
+	then
+		echo -e "   ${RED}[-] ERROR${RESET}: GITHUB_API_TOKEN env variable is not set" >&2
+		exit 1
+	fi
+
+	echo "[*] Creating new Github release with notes from file $githubReleaseNotesFile"
+
+	releaseNotes=$(cat "$githubReleaseNotesFile")
+	if [[ -z $releaseNotes ]]
+	then
+		echo -e "   ${RED}[-] ERROR${RESET}: Unable to read contents of release notes file $githubReleaseNotesFile" >&2
+		exit 1
+	fi
+
+	# Escape newlines and carriage returns for inclusion in JSON
+	releaseNotes=$(echo "$releaseNotes" | sed ':a;N;$!ba;s/\n/\\n/g')
+
+	releaseMeta='{"tag_name":"'$versionTag'","target_commitish":"main","name":"","body":"'$releaseNotes'","draft":false,"prerelease":false,"generate_release_notes":false}'
+	if ! jq . <<< "$releaseMeta" >/dev/null
+	then
+		echo -e "   ${RED}[-] ERROR${RESET}: Invalid release JSON, please check for unsupported characters in release notes" >&2
+		exit 1
+	fi
+
+	curlOutput=$(curl --silent -L \
+  -X POST \
+  -H "Accept: application/vnd.github+json" \
+  -H "Authorization: Bearer $GITHUB_API_TOKEN" \
+  -H "X-GitHub-Api-Version: 2022-11-28" \
+  -d "$releaseMeta" \
+    'https://api.github.com/repos/'"$githubUser"'/'"$githubRepoName"'/releases')
+
+	if [[ -z $curlOutput ]]
+	then
+		echo -e "   ${RED}[-] ERROR${RESET}: Received no response from github post to create release" >&2
+		exit 1
+	fi
+
+	releaseID=$(jq -r .id <<< "$curlOutput")
+	if [[ -z $releaseID ]] || [[ $releaseID == null ]]
+	then
+		errorResponse=$(jq -r .status <<< "$curlOutput")
+		errorMessage=$(jq -r .message <<< "$curlOutput") 
+
+		echo -e "   ${RED}[-] ERROR${RESET}: Unable to extract release ID from github response. ($errorResponse) $errorMessage" >&2
+		exit 1
+	fi
+
+	finalReleaseURL=$(jq -r .url <<< "$curlOutput")
+
+	echo -e "${GREEN}[+] Successfully${RESET} created new Github release - ID: $releaseID"
+	rm "$githubReleaseNotesFile"
+
+	cd "$temporaryReleaseDir"
+
+	# Upload every file that is not the notes in the temp dir
+	local localFileName
+	while IFS= read -r  -d '' localFileName
+	do
+		echo "  [*] Uploading file $localFileName to release $releaseID"
+
+		curlOutput=$(curl --silent -L \
+  	-X POST \
+  	-H "Accept: application/vnd.github+json" \
+  	-H "Authorization: Bearer $GITHUB_API_TOKEN" \
+  	-H "X-GitHub-Api-Version: 2022-11-28" \
+  	-H "Content-Type: application/octet-stream" \
+  	--data-binary "@$localFileName" \
+  	'https://uploads.github.com/repos/'"$githubUser"'/'"$githubRepoName"'/releases/'"$releaseID"'/assets?name='"$localFileName")
+
+		if [[ -z $curlOutput ]]
+		then
+			echo -e "   ${RED}[-] ERROR${RESET}: Received no response from github post to upload attachments" >&2
+			exit 1
+		fi
+
+		uploadState=$(jq -r .state <<< "$curlOutput")
+		if [[ $uploadState != uploaded ]]  || [[ $uploadState == null ]]
+		then
+			echo -e "   ${RED}[-] ERROR${RESET}: Expected state to be uploaded but got $uploadState from github" >&2
+			exit 1
+		fi
+
+		echo -e "  ${GREEN}[+] Successfully${RESET} uploaded file $localFileName to release $releaseID"
+	done < <(find . -maxdepth 1 -type f -print0 | sed 's|\./||g')
+
+	echo -e "${GREEN}[+]${RESET} Release published: $finalReleaseURL"
+
+	# Cleanup
+	rm -r "$temporaryReleaseDir"
+	cd "$repoRoot"/
+}
+
+##################################
+# Quick Helpers
+##################################
+
+function update_go_packages {
+	cd "$repoRoot"/
+	cd $SRCdir
+
+	echo "[*] Updating Controller Go packages..."
+	go get -u all
+	if [[ $? != 0 ]]
+	then
+		echo -e "${RED}[-] ERROR${RESET}: Go module update failed"
+		return
+	fi
+
+	go mod verify
+	if [[ $? != 0 ]]
+	then
+		echo -e "${RED}[-] ERROR${RESET}: Go module verification failed"
+		return
+	fi
+
+	go mod tidy
+	echo -e "   ${GREEN}[+] DONE${RESET}"
+}
+
+##################################
+# START
+##################################
+
+function usage {
+	echo "Usage $0
+Program Build Script and Helpers
+
+Options:
+  -b           Build the program using defaults
+  -r           Replace binary in path with updated one
+  -a <arch>    Architecture of compiled binary (amd64, arm64) [default: amd64]
+  -o <os>      Which operating system to build for (linux, windows) [default: linux]
+  -f           Build nicely named binary
+  -u           Update go packages for program
+  -p           Prepare release notes and attachments
+  -P <version> Publish release to github
+  -h           Print this help menu
+"
+}
+
 # DEFAULT CHOICES
 buildfull='false'
 architecture="amd64"
 os="linux"
 replaceDeployedExe='false'
+prepareRelease='false'
+publishRelease='false'
 
 # Argument parsing
-while getopts 'a:o:fbnugrh' opt
+while getopts 'a:o:P:fbnuprh' opt
 do
 	case "$opt" in
 	  'a')
@@ -329,9 +535,9 @@ do
 	  'b')
 	    buildmode='true'
 	    ;;
-          'r')
-            replaceDeployedExe='true'
-            ;;
+	  'r')
+        replaceDeployedExe='true'
+        ;;
 	  'f')
 	    buildfull='true'
 	    ;;
@@ -341,10 +547,13 @@ do
 	  'u')
 	    updatepackages='true'
 	    ;;
-	  'g')
-        generate_github_release "$architecture" "$os"
-        exit 0
+	  'p')
+        prepareRelease='true'
         ;;
+	  'P')
+	    publishRelease='true'
+		publishVersion="$OPTARG"
+		;;
 	  'h')
 	    usage
 	    exit 0
@@ -356,18 +565,35 @@ do
 	esac
 done
 
-# Act on program args
-if [[ $updatepackages == true ]]
+if [[ $prepareRelease == true ]]
 then
-	# Using the builtopt cd into the src dir and update packages then exit
+	mkdir -p "$temporaryReleaseDir"
+	if [[ $? != 0 ]]
+	then
+		echo -e "${RED}ERROR${RESET}: Unable to create temp release dir, cannot continue" >&2
+		exit 1
+	fi
+
+	controller_binary "$architecture" "$os" 'true' 'false'
+	mv controller_v* "$temporaryReleaseDir"/
+	if [[ $? != 0 ]]
+	then
+		echo -e "${RED}ERROR${RESET}: Unable to put binaries in temp release dir, cannot continue" >&2
+		exit 1
+	fi
+
+	create_release_notes
+elif [[ $publishRelease == true ]]
+then
+	create_github_release "$publishVersion"
+elif [[ $updatepackages == true ]]
+then
 	update_go_packages
-	exit 0
 elif [[ $buildmode == true ]]
 then
 	controller_binary "$architecture" "$os" "$buildfull" "$replaceDeployedExe"
-	echo "Complete: controller binary built"
 else
-	echo "unknown, bye"
+	echo -e "${RED}ERROR${RESET}: Unknown option or combination of options" >&2
 	exit 1
 fi
 
