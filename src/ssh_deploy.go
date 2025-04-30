@@ -82,7 +82,7 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
 			err := fmt.Errorf("%v", fatalError)
-			errDescription := fmt.Sprintf("Controller panic during non-reload deployments to host '%s'", host.name)
+			errDescription := fmt.Sprintf("Controller panic during file deployments to host '%s'", host.name)
 			logError(errDescription, err, false) // Log and Exit
 		}
 	}()
@@ -101,7 +101,26 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 	for _, repoFilePath := range deploymentFiles {
 		printMessage(verbosityData, "Host %s: Starting deployment for '%s'\n", host.name, repoFilePath)
 
-		// Run Check commands first
+		// Skip this file if any of its dependents failed deployment
+		if len(allFileMeta[repoFilePath].dependencies) > 0 {
+			var failedDependentFile string
+
+			deployMetrics.fileErrMutex.RLock()
+			for _, dependentFile := range allFileMeta[repoFilePath].dependencies {
+				if deployMetrics.fileErr[dependentFile] != "" {
+					failedDependentFile = dependentFile
+					break
+				}
+			}
+			deployMetrics.fileErrMutex.RUnlock()
+
+			if failedDependentFile != "" {
+				deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
+				deployMetrics.addFileFailure(repoFilePath, fmt.Errorf("unable to deploy this file: dependent file (%s) failed deployment", failedDependentFile))
+				continue
+			}
+		}
+
 		err := runCheckCommands(host, allFileMeta[repoFilePath])
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during check command: %v", err)
@@ -110,7 +129,6 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 			continue
 		}
 
-		// Run installation commands before deployments
 		err = runInstallationCommands(host, allFileMeta[repoFilePath])
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during installation command: %v", err)
@@ -123,7 +141,7 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 		var remoteModified bool
 		var transferredBytes int
 
-		// Deploy based on action (fs type)
+		// Deploy based on action
 		switch allFileMeta[repoFilePath].action {
 		case "delete":
 			remoteModified, err = deleteFile(host, allFileMeta[repoFilePath].targetFilePath)
