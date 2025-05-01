@@ -73,15 +73,16 @@ type Config struct {
 }
 
 type Opts struct {
-	maxSSHConcurrency        int  // Maximum threads for ssh sessions
-	disableSudo              bool // Disable using sudo for remote commands
-	allowDeletions           bool // Allow deletions in local repo to delete files on remote hosts or vault entries
-	disableReloads           bool // Disables all deployment reload commands for this deployment
-	runInstallCommands       bool // Run the install command section of all relevant files metadata header section (within the given deployment)
-	ignoreDeploymentState    bool // Ignore any deployment state for a host in the config
-	regexEnabled             bool // Globally enable the use of regex for matching hosts/files
-	forceEnabled             bool // Atomic mode
-	detailedSummaryRequested bool // Generate a summary report of the deployment
+	maxSSHConcurrency        int    // Maximum threads for ssh sessions
+	runAsUser                string // User to run commands as (not login user)
+	disableSudo              bool   // Disable using sudo for remote commands
+	allowDeletions           bool   // Allow deletions in local repo to delete files on remote hosts or vault entries
+	disableReloads           bool   // Disables all deployment reload commands for this deployment
+	runInstallCommands       bool   // Run the install command section of all relevant files metadata header section (within the given deployment)
+	ignoreDeploymentState    bool   // Ignore any deployment state for a host in the config
+	regexEnabled             bool   // Globally enable the use of regex for matching hosts/files
+	forceEnabled             bool   // Atomic mode
+	detailedSummaryRequested bool   // Generate a summary report of the deployment
 }
 
 // Struct for host-specific Information
@@ -292,49 +293,51 @@ Secure Configuration Management Program (SCMP)
     -c, --config </path/to/ssh/config>             Path to the configuration file
                                                    [default: ~/.ssh/config]
     -d, --deploy-changes                           Deploy changed files in the specified commit
-                                                   [commit default: head]
+                                                   [default: HEAD]
     -a, --deploy-all                               Deploy all files in specified commit
-                                                   [commit default: head]
+                                                   [default: HEAD]
     -f, --deploy-failures                          Deploy failed files/hosts using
-                                                   failtracker file from last failed deployment
+                                                   cached deployment summary file
     -e, --execute <"command"|file:///>             Run adhoc single command or upload and
                                                    execute the script on remote hosts
-    -r, --remote-hosts <host1,host2,...|file:///>  Override hosts to connect to for deployment
+    -u, --run-as-user <username>                   User name to run sudo commands as
+                                                   [default: root]
+    -r, --remote-hosts <host1,host2,...|file://>   Override hosts to connect to for deployment
                                                    or adhoc command/script execution
-    -R, --remote-files <file1,file2,...|file:///>  Override file(s) to retrieve using seed-repository
+    -R, --remote-files <file1,file2,...|file://>   Override file(s) to retrieve using seed-repository
                                                    Also override default remote path for script execution
-    -l, --local-files <file1,file2,...|file:///>   Override file(s) for deployment
+    -l, --local-files <file1,file2,...|file://>    Override file(s) for deployment
                                                    Must be relative file paths from inside the repository
-    -C, --commitid <hash>                          Commit ID (hash) of the commit to
-                                                   deploy configurations from
+    -C, --commitid <hash>                          Commit ID (hash) to deploy from
+                                                   Effective with both '-a' and '-d'
     -T, --dry-run                                  Does everything except start SSH connections
                                                    Prints out deployment information
     -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections
                                                    [default: 10] (1 disables concurrency)
     -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the
                                                    vault (will create the vault if it doesn't exist)
-    -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path
-                                                   with the given initial branch name
+    -n, --new-repo </path/to/repo>:<branch>        Create a new repository with given path/branch
+                                                   [branch default: main]
     -s, --seed-repo                                Retrieve existing files from remote hosts to
                                                    seed the local repository (Requires '--remote-hosts')
         --git-add <dir|file>                       Add files/directories/globs to git worktree
                                                    Required for artifact tracking feature
         --git-status                               Check current worktree status
                                                    Prints out file paths that differ from clean worktree
-        --git-commit <'message'|file:///>          Commit changes to git repository with message
+        --git-commit <'message'|file://>           Commit changes to git repository with message
                                                    File contents will be read and used as message
         --allow-deletions                          Allows deletions (remote files or vault entires)
-                                                   Only applies to '--deploy-changes' or '--modify-vault-password'
-        --install                                  Runs installation commands in config files metadata JSON header
-                                                   Commands are run before file deployments (after checks)
-        --force                                    Ignores checks and runs atomically
-                                                   Forces writes and reloads of deployment files
+                                                   [default: false]
+        --install                                  Runs installation commands in files metadata JSON header
+                                                   [default: false]
+        --force                                    Ignores checks and forces writes and reloads
+                                                   [default: false]
         --disable-reloads                          Disables execution of reload commands for this deployment
-                                                   Useful to write configs that normally need reloads without running them
+                                                   [default: false]
         --disable-privilege-escalation             Disables use of sudo when executing commands remotely
-                                                   All commands will be run as the login user
-        --ignore-deployment-state                  Ignores the current deployment state in the configuration file
-                                                   For example, will deploy to a host marked as offline
+                                                   [default: false]
+        --ignore-deployment-state                  Treats all applicable hosts as 'Online'
+                                                   [default: false]
         --regex                                    Enables regular expression parsing for specific arguments
                                                    Supported arguments: '-r', '-R', '-l'
         --log-file                                 Write out events to log file
@@ -366,6 +369,8 @@ Secure Configuration Management Program (SCMP)
 	flag.StringVar(&executeCommands, "execute", "", "")
 	flag.StringVar(&commitID, "C", "", "")
 	flag.StringVar(&commitID, "commitid", "", "")
+	flag.StringVar(&config.options.runAsUser, "u", "root", "")
+	flag.StringVar(&config.options.runAsUser, "run-as-user", "root", "")
 	flag.StringVar(&hostOverride, "r", "", "")
 	flag.StringVar(&hostOverride, "remote-hosts", "", "")
 	flag.StringVar(&remoteFileOverride, "R", "", "")

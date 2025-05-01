@@ -64,7 +64,7 @@ func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command strin
 
 	// Execute user command
 	rawCmd := RemoteCommand{command}
-	commandOutput, err := rawCmd.SSHexec(client, "", config.options.disableSudo, hostInfo.password, 900)
+	commandOutput, err := rawCmd.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password, 900)
 	logError("Command Failed", err, false)
 
 	// Show command output

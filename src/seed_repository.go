@@ -102,7 +102,7 @@ func interactiveSelection(endpointName string, client *ssh.Client, SudoPassword 
 		// Get file names and info for the directory
 		command := buildLsList(directoryState.current)
 		var directoryList string
-		directoryList, err = command.SSHexec(client, "", config.options.disableSudo, SudoPassword, 30)
+		directoryList, err = command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 30)
 		if err != nil {
 			// All errors except permission denied exits selection menu
 			if !strings.Contains(err.Error(), "Permission denied") {
@@ -156,7 +156,7 @@ func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.
 	localFilePath := filepath.Join(endpointName, strings.ReplaceAll(remoteFilePath, "/", config.osPathSeparator))
 
 	command := buildUnameKernel()
-	unameOutput, err := command.SSHexec(client, "root", config.options.disableSudo, SudoPassword, 5)
+	unameOutput, err := command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 5)
 	if err != nil {
 		err = fmt.Errorf("failed to determine OS, cannot continue: %v", err)
 		return
@@ -172,7 +172,7 @@ func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.
 		err = fmt.Errorf("received unknown os type: %s", unameOutput)
 		return
 	}
-	statOutput, err := command.SSHexec(client, "root", config.options.disableSudo, SudoPassword, 10)
+	statOutput, err := command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
@@ -199,14 +199,14 @@ func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.
 	printMessage(verbosityProgress, "  File '%s': Downloading file\n", remoteFilePath)
 
 	command = RemoteCommand{"cp '" + remoteFilePath + "' '" + tmpRemoteFilePath + "'"}
-	_, err = command.SSHexec(client, "", config.options.disableSudo, SudoPassword, 20)
+	_, err = command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 20)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
 	}
 
 	command = buildChmod(tmpRemoteFilePath, 666)
-	_, err = command.SSHexec(client, "", config.options.disableSudo, SudoPassword, 10)
+	_, err = command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return

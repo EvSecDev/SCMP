@@ -109,49 +109,51 @@ Secure Configuration Management Program (SCMP)
     -c, --config </path/to/ssh/config>             Path to the configuration file
                                                    [default: ~/.ssh/config]
     -d, --deploy-changes                           Deploy changed files in the specified commit
-                                                   [commit default: head]
+                                                   [default: HEAD]
     -a, --deploy-all                               Deploy all files in specified commit
-                                                   [commit default: head]
+                                                   [default: HEAD]
     -f, --deploy-failures                          Deploy failed files/hosts using
-                                                   failtracker file from last failed deployment
+                                                   cached deployment summary file
     -e, --execute <"command"|file:///>             Run adhoc single command or upload and
                                                    execute the script on remote hosts
-    -r, --remote-hosts <host1,host2,...|file:///>  Override hosts to connect to for deployment
+    -u, --run-as-user <username>                   User name to run sudo commands as
+                                                   [default: root]
+    -r, --remote-hosts <host1,host2,...|file://>   Override hosts to connect to for deployment
                                                    or adhoc command/script execution
-    -R, --remote-files <file1,file2,...|file:///>  Override file(s) to retrieve using seed-repository
+    -R, --remote-files <file1,file2,...|file://>   Override file(s) to retrieve using seed-repository
                                                    Also override default remote path for script execution
-    -l, --local-files <file1,file2,...|file:///>   Override file(s) for deployment
+    -l, --local-files <file1,file2,...|file://>    Override file(s) for deployment
                                                    Must be relative file paths from inside the repository
-    -C, --commitid <hash>                          Commit ID (hash) of the commit to
-                                                   deploy configurations from
+    -C, --commitid <hash>                          Commit ID (hash) to deploy from
+                                                   Effective with both '-a' and '-d'
     -T, --dry-run                                  Does everything except start SSH connections
                                                    Prints out deployment information
     -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections
                                                    [default: 10] (1 disables concurrency)
     -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the
                                                    vault (will create the vault if it doesn't exist)
-    -n, --new-repo </path/to/repo>:<branch>        Create a new repository at the given path
-                                                   with the given initial branch name
+    -n, --new-repo </path/to/repo>:<branch>        Create a new repository with given path/branch
+                                                   [branch default: main]
     -s, --seed-repo                                Retrieve existing files from remote hosts to
                                                    seed the local repository (Requires '--remote-hosts')
         --git-add <dir|file>                       Add files/directories/globs to git worktree
                                                    Required for artifact tracking feature
         --git-status                               Check current worktree status
                                                    Prints out file paths that differ from clean worktree
-        --git-commit <'message'|file:///>          Commit changes to git repository with message
+        --git-commit <'message'|file://>           Commit changes to git repository with message
                                                    File contents will be read and used as message
         --allow-deletions                          Allows deletions (remote files or vault entires)
-                                                   Only applies to '--deploy-changes' or '--modify-vault-password'
-        --install                                  Runs installation commands in config files metadata JSON header
-                                                   Commands are run before file deployments (after checks)
-        --force                                    Ignores checks and runs atomically
-                                                   Forces writes and reloads of deployment files
+                                                   [default: false]
+        --install                                  Runs installation commands in files metadata JSON header
+                                                   [default: false]
+        --force                                    Ignores checks and forces writes and reloads
+                                                   [default: false]
         --disable-reloads                          Disables execution of reload commands for this deployment
-                                                   Useful to write configs that normally need reloads without running them
+                                                   [default: false]
         --disable-privilege-escalation             Disables use of sudo when executing commands remotely
-                                                   All commands will be run as the login user
-        --ignore-deployment-state                  Ignores the current deployment state in the configuration file
-                                                   For example, will deploy to a host marked as offline
+                                                   [default: false]
+        --ignore-deployment-state                  Treats all applicable hosts as 'Online'
+                                                   [default: false]
         --regex                                    Enables regular expression parsing for specific arguments
                                                    Supported arguments: '-r', '-R', '-l'
         --log-file                                 Write out events to log file
@@ -476,7 +478,7 @@ _controller() {
     local cur prev opts
 
     # Define all available options
-    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --with-summary --verbose --help --version --versionid"
+    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --run-as-user --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --with-summary --verbose --help --version --versionid"
 
     # Get the current word the user is typing
     cur="${COMP_WORDS[COMP_CWORD]}"

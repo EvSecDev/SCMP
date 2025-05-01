@@ -349,13 +349,13 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuf
 	}
 
 	command := buildMv(remoteTransferBuffer, remoteFilePath)
-	_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
+	_, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		return
 	}
 
 	command = buildHashCmd(remoteFilePath)
-	remoteScriptHash, err := command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 90)
+	remoteScriptHash, err := command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 90)
 	if err != nil {
 		return
 	}
@@ -371,20 +371,20 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuf
 	}
 
 	command = buildChmod(remoteFilePath, 700)
-	_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
+	_, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		return
 	}
 
 	command = RemoteCommand{scriptInterpreter + " '" + remoteFilePath + "'"}
-	out, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 900)
+	out, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 900)
 	if err != nil {
 		return
 	}
 
 	// Cleanup
 	command = buildRm(remoteFilePath)
-	_, err = command.SSHexec(sshClient, "root", config.options.disableSudo, SudoPassword, 10)
+	_, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		return
 	}
