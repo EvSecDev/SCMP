@@ -5,163 +5,6 @@ import (
 	"testing"
 )
 
-// CompareMaps compares two maps of type map[string][]string
-func compareMaps(map1, map2 map[string][]string) bool {
-	// First check if the lengths of the maps are equal
-	if len(map1) != len(map2) {
-		return false
-	}
-
-	// Check if all keys and their associated values are equal
-	for key, val1 := range map1 {
-		val2, ok := map2[key]
-		if !ok {
-			// Key doesn't exist in map2
-			return false
-		}
-
-		// Check if the slices have the same length
-		if len(val1) != len(val2) {
-			return false
-		}
-
-		// Check if the slices have the same elements in the same order
-		for i := range val1 {
-			if val1[i] != val2[i] {
-				return false
-			}
-		}
-	}
-
-	// If we passed all checks, the maps are equal
-	return true
-}
-
-// compareStringMapSlices compares two maps and checks if they are identical
-func compareStringMapSlices(a, b map[string]string) bool {
-	// If lengths are different, maps are not equal
-	if len(a) != len(b) {
-		return false
-	}
-
-	// Check if all key-value pairs are equal
-	for key, value := range a {
-		if bValue, exists := b[key]; !exists || bValue != value {
-			return false
-		}
-	}
-	return true
-}
-
-// compareStringSlices compares two slices and checks if they are identical
-func compareStringSlices(a, b map[string]int) bool {
-	// If lengths are different, they are not equal
-	if len(a) != len(b) {
-		return false
-	}
-
-	// Check if all key-value pairs are equal (we assume the "map" comparison)
-	for key, value := range a {
-		if bValue, exists := b[key]; !exists || bValue != value {
-			return false
-		}
-	}
-
-	return true
-}
-
-// Test function for groupFilesByReloads
-func TestGroupFilesByReloads(t *testing.T) {
-	tests := []struct {
-		name               string
-		allFileMeta        map[string]FileInfo
-		repoFilePaths      []string
-		reloadIDtoRepoFile map[string][]string
-		repoFileToReloadID map[string]string
-		reloadIDfileCount  map[string]int
-	}{
-		{
-			name: "files with reload and no reload",
-			allFileMeta: map[string]FileInfo{
-				"file1": {reloadRequired: true, reload: []string{"cmd50", "cmd51", "cmd52"}},
-				"file2": {reloadRequired: true, reload: []string{"cmd40", "cmd41"}},
-				"file3": {reloadRequired: false, reload: nil},
-			},
-			repoFilePaths: []string{"file1", "file2", "file3"},
-			reloadIDtoRepoFile: map[string][]string{
-				"W2NtZDUwIGNtZDUxIGNtZDUyXQ==": {"file1"},
-				"W2NtZDQwIGNtZDQxXQ==":         {"file2"},
-			},
-			repoFileToReloadID: map[string]string{
-				"file1": "W2NtZDUwIGNtZDUxIGNtZDUyXQ==",
-				"file2": "W2NtZDQwIGNtZDQxXQ==",
-			},
-			reloadIDfileCount: map[string]int{
-				"W2NtZDUwIGNtZDUxIGNtZDUyXQ==": 1,
-				"W2NtZDQwIGNtZDQxXQ==":         1,
-			},
-		},
-		{
-			name: "all files with the same reload command",
-			allFileMeta: map[string]FileInfo{
-				"file1": {reloadRequired: true, reload: []string{"cmd30", "cmd32", "cmd^$"}},
-				"file2": {reloadRequired: true, reload: []string{"cmd30", "cmd32", "cmd^$"}},
-				"file3": {reloadRequired: false, reload: nil},
-			},
-			repoFilePaths: []string{"file1", "file2", "file3"},
-			reloadIDtoRepoFile: map[string][]string{
-				"W2NtZDMwIGNtZDMyIGNtZF4kXQ==": {"file1", "file2"},
-			},
-			repoFileToReloadID: map[string]string{
-				"file1": "W2NtZDMwIGNtZDMyIGNtZF4kXQ==",
-				"file2": "W2NtZDMwIGNtZDMyIGNtZF4kXQ==",
-			},
-			reloadIDfileCount: map[string]int{
-				"W2NtZDMwIGNtZDMyIGNtZF4kXQ==": 2,
-			},
-		},
-		{
-			name: "no files with reload commands",
-			allFileMeta: map[string]FileInfo{
-				"file1": {reloadRequired: false, reload: nil},
-				"file2": {reloadRequired: false, reload: nil},
-			},
-			repoFilePaths:      []string{"file1", "file2"},
-			reloadIDtoRepoFile: map[string][]string{},
-			repoFileToReloadID: map[string]string{}, // No files with reloads
-			reloadIDfileCount:  map[string]int{},
-		},
-		{
-			name:               "empty input",
-			allFileMeta:        map[string]FileInfo{},
-			repoFilePaths:      []string{},
-			reloadIDtoRepoFile: map[string][]string{},
-			repoFileToReloadID: map[string]string{}, // No files
-			reloadIDfileCount:  map[string]int{},    // No files
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			// Call the function being tested
-			reloadIDtoRepoFile, repoFileToReloadID, reloadIDfileCount := groupFilesByReloads(test.allFileMeta, test.repoFilePaths)
-
-			if !compareMaps(reloadIDtoRepoFile, test.reloadIDtoRepoFile) {
-				t.Errorf("expected repoFileToReloadID: %v, got: %v", test.reloadIDtoRepoFile, reloadIDtoRepoFile)
-			}
-
-			if !compareStringMapSlices(repoFileToReloadID, test.repoFileToReloadID) {
-				t.Errorf("expected repoFileToReloadID: %v, got: %v", test.repoFileToReloadID, repoFileToReloadID)
-			}
-
-			if !compareStringSlices(reloadIDfileCount, test.reloadIDfileCount) {
-				t.Errorf("expected reloadIDfileCount: %v, got: %v", test.reloadIDfileCount, reloadIDfileCount)
-			}
-
-		})
-	}
-}
-
 func TestCheckForDiff(t *testing.T) {
 	tests := []struct {
 		name                    string
@@ -272,62 +115,125 @@ func TestCheckForReload(t *testing.T) {
 	// Define test cases
 	tests := []struct {
 		name                     string
-		endpointName             string
+		deploymentList           DeploymentList
 		totalDeployedReloadFiles map[string]int
-		reloadIDfileCount        map[string]int
-		reloadID                 string
+		reloadIDreadyToReload    map[string]bool
+		filePath                 string
 		remoteModified           bool
 		disableReloads           bool
 		forceEnabled             bool
 		expectedClearedToReload  bool
+		expectedReloadID         string
 	}{
 		{
-			name:                     "Remote modified, reloads enabled",
-			endpointName:             "endpoint1",
+			name: "Remote modified, reloads enabled",
+			deploymentList: DeploymentList{
+				fileToReloadID: map[string]string{
+					"file1": "reload1",
+				},
+				reloadIDfileCount: map[string]int{"reload1": 1},
+			},
 			totalDeployedReloadFiles: map[string]int{"reload1": 0},
-			reloadIDfileCount:        map[string]int{"reload1": 1},
-			reloadID:                 "reload1",
+			reloadIDreadyToReload:    map[string]bool{"reload1": false},
+			filePath:                 "file1",
 			remoteModified:           true,
 			expectedClearedToReload:  true,
+			expectedReloadID:         "reload1",
 		},
 		{
-			name:                     "No remote modification, reloads disabled",
-			endpointName:             "endpoint2",
+			name: "Remote modified, Group not done",
+			deploymentList: DeploymentList{
+				fileToReloadID: map[string]string{
+					"file1": "reload1",
+					"file2": "reload1",
+				},
+				reloadIDfileCount: map[string]int{"reload1": 2},
+			},
 			totalDeployedReloadFiles: map[string]int{"reload1": 0},
-			reloadIDfileCount:        map[string]int{"reload1": 1},
-			reloadID:                 "reload1",
+			reloadIDreadyToReload:    map[string]bool{"reload1": false},
+			filePath:                 "file1",
+			remoteModified:           true,
+			expectedClearedToReload:  false,
+			expectedReloadID:         "",
+		},
+		{
+			name: "Previous Remote modified, Current Not Modified, Reload",
+			deploymentList: DeploymentList{
+				fileToReloadID: map[string]string{
+					"file1": "reload1",
+					"file2": "reload1",
+				},
+				reloadIDfileCount: map[string]int{"reload1": 2},
+			},
+			totalDeployedReloadFiles: map[string]int{"reload1": 1},
+			reloadIDreadyToReload:    map[string]bool{"reload1": true},
+			filePath:                 "file2",
+			remoteModified:           false,
+			expectedClearedToReload:  true,
+			expectedReloadID:         "reload1",
+		},
+		{
+			name: "No remote modification, reloads disabled",
+			deploymentList: DeploymentList{
+				fileToReloadID: map[string]string{
+					"file1": "reload1",
+				},
+				reloadIDfileCount: map[string]int{"reload1": 1},
+			},
+			totalDeployedReloadFiles: map[string]int{"reload1": 0},
+			reloadIDreadyToReload:    map[string]bool{"reload1": false},
+			filePath:                 "file1",
 			remoteModified:           false,
 			disableReloads:           true,
 			expectedClearedToReload:  false,
+			expectedReloadID:         "",
 		},
 		{
-			name:                     "Remote modification, reloads disabled",
-			endpointName:             "endpoint2",
+			name: "Remote modification, reloads disabled",
+			deploymentList: DeploymentList{
+				fileToReloadID: map[string]string{
+					"file1": "reload1",
+				},
+				reloadIDfileCount: map[string]int{"reload1": 1},
+			},
 			totalDeployedReloadFiles: map[string]int{"reload1": 0},
-			reloadIDfileCount:        map[string]int{"reload1": 1},
-			reloadID:                 "reload1",
+			reloadIDreadyToReload:    map[string]bool{"reload1": false},
+			filePath:                 "file1",
 			remoteModified:           true,
 			disableReloads:           true,
 			expectedClearedToReload:  false,
+			expectedReloadID:         "",
 		},
 		{
-			name:                     "Force enable reloads by user request",
-			endpointName:             "endpoint3",
+			name: "Force enable reloads by user request",
+			deploymentList: DeploymentList{
+				fileToReloadID: map[string]string{
+					"file1": "reload1",
+				},
+				reloadIDfileCount: map[string]int{"reload1": 1},
+			},
 			totalDeployedReloadFiles: map[string]int{"reload1": 0},
-			reloadIDfileCount:        map[string]int{"reload1": 1},
-			reloadID:                 "reload1",
+			reloadIDreadyToReload:    map[string]bool{"reload1": false},
+			filePath:                 "file1",
 			remoteModified:           false,
 			forceEnabled:             true,
 			expectedClearedToReload:  true,
+			expectedReloadID:         "reload1",
 		},
 		{
-			name:                     "No modification",
-			endpointName:             "endpoint4",
+			name: "No modification",
+			deploymentList: DeploymentList{
+				fileToReloadID: map[string]string{
+					"file1": "reload1",
+				},
+				reloadIDfileCount: map[string]int{"reload1": 1},
+			},
 			totalDeployedReloadFiles: map[string]int{"reload1": 0},
-			reloadIDfileCount:        map[string]int{"reload1": 1},
-			reloadID:                 "reload1",
+			reloadIDreadyToReload:    map[string]bool{"reload1": false},
+			filePath:                 "file1",
 			remoteModified:           false,
 			expectedClearedToReload:  false,
+			expectedReloadID:         "",
 		},
 	}
 
@@ -338,11 +244,14 @@ func TestCheckForReload(t *testing.T) {
 			config.options.disableReloads = test.disableReloads
 			config.options.forceEnabled = test.forceEnabled
 
-			clearedToReload := checkForReload(test.endpointName, test.totalDeployedReloadFiles, test.reloadIDfileCount, test.reloadID, test.remoteModified)
+			clearedToReload, reloadID := checkForReload("", test.deploymentList, test.totalDeployedReloadFiles, test.reloadIDreadyToReload, test.filePath, test.remoteModified)
 
 			// Check if the result matches the expected outcome
+			if reloadID != test.expectedReloadID {
+				t.Errorf("Expected Reload ID = %s, but got '%s'", test.expectedReloadID, reloadID)
+			}
 			if clearedToReload != test.expectedClearedToReload {
-				t.Errorf("For '%s', expected clearedToReload = %v, but got %v", test.name, test.expectedClearedToReload, clearedToReload)
+				t.Errorf("Expected clearedToReload = %v, but got '%v'", test.expectedClearedToReload, clearedToReload)
 			}
 		})
 	}

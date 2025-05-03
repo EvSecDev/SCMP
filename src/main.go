@@ -91,7 +91,7 @@ type EndpointInfo struct {
 	ignoreUniversal      bool                // Prevents deployments for this host to use anything from the primary Universal configs directory
 	requiresVault        bool                // Direct match to the config option "PasswordRequired"
 	universalGroups      map[string]struct{} // Map to store the CSV for config option "GroupTags"
-	deploymentFiles      []string            // Created during pre-deployment to track which config files will be deployed to this host
+	deploymentList       DeploymentList      // Ordered list of files and their groupings
 	endpointName         string              // Name of host as it appears in config and in git repo top-level directory names
 	proxy                string              // Name of the proxy host to use (if any)
 	endpoint             string              // Address:port of the host
@@ -102,6 +102,14 @@ type EndpointInfo struct {
 	password             string              // Password for the EndpointUser
 	remoteTransferBuffer string              // Temporary Buffer file that will be used to transfer local config to remote host prior to moving into place
 	remoteBackupDir      string              // Temporary directory to store backups of existing remote configs while reloads are performed
+}
+
+type DeploymentList struct {
+	files             []string            // Ordered list of everything to deploy
+	reloadIDtoFile    map[string][]string // Lookup of file list by reload ID
+	fileToReloadID    map[string]string   // Lookup of a files reload ID
+	reloadIDfileCount map[string]int      // Total files in reload group
+	reloadIDcommands  map[string][]string // Ordered list of reload commands
 }
 
 type Credential struct {
@@ -118,6 +126,7 @@ type MetaHeader struct {
 	InstallCommands         []string `json:"Install,omitempty"`
 	CheckCommands           []string `json:"Checks,omitempty"`
 	ReloadCommands          []string `json:"Reload,omitempty"`
+	ReloadGroup             string   `json:"ReloadGroup,omitempty"`
 }
 
 // Struct for deployment file metadata
@@ -136,6 +145,7 @@ type FileInfo struct {
 	checks          []string
 	reloadRequired  bool
 	reload          []string
+	reloadGroup     string
 }
 
 // Struct for remote file metadata
@@ -414,7 +424,7 @@ Secure Configuration Management Program (SCMP)
 	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...%s", os.Args[0], usage) }
 	flag.Parse()
 
-	const progVersion string = "v4.5.4"
+	const progVersion string = "v4.5.5"
 	if versionInfoRequested {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)

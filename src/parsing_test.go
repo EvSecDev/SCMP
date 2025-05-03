@@ -238,35 +238,30 @@ func TestFilterHostsAndFiles(t *testing.T) {
 				deploymentState: "online",
 				ignoreUniversal: false,
 				universalGroups: map[string]struct{}{"UniversalConfs_Service1": {}, "UniversalConfs": {}},
-
-				endpointName: "host1",
+				endpointName:    "host1",
 			},
 			"host2": {
 				deploymentState: "",
 				ignoreUniversal: false,
 				universalGroups: map[string]struct{}{"UniversalConfs_Service2": {}, "UniversalConfs": {}},
-				deploymentFiles: []string{""},
 				endpointName:    "host2",
 			},
 			"host3": {
 				deploymentState: "go",
 				ignoreUniversal: true,
 				universalGroups: map[string]struct{}{"": {}},
-				deploymentFiles: []string{""},
 				endpointName:    "host3",
 			},
 			"host4": {
 				deploymentState: "",
 				ignoreUniversal: false,
 				universalGroups: map[string]struct{}{"UniversalConfs": {}},
-				deploymentFiles: []string{""},
 				endpointName:    "host4",
 			},
 			"host5": {
 				deploymentState: "offline",
 				ignoreUniversal: false,
 				universalGroups: map[string]struct{}{"UniversalConfs": {}},
-				deploymentFiles: []string{""},
 				endpointName:    "host5",
 			},
 		},
@@ -404,7 +399,7 @@ func TestFilterHostsAndFiles(t *testing.T) {
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
 			// Call the function under test
-			allDeploymentHosts, allDeploymentFiles := filterHostsAndFiles(test.deniedUniversalFiles, test.commitFiles, test.hostOverride)
+			allDeploymentHosts, allDeploymentFiles, filesByHost := filterHostsAndFiles(test.deniedUniversalFiles, test.commitFiles, test.hostOverride)
 
 			// Validate the hosts
 			if len(allDeploymentHosts) != len(test.expectedHosts) {
@@ -429,7 +424,7 @@ func TestFilterHostsAndFiles(t *testing.T) {
 			// Validate files per host
 			for _, endpointName := range allDeploymentHosts {
 				expectedDeploymentFiles := test.expectedFilesByHost[endpointName]
-				deploymentFiles := config.hostInfo[endpointName].deploymentFiles
+				deploymentFiles := filesByHost[endpointName]
 
 				if !compareArrays(expectedDeploymentFiles, deploymentFiles) {
 					t.Errorf("Host %s: expected files %v, but got %v", endpointName, expectedDeploymentFiles, deploymentFiles)
@@ -629,7 +624,6 @@ func compareArrays(array1, array2 []string) (arraysIdentical bool) {
 }
 
 func TestHandleFileDependencies(t *testing.T) {
-	// Define the test cases directly as literals inside the test function
 	testCases := []struct {
 		name                string
 		hostDeploymentFiles []string
@@ -890,4 +884,401 @@ func TestHandleFileDependencies(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCreateReloadGroups(t *testing.T) {
+	testCases := []struct {
+		name        string
+		fileList    []string
+		allFileMeta map[string]FileInfo
+		expected    DeploymentList
+	}{
+		{
+			name:     "All Identical Commands",
+			fileList: []string{"host1/etc/nginx/nginx.conf", "host1/etc/nginx/conf.d/site1.conf", "host1/etc/nginx/conf.d/site2.conf"},
+			allFileMeta: map[string]FileInfo{
+				"host1/etc/nginx/nginx.conf": {
+					reload:         []string{"systemctl restart nginx", "systemctl is-active nginx"},
+					reloadRequired: true,
+				},
+				"host1/etc/nginx/conf.d/site1.conf": {
+					reload:         []string{"systemctl restart nginx", "systemctl is-active nginx"},
+					reloadRequired: true,
+				},
+				"host1/etc/nginx/conf.d/site2.conf": {
+					reload:         []string{"systemctl restart nginx", "systemctl is-active nginx"},
+					reloadRequired: true,
+				},
+			},
+			expected: DeploymentList{
+				files: []string{"host1/etc/nginx/nginx.conf", "host1/etc/nginx/conf.d/site1.conf", "host1/etc/nginx/conf.d/site2.conf"},
+				reloadIDtoFile: map[string][]string{
+					"W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd": {"host1/etc/nginx/nginx.conf", "host1/etc/nginx/conf.d/site1.conf", "host1/etc/nginx/conf.d/site2.conf"},
+				},
+				fileToReloadID: map[string]string{
+					"host1/etc/nginx/nginx.conf":        "W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd",
+					"host1/etc/nginx/conf.d/site1.conf": "W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd",
+					"host1/etc/nginx/conf.d/site2.conf": "W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd",
+				},
+				reloadIDfileCount: map[string]int{
+					"W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd": 3,
+				},
+				reloadIDcommands: map[string][]string{
+					"W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd": {"systemctl restart nginx", "systemctl is-active nginx"},
+				},
+			},
+		},
+		{
+			name:     "All Single Custom Group Names Different Reloads",
+			fileList: []string{"host1/etc/nginx/nginx.conf", "host1/etc/nginx/conf.d/site1.conf", "host1/etc/nginx/conf.d/site2.conf"},
+			allFileMeta: map[string]FileInfo{
+				"host1/etc/nginx/nginx.conf": {
+					reload:         []string{"systemctl restart nginx", "systemctl is-active nginx"},
+					reloadRequired: true,
+					reloadGroup:    "NGINX Service",
+				},
+				"host1/etc/nginx/conf.d/site1.conf": {
+					reload:         []string{"nginx -t", "systemctl restart nginx"},
+					reloadRequired: true,
+					reloadGroup:    "NGINX Service",
+				},
+				"host1/etc/nginx/conf.d/site2.conf": {
+					reload:         []string{"grep active /etc/nginx/conf.d/site2.conf"},
+					reloadRequired: true,
+					reloadGroup:    "NGINX Service",
+				},
+			},
+			expected: DeploymentList{
+				files: []string{"host1/etc/nginx/nginx.conf", "host1/etc/nginx/conf.d/site1.conf", "host1/etc/nginx/conf.d/site2.conf"},
+				reloadIDtoFile: map[string][]string{
+					"NGINX Service": {"host1/etc/nginx/nginx.conf", "host1/etc/nginx/conf.d/site1.conf", "host1/etc/nginx/conf.d/site2.conf"},
+				},
+				fileToReloadID: map[string]string{
+					"host1/etc/nginx/nginx.conf":        "NGINX Service",
+					"host1/etc/nginx/conf.d/site1.conf": "NGINX Service",
+					"host1/etc/nginx/conf.d/site2.conf": "NGINX Service",
+				},
+				reloadIDfileCount: map[string]int{
+					"NGINX Service": 3,
+				},
+				reloadIDcommands: map[string][]string{
+					"NGINX Service": {"systemctl restart nginx", "systemctl is-active nginx", "nginx -t", "grep active /etc/nginx/conf.d/site2.conf"},
+				},
+			},
+		},
+		{
+			name:     "Commands and Custom One Group",
+			fileList: []string{"file2", "file3", "file4", "file5"},
+			allFileMeta: map[string]FileInfo{
+				"file2": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file3": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file4": {
+					reloadGroup: "Service1",
+				},
+				"file5": {
+					reloadGroup: "Service1",
+				},
+			},
+			expected: DeploymentList{
+				files: []string{"file2", "file3", "file4", "file5"},
+				reloadIDtoFile: map[string][]string{
+					"Service1": {"file2", "file3", "file4", "file5"},
+				},
+				fileToReloadID: map[string]string{
+					"file2": "Service1",
+					"file3": "Service1",
+					"file4": "Service1",
+					"file5": "Service1",
+				},
+				reloadIDfileCount: map[string]int{
+					"Service1": 4,
+				},
+				reloadIDcommands: map[string][]string{
+					"Service1": {"systemctl restart service1", "systemctl is-active service1"},
+				},
+			},
+		},
+		{
+			name:     "One File Out Of Group But Identical Reloads",
+			fileList: []string{"file2", "file3", "file4", "file5"},
+			allFileMeta: map[string]FileInfo{
+				"file2": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+				},
+				"file3": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file4": {
+					reloadGroup: "Service1",
+				},
+				"file5": {
+					reloadGroup: "Service1",
+				},
+			},
+			expected: DeploymentList{
+				files: []string{"file2", "file3", "file4", "file5"},
+				reloadIDtoFile: map[string][]string{
+					"Service1": {"file2", "file3", "file4", "file5"},
+				},
+				fileToReloadID: map[string]string{
+					"file2": "Service1",
+					"file3": "Service1",
+					"file4": "Service1",
+					"file5": "Service1",
+				},
+				reloadIDfileCount: map[string]int{
+					"Service1": 4,
+				},
+				reloadIDcommands: map[string][]string{
+					"Service1": {"systemctl restart service1", "systemctl is-active service1"},
+				},
+			},
+		},
+		{
+			name:     "Single Custom Group Different Reloads and No Reloads",
+			fileList: []string{"file2", "file3", "file4", "file5", "file6", "file7"},
+			allFileMeta: map[string]FileInfo{
+				"file2": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file3": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file4": {
+					reloadGroup: "Service1",
+				},
+				"file5": {
+					reloadGroup: "Service1",
+				},
+				"file7": {
+					reload:         []string{"service1 checkconf", "service1 reload file7"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file6": {
+					reload:      []string{"service1 checkconf"},
+					reloadGroup: "Service1",
+				},
+			},
+			expected: DeploymentList{
+				files: []string{"file2", "file3", "file4", "file5", "file6", "file7"},
+				reloadIDtoFile: map[string][]string{
+					"Service1": {"file2", "file3", "file4", "file5", "file6", "file7"},
+				},
+				fileToReloadID: map[string]string{
+					"file2": "Service1",
+					"file3": "Service1",
+					"file4": "Service1",
+					"file5": "Service1",
+					"file6": "Service1",
+					"file7": "Service1",
+				},
+				reloadIDfileCount: map[string]int{
+					"Service1": 6,
+				},
+				reloadIDcommands: map[string][]string{
+					"Service1": {"systemctl restart service1", "systemctl is-active service1", "service1 checkconf", "service1 reload file7"},
+				},
+			},
+		},
+		{
+			name:     "Commands and Custom Two Different Groups",
+			fileList: []string{"file2", "file3", "file4", "file5", "file6"},
+			allFileMeta: map[string]FileInfo{
+				"file3": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file2": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file4": {
+					reloadGroup: "Service2",
+				},
+				"file6": {
+					reload:         []string{"service2 check-conf", "systemctl restart service2", "systemctl is-active service2"},
+					reloadRequired: true,
+					reloadGroup:    "Service2",
+				},
+				"file5": {
+					reloadGroup: "Service2",
+				},
+			},
+			expected: DeploymentList{
+				files: []string{"file2", "file3", "file4", "file5", "file6"},
+				reloadIDtoFile: map[string][]string{
+					"Service1": {"file2", "file3"},
+					"Service2": {"file4", "file5", "file6"},
+				},
+				fileToReloadID: map[string]string{
+					"file4": "Service2",
+					"file2": "Service1",
+					"file3": "Service1",
+					"file6": "Service2",
+					"file5": "Service2",
+				},
+				reloadIDfileCount: map[string]int{
+					"Service1": 2,
+					"Service2": 3,
+				},
+				reloadIDcommands: map[string][]string{
+					"Service1": {"systemctl restart service1", "systemctl is-active service1"},
+					"Service2": {"service2 check-conf", "systemctl restart service2", "systemctl is-active service2"},
+				},
+			},
+		},
+		{
+			name:     "Custom Group No Reloads",
+			fileList: []string{"file3", "file2"},
+			allFileMeta: map[string]FileInfo{
+				"file3": {
+					reloadGroup: "Service1",
+				},
+				"file2": {
+					reloadGroup: "Service1",
+				},
+			},
+			expected: DeploymentList{
+				files: []string{"file3", "file2"},
+				reloadIDtoFile: map[string][]string{
+					"Service1": {"file3", "file2"},
+				},
+				fileToReloadID: map[string]string{
+					"file3": "Service1",
+					"file2": "Service1",
+				},
+				reloadIDfileCount: map[string]int{
+					"Service1": 2,
+				},
+				reloadIDcommands: map[string][]string{
+					"Service1": {},
+				},
+			},
+		},
+		{
+			name:     "No Groups No Reloads",
+			fileList: []string{"file3", "file2"},
+			allFileMeta: map[string]FileInfo{
+				"file2": {},
+				"file3": {},
+			},
+			expected: DeploymentList{
+				files:             []string{"file3", "file2"},
+				reloadIDtoFile:    map[string][]string{},
+				fileToReloadID:    map[string]string{},
+				reloadIDfileCount: map[string]int{},
+				reloadIDcommands:  map[string][]string{},
+			},
+		},
+		{
+			name:        "No Input",
+			fileList:    []string{},
+			allFileMeta: map[string]FileInfo{},
+			expected: DeploymentList{
+				files:             []string{},
+				reloadIDtoFile:    map[string][]string{},
+				fileToReloadID:    map[string]string{},
+				reloadIDfileCount: map[string]int{},
+				reloadIDcommands:  map[string][]string{},
+			},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			outputDeploymentList := createReloadGroups(test.fileList, test.allFileMeta)
+
+			if !compareArrays(outputDeploymentList.files, test.expected.files) {
+				t.Errorf("Files List: expected does not match output:\nExpected:\n%v\n\nOutput:\n%v\n", test.expected.files, outputDeploymentList.files)
+			}
+
+			if !compareSliceMaps(outputDeploymentList.reloadIDtoFile, test.expected.reloadIDtoFile) {
+				t.Errorf("ReloadIDtoFile: expected does not match output:\nExpected:\n%v\n\nOutput:\n%v\n", test.expected.reloadIDtoFile, outputDeploymentList.reloadIDtoFile)
+			}
+
+			if !compareStringMaps(outputDeploymentList.fileToReloadID, test.expected.fileToReloadID) {
+				t.Errorf("FileToReloadID: expected does not match output:\nExpected:\n%v\n\nOutput:\n%v\n", test.expected.fileToReloadID, outputDeploymentList.fileToReloadID)
+			}
+
+			if !compareIntMaps(outputDeploymentList.reloadIDfileCount, test.expected.reloadIDfileCount) {
+				t.Errorf("ReloadIDfileCount: expected does not match output:\nExpected:\n%v\n\nOutput:\n%v\n", test.expected.reloadIDfileCount, outputDeploymentList.reloadIDfileCount)
+			}
+
+			if !compareSliceMaps(outputDeploymentList.reloadIDcommands, test.expected.reloadIDcommands) {
+				t.Errorf("ReloadIDcommands: expected does not match output:\nExpected:\n%v\n\nOutput:\n%v\n", test.expected.reloadIDcommands, outputDeploymentList.reloadIDcommands)
+			}
+		})
+	}
+}
+
+func compareSliceMaps(map1, map2 map[string][]string) bool {
+	// First check if the lengths of the maps are equal
+	if len(map1) != len(map2) {
+		return false
+	}
+
+	// Check if all keys and their associated values are equal
+	for key, val1 := range map1 {
+		val2, ok := map2[key]
+		if !ok {
+			// Key doesn't exist in map2
+			return false
+		}
+
+		if !compareArrays(val1, val2) {
+			return false
+		}
+	}
+
+	// If we passed all checks, the maps are equal
+	return true
+}
+
+func compareStringMaps(a, b map[string]string) bool {
+	// If lengths are different, maps are not equal
+	if len(a) != len(b) {
+		return false
+	}
+
+	// Check if all key-value pairs are equal
+	for key, value := range a {
+		if bValue, exists := b[key]; !exists || bValue != value {
+			return false
+		}
+	}
+	return true
+}
+
+func compareIntMaps(a, b map[string]int) bool {
+	// If lengths are different, they are not equal
+	if len(a) != len(b) {
+		return false
+	}
+
+	// Check if all key-value pairs are equal (we assume the "map" comparison)
+	for key, value := range a {
+		if bValue, exists := b[key]; !exists || bValue != value {
+			return false
+		}
+	}
+
+	return true
 }

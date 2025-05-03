@@ -9,11 +9,7 @@ import (
 	"strings"
 )
 
-// Does a couple things
-//
-//	Moves into repository directory if not already
-//	Checks for active network interfaces (can't deploy to remote endpoints if no network)
-//	Loads known_hosts file into global variable
+// Checks for active network interfaces (can't deploy to remote endpoints if no network)
 func localSystemChecks() (err error) {
 	printMessage(verbosityProgress, "Running local system checks...\n")
 	printMessage(verbosityProgress, "  Ensuring system has an active network interface\n")
@@ -47,22 +43,18 @@ func localSystemChecks() (err error) {
 func printDeploymentInformation(commitFileInfo map[string]FileInfo, allDeploymentHosts []string) {
 	// Notify user that program is in dry run mode
 	printMessage(verbosityStandard, "Requested dry-run, aborting deployment\n")
-	if globalVerbosityLevel < 2 {
-		// If not running with higher verbosity, no need to collect deployment information
-		return
-	}
-	printMessage(verbosityProgress, "Outputting information collected for deployment:\n")
+	printMessage(verbosityStandard, "Outputting information collected for deployment:\n")
 
 	// Print deployment info by host
 	for _, endpointName := range allDeploymentHosts {
 		hostInfo := config.hostInfo[endpointName]
 		printHostInformation(hostInfo)
-		printMessage(verbosityProgress, "  Files:\n")
+		printMessage(verbosityStandard, "  Files:\n")
 
 		// Identify maximum indent file name prints will need to be
 		var maxFileNameLength int
 		var maxActionLength int
-		for _, filePath := range hostInfo.deploymentFiles {
+		for _, filePath := range hostInfo.deploymentList.files {
 			// Format to remote path type
 			_, targetFile := translateLocalPathtoRemotePath(filePath)
 
@@ -81,7 +73,7 @@ func printDeploymentInformation(commitFileInfo map[string]FileInfo, allDeploymen
 		maxActionLength += 9
 
 		// Print out files for this specific host
-		for _, file := range hostInfo.deploymentFiles {
+		for _, file := range hostInfo.deploymentList.files {
 			// Format to remote path type
 			_, targetFile := translateLocalPathtoRemotePath(file)
 
@@ -92,34 +84,20 @@ func printDeploymentInformation(commitFileInfo map[string]FileInfo, allDeploymen
 			actionIndentSpaces := maxActionLength - len(commitFileInfo[file].action)
 
 			// Print what we are going to do, the local file path, and remote file path
-			printMessage(verbosityProgress, "       %s:%s%s%s# %s\n", commitFileInfo[file].action, strings.Repeat(" ", actionIndentSpaces), targetFile, strings.Repeat(" ", fileIndentSpaces), file)
+			printMessage(verbosityStandard, "       %s:%s%s%s# %s\n", commitFileInfo[file].action, strings.Repeat(" ", actionIndentSpaces), targetFile, strings.Repeat(" ", fileIndentSpaces), file)
 		}
 	}
 }
 
 // Ties into dry-runs to have a unified print of host information
-// Information only prints when verbosity level is more than or equal to 2
 func printHostInformation(hostInfo EndpointInfo) {
-	if len(hostInfo.password) == 0 {
-		// If password is empty, indicate to user
-		hostInfo.password = "*Host Does Not Use Passwords*"
-	} else if globalVerbosityLevel == 2 {
-		// Truncate passwords at verbosity level 2
-		if len(hostInfo.password) > 6 {
-			hostInfo.password = hostInfo.password[:6]
-		}
-		hostInfo.password += "..."
-	}
-
 	// Print out information for this specific host
-	printMessage(verbosityProgress, "Host: %s\n", hostInfo.endpointName)
-	printMessage(verbosityProgress, "  Options:\n")
-	printMessage(verbosityProgress, "       Endpoint Address:  %s\n", hostInfo.endpoint)
-	printMessage(verbosityProgress, "       SSH User:          %s\n", hostInfo.endpointUser)
-	printMessage(verbosityProgress, "       SSH Key:           %s\n", hostInfo.privateKey.PublicKey())
-	printMessage(verbosityProgress, "       Password:          %s\n", hostInfo.password)
-	printMessage(verbosityProgress, "       Transfer Buffer:   %s\n", hostInfo.remoteTransferBuffer)
-	printMessage(verbosityProgress, "       Backup Dir:        %s\n", hostInfo.remoteBackupDir)
+	printMessage(verbosityStandard, "Host: %s\n", hostInfo.endpointName)
+	printMessage(verbosityStandard, "  Options:\n")
+	printMessage(verbosityStandard, "       Endpoint Address:  %s\n", hostInfo.endpoint)
+	printMessage(verbosityStandard, "       SSH User:          %s\n", hostInfo.endpointUser)
+	printMessage(verbosityStandard, "       Transfer Buffer:   %s\n", hostInfo.remoteTransferBuffer)
+	printMessage(verbosityStandard, "       Backup Dir:        %s\n", hostInfo.remoteBackupDir)
 }
 
 func (deployMetrics *DeploymentMetrics) createReport(commitID string) (deploymentSummary DeploymentSummary) {

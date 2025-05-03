@@ -35,17 +35,17 @@ func runCmd(command string, hosts string) {
 		config.hostInfo[endpointName], err = retrieveHostSecrets(config.hostInfo[endpointName])
 		logError("Failed to retrieve host secrets", err, false)
 
+		// If user requested dry run - print host information and abort connections
+		if dryRunRequested {
+			printHostInformation(config.hostInfo[endpointName])
+			continue
+		}
+
 		// Retrieve proxy secrets (if proxy is needed)
 		proxyName := config.hostInfo[endpointName].proxy
 		if proxyName != "" {
 			config.hostInfo[proxyName], err = retrieveHostSecrets(config.hostInfo[proxyName])
 			logError("Error retrieving proxy secrets", err, true)
-		}
-
-		// If user requested dry run - print host information and abort connections
-		if dryRunRequested {
-			printHostInformation(config.hostInfo[endpointName])
-			continue
 		}
 
 		// Run the command

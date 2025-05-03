@@ -63,35 +63,6 @@ func (metric *DeploymentMetrics) addHostFailure(host string, err error) {
 	metric.hostErrMutex.Unlock()
 }
 
-// Assigns unique groups for file reload commands
-// Returns a map keyed on repo file path and its reload group ID
-// Returns a total count of files per reload group ID
-func groupFilesByReloads(allFileMeta map[string]FileInfo, repoFilePaths []string) (reloadIDtoRepoFile map[string][]string, repoFileToReloadID map[string]string, reloadIDfileCount map[string]int) {
-	// Initialize maps
-	reloadIDtoRepoFile = make(map[string][]string)
-	repoFileToReloadID = make(map[string]string)
-	reloadIDfileCount = make(map[string]int)
-
-	// Loop deployment files
-	for _, repoFilePath := range repoFilePaths {
-		if allFileMeta[repoFilePath].reloadRequired {
-			// Create an ID based on the command array to uniquely identify the group that files will belong to
-			reloadCommands := fmt.Sprintf("%v", allFileMeta[repoFilePath].reload)
-			reloadCmdID := base64.StdEncoding.EncodeToString([]byte(reloadCommands))
-
-			// Add file to reload ID map
-			reloadIDtoRepoFile[reloadCmdID] = append(reloadIDtoRepoFile[reloadCmdID], repoFilePath)
-
-			// Add reload ID to file map
-			repoFileToReloadID[repoFilePath] = reloadCmdID
-
-			// Increment count of files in reload group
-			reloadIDfileCount[reloadCmdID]++
-		}
-	}
-	return
-}
-
 // Compares compiled metadata from local and remote file and compares them and reports what is different
 // Only compares hashes, owner+group, and permission bits
 func checkForDiff(remoteMetadata RemoteFileInfo, localMetadata FileInfo) (contentDiffers bool, metadataDiffers bool) {
@@ -212,15 +183,18 @@ func runInstallationCommands(host HostMeta, localMetadata FileInfo) (err error) 
 	return
 }
 
-func runReloadCommands(host HostMeta, reloadCommands []string) (err error) {
+func runReloadCommands(host HostMeta, reloadCommands []string) (warning string, err error) {
 	printMessage(verbosityProgress, "Host %s:   Starting execution of reload commands\n", host.name)
 
-	for _, command := range reloadCommands {
+	for index, command := range reloadCommands {
 		printMessage(verbosityProgress, "Host %s:     Running reload command '%s'\n", host.name, command)
 
 		rawCmd := RemoteCommand{command}
 		_, err = rawCmd.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 90)
 		if err != nil {
+			if index > 1 {
+				warning = "first reload command succeeded, but a later command failed. This might mean the service is currently running a bad configuration."
+			}
 			err = fmt.Errorf("failed SSH Command on host during reload command %s: %v", command, err)
 			return
 		}
@@ -735,36 +709,43 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 	return
 }
 
-// Determines if reload should occur for files with reloads
-func checkForReload(endpointName string, totalDeployedReloadFiles map[string]int, reloadIDfileCount map[string]int, reloadID string, remoteModified bool) (clearedToReload bool) {
-	// Increment deployment success for files reload group (if it has one)
+func checkForReload(endpointName string, deploymentList DeploymentList, totalDeployedReloadFiles map[string]int, reloadIDreadyToReload map[string]bool, repoFilePath string, remoteModified bool) (clearedToReload bool, reloadGroup string) {
+	reloadID, fileHasReloadGroup := deploymentList.fileToReloadID[repoFilePath]
+
+	// Nothing to do for this file, early return
+	if !fileHasReloadGroup {
+		return
+	}
+
+	// Increment deployment success for files reload group
 	totalDeployedReloadFiles[reloadID]++
 
-	// Internal bool to track if we are going to run reloads are not - default to true if remote modification happened
-	var executeReloads bool
-	if remoteModified {
-		executeReloads = true
-	} else {
+	// Any single file modification triggers reload OR user manually requests it
+	if remoteModified || config.options.forceEnabled {
+		reloadIDreadyToReload[reloadID] = true
+	}
+
+	// First, catch not-fully-deployed groups
+	if totalDeployedReloadFiles[reloadID] != deploymentList.reloadIDfileCount[reloadID] {
+		printMessage(verbosityProgress, "Host %s:   Reload group not fully deployed yet, not running reloads\n", endpointName)
+		return
+	}
+
+	// Second, catch groups with no remote modifications
+	if !reloadIDreadyToReload[reloadID] {
 		printMessage(verbosityProgress, "Host %s:   Refusing to run reloads - no remote changes made for reload group\n", endpointName)
+		return
 	}
 
-	// User requested force disable of reloads
-	if config.options.disableReloads {
+	// Third, catch user disabling all reloads
+	if config.options.disableReloads && !config.options.forceEnabled {
 		printMessage(verbosityProgress, "Host %s:   Force disabling reloads by user request\n", endpointName)
-		executeReloads = false
+		return
 	}
 
-	// User requested force enable reloads
-	if config.options.forceEnabled {
-		printMessage(verbosityProgress, "Host %s:   Force enabling reloads by user request\n", endpointName)
-		executeReloads = true
-	}
-
-	// Run reloads when all files in reload group deployed without error
-	if executeReloads && totalDeployedReloadFiles[reloadID] == reloadIDfileCount[reloadID] {
-		clearedToReload = true
-	}
-
+	// Reload commands will be immediately run
+	reloadGroup = reloadID
+	clearedToReload = true
 	return
 }
 

@@ -453,6 +453,14 @@ If you want to run any commands prior to the new configuration being written, us
 Check commands that fail for a group of files sharing the same reload commands will cause the reloads to NOT run (although all files which have checks that do not fail will be written to remote host)
 Check commands are not grouped together and will run multiple times even if identical between multiple files.
 
+#### Named Reload Groups
+
+You can easily group files together so that reloads are run only after all relevant service files have been written, even if the reload commands differ.
+Using the `ReloadGroup` JSON key, you can specify any arbitrary string and the controller will ensure files with the identical group string are deployed and reloaded together.
+In order to ensure the correct sequence of reloads, utilize the Inter-File dependency feature listed above.
+
+In addition, the program will automatically attempt to group any files that have an identical set of commands into named groups even if that file did not explictly include a named group.
+
 Example metadata JSON:
 
 ```json
@@ -463,7 +471,8 @@ Example metadata JSON:
     "service1 --test-configuration -c /etc/service1/conf",
     "systemctl restart service1",
     "systemctl is-active service1"
-  ]
+  ],
+  "ReloadGroup": "Service 1 Config Files"
 ```
 
 ### BASH Auto-Completion

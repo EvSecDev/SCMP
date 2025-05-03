@@ -48,7 +48,7 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	host.sshClient, proxyClient, err = connectToSSH(endpointInfo, proxyInfo)
 	if err != nil {
 		err = fmt.Errorf("failed connect to SSH server %v", err)
-		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentFiles...)
+		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentList.files...)
 		deployMetrics.addHostFailure(host.name, err)
 		return
 	}
@@ -61,13 +61,13 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	err = remoteDeploymentPreparation(&host)
 	if err != nil {
 		err = fmt.Errorf("Remote system preparation failed: %v", err)
-		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentFiles...)
+		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentList.files...)
 		deployMetrics.addHostFailure(host.name, err)
 		return
 	}
 
 	// Deploy files
-	deployFiles(host, endpointInfo.deploymentFiles, allFileMeta, allFileData, deployMetrics)
+	deployFiles(host, endpointInfo.deploymentList, allFileMeta, allFileData, deployMetrics)
 
 	// Do any remote cleanups are required (non-fatal)
 	cleanupRemote(host)
@@ -77,7 +77,7 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 //     FILE DEPLOYMENT HANDLING
 // #####################################
 
-func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string]FileInfo, allFileData map[string][]byte, deployMetrics *DeploymentMetrics) {
+func deployFiles(host HostMeta, deploymentList DeploymentList, allFileMeta map[string]FileInfo, allFileData map[string][]byte, deployMetrics *DeploymentMetrics) {
 	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {
@@ -87,18 +87,17 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 		}
 	}()
 
-	// Separate files with and without reload commands
-	printMessage(verbosityProgress, "Host %s: Grouping config files by reload commands\n", host.name)
-	reloadIDtoRepoFile, repoFileToReloadID, reloadIDfileCount := groupFilesByReloads(allFileMeta, deploymentFiles)
-
 	// Count of successfully deployed files by their reloadID
 	totalDeployedReloadFiles := make(map[string]int)
+
+	// Signal when a reload group is cleared to reload
+	reloadIDreadyToReload := make(map[string]bool)
 
 	// Track remote file metadata (mainly for reload failure restoration)
 	remoteFileMetadatas := make(map[string]RemoteFileInfo)
 
 	// Loop through target files and deploy (non-reload required configs)
-	for _, repoFilePath := range deploymentFiles {
+	for _, repoFilePath := range deploymentList.files {
 		printMessage(verbosityData, "Host %s: Starting deployment for '%s'\n", host.name, repoFilePath)
 
 		// Skip this file if any of its dependents failed deployment
@@ -186,32 +185,30 @@ func deployFiles(host HostMeta, deploymentFiles []string, allFileMeta map[string
 		deployMetrics.addHostBytes(host.name, transferredBytes)
 
 		// Handle reloads
-		reloadID, fileHasReloadGroup := repoFileToReloadID[repoFilePath]
-		if fileHasReloadGroup {
-			// Run reloads when all files in reload group deployed without error
-			clearedToReload := checkForReload(host.name, totalDeployedReloadFiles, reloadIDfileCount, reloadID, remoteModified)
-			if clearedToReload {
-				err = runReloadCommands(host, allFileMeta[repoFilePath].reload)
-				if err != nil {
-					failedFiles := reloadIDtoRepoFile[reloadID]
-					for _, failedFile := range failedFiles {
-						// Restore the failed files
-						printMessage(verbosityData, "Host %s:   Restoring config file %s due to failed reload command\n", host.name, allFileMeta[repoFilePath].targetFilePath)
-						lerr := restoreOldFile(host, allFileMeta[repoFilePath].targetFilePath, remoteFileMetadatas[failedFile])
-						if lerr != nil {
-							// Only warning for restoration failures
-							printMessage(verbosityStandard, "Warning: Host %s:   File restoration failed: %v\n", host.name, lerr)
-						}
-
-						deployMetrics.addFileFailure(failedFile, err)
+		clearedToReload, reloadGroup := checkForReload(host.name, deploymentList, totalDeployedReloadFiles, reloadIDreadyToReload, repoFilePath, remoteModified)
+		if clearedToReload {
+			// Execute the commands for this reload group
+			var warning string
+			warning, err = runReloadCommands(host, deploymentList.reloadIDcommands[reloadGroup])
+			if err != nil {
+				printMessage(verbosityStandard, "Warning: Host %s:   %s\n", warning)
+				// Reload encountered error, cleanup
+				failedFiles := deploymentList.reloadIDtoFile[reloadGroup]
+				for _, failedFile := range failedFiles {
+					// Restore the failed files
+					printMessage(verbosityData, "Host %s:   Restoring config file %s due to failed reload command\n", host.name, allFileMeta[failedFile].targetFilePath)
+					lerr := restoreOldFile(host, allFileMeta[failedFile].targetFilePath, remoteFileMetadatas[failedFile])
+					if lerr != nil {
+						// Only warning for restoration failures
+						printMessage(verbosityStandard, "Warning: Host %s:   File restoration failed: %v\n", host.name, lerr)
 					}
 
-					// Record all the files for the reload group and skip to next file deployment
-					deployMetrics.addFile(host.name, allFileMeta, reloadIDtoRepoFile[reloadID]...)
-					continue
+					deployMetrics.addFileFailure(failedFile, err)
 				}
-			} else if totalDeployedReloadFiles[reloadID] != reloadIDfileCount[reloadID] {
-				printMessage(verbosityProgress, "Host %s:   Reload group not fully deployed yet (or disabled), not running reloads\n", host.name)
+
+				// Record all the files for the reload group and skip to next file deployment
+				deployMetrics.addFile(host.name, allFileMeta, deploymentList.reloadIDtoFile[reloadGroup]...)
+				continue
 			}
 		}
 

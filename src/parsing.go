@@ -2,6 +2,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -248,14 +249,64 @@ func getFailTrackerCommit() (commitID string, prevDeploymentSummary DeploymentSu
 	return
 }
 
+// Reads in last deployment summary and retrieves failed files and hosts for retry
+func (lastDeploymentSummary DeploymentSummary) getFailures(fileOverride string) (commitFiles map[string]string, hostOverride string, err error) {
+	commitFiles = make(map[string]string)
+
+	printMessage(verbosityProgress, "Parsing last deployment failures\n")
+
+	// Deployment override host selection by failed hosts
+	var hostOverrideArray []string
+
+	for _, hostReport := range lastDeploymentSummary.Hosts {
+		if hostReport.Name == "" {
+			err = fmt.Errorf("hostname is empty: failtracker line: %v", hostReport)
+			return
+		}
+
+		if hostReport.Status != "Failed" && hostReport.Status != "Partial" {
+			continue
+		}
+
+		printMessage(verbosityData, "  Parsing failure for host %v\n", hostReport.Name)
+
+		// Add host to override to isolate deployment to just the failed hosts
+		hostOverrideArray = append(hostOverrideArray, hostReport.Name)
+
+		for _, itemReport := range hostReport.Items {
+			printMessage(verbosityData, "   Parsing failure for file %s\n", itemReport.Name)
+
+			if itemReport.Status != "Failed" {
+				continue
+			}
+
+			// Skip this file if not in override (if override was requested)
+			skipFile := checkForOverride(fileOverride, itemReport.Name)
+			if skipFile {
+				continue
+			}
+
+			printMessage(verbosityData, "    File %s for redeployment\n", itemReport.Name)
+
+			commitFiles[itemReport.Name] = itemReport.Action
+		}
+	}
+
+	// Convert to standard format for override
+	hostOverride = strings.Join(hostOverrideArray, ",")
+
+	return
+}
+
 // Uses global config and deployment files to create list of files and hosts specific to deployment
 // Also deduplicates host and universal to ensure host override files don't get clobbered
-func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, commitFiles map[string]string, hostOverride string) (allDeploymentHosts []string, allDeploymentFiles map[string]string) {
+func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, commitFiles map[string]string, hostOverride string) (allDeploymentHosts []string, allDeploymentFiles map[string]string, hostDeploymentFiles map[string][]string) {
 	// Show progress to user
 	printMessage(verbosityProgress, "Filtering deployment hosts... \n")
 
 	// Initialize maps for deployment info
-	allDeploymentFiles = make(map[string]string) // Map of all (filtered) deployment files and their associated actions
+	allDeploymentFiles = make(map[string]string)    // Map of all (filtered) deployment files and their associated actions
+	hostDeploymentFiles = make(map[string][]string) // Map of deployment hosts and their list of files
 
 	printMessage(verbosityProgress, "Creating files per host and all deployment files maps\n")
 
@@ -273,7 +324,6 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 		hostsDeniedUniversalFiles := deniedUniversalFiles[endpointName]
 
 		// Filter committed files to their specific host and deduplicate against universal directory
-		var filteredCommitFiles []string // Order of items in this array is directly linked to the order in which they are deployed per host
 		for commitFile, commitFileAction := range commitFiles {
 			printMessage(verbosityData, "    Filtering file %s\n", commitFile)
 
@@ -297,19 +347,15 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 
 			printMessage(verbosityData, "        Selected\n")
 
-			// Add file to the host-specific file list and the global deployment file map
+			// Add file to the host-specific file list and the all-host deployment file map
 			allDeploymentFiles[commitFile] = commitFileAction
-			filteredCommitFiles = append(filteredCommitFiles, commitFile)
+			hostDeploymentFiles[endpointName] = append(hostDeploymentFiles[endpointName], commitFile)
 		}
 
 		// Skip this host if no files to deploy
-		if len(filteredCommitFiles) == 0 {
+		if len(hostDeploymentFiles[endpointName]) == 0 {
 			continue
 		}
-
-		// Write all deployment info for this host into the global map
-		hostInfo.deploymentFiles = filteredCommitFiles
-		config.hostInfo[endpointName] = hostInfo
 
 		// Track hosts for deployment
 		allDeploymentHosts = append(allDeploymentHosts, endpointName)
@@ -457,52 +503,24 @@ func parseFileContent(allDeploymentFiles map[string]string, rawFileContent map[s
 	return
 }
 
-// Reads in last deployment summary and retrieves failed files and hosts for retry
-func (lastDeploymentSummary DeploymentSummary) getFailures(fileOverride string) (commitFiles map[string]string, hostOverride string, err error) {
-	commitFiles = make(map[string]string)
+// Takes the raw list of deployment files and orders according to dependencies and reload commands
+func sortFiles(hostInfo map[string]EndpointInfo, hostDeploymentFiles map[string][]string, allFileMeta map[string]FileInfo) (sortedHostInfo map[string]EndpointInfo, err error) {
+	sortedHostInfo = make(map[string]EndpointInfo)
 
-	printMessage(verbosityProgress, "Parsing last deployment failures\n")
-
-	// Deployment override host selection by failed hosts
-	var hostOverrideArray []string
-
-	for _, hostReport := range lastDeploymentSummary.Hosts {
-		if hostReport.Name == "" {
-			err = fmt.Errorf("hostname is empty: failtracker line: %v", hostReport)
+	for host, info := range hostInfo {
+		// Reorder deployment list by dependencies
+		printMessage(verbosityProgress, "Host: %s: Reordering files based on inter-file dependencies\n", host)
+		info.deploymentList.files, err = handleFileDependencies(hostDeploymentFiles[host], allFileMeta)
+		if err != nil {
 			return
 		}
 
-		if hostReport.Status != "Failed" && hostReport.Status != "Partial" {
-			continue
-		}
+		// Sort reloads into groups sharing identical commands or user specified group names
+		printMessage(verbosityProgress, "Host: %s: Grouping config files by reload commands\n", host)
+		info.deploymentList = createReloadGroups(info.deploymentList.files, allFileMeta)
 
-		printMessage(verbosityData, "  Parsing failure for host %v\n", hostReport.Name)
-
-		// Add host to override to isolate deployment to just the failed hosts
-		hostOverrideArray = append(hostOverrideArray, hostReport.Name)
-
-		for _, itemReport := range hostReport.Items {
-			printMessage(verbosityData, "   Parsing failure for file %s\n", itemReport.Name)
-
-			if itemReport.Status != "Failed" {
-				continue
-			}
-
-			// Skip this file if not in override (if override was requested)
-			skipFile := checkForOverride(fileOverride, itemReport.Name)
-			if skipFile {
-				continue
-			}
-
-			printMessage(verbosityData, "    File %s for redeployment\n", itemReport.Name)
-
-			commitFiles[itemReport.Name] = itemReport.Action
-		}
+		sortedHostInfo[host] = info
 	}
-
-	// Convert to standard format for override
-	hostOverride = strings.Join(hostOverrideArray, ",")
-
 	return
 }
 
@@ -577,5 +595,105 @@ func handleFileDependencies(rawDeploymentFiles []string, allFileMeta map[string]
 
 	// Always append dependencies after files with no dependencies
 	orderedDeploymentFiles = append(noDeps, depFiles...)
+	return
+}
+
+func createReloadGroups(fileList []string, allFileMeta map[string]FileInfo) (groupedDeployList DeploymentList) {
+	// Initialize maps
+	groupedDeployList.reloadIDtoFile = make(map[string][]string) // NOT A STABLE ORDER OF FILES
+	groupedDeployList.fileToReloadID = make(map[string]string)
+	groupedDeployList.reloadIDfileCount = make(map[string]int)
+	groupedDeployList.reloadIDcommands = make(map[string][]string) // STABLE ORDER OF COMMANDS - REQUIRED TO ENSURE PROPER RELOAD SEQUENCE
+
+	// Always pass through the ordered deployment list
+	groupedDeployList.files = fileList
+
+	noNamedGroups := make(map[string][]string)     // Temp hold any files that aren't part of explicit named group
+	reloadIDtoGroupName := make(map[string]string) // Lookup if a reload array actually should be in a named group
+
+	// Group files with named groups
+	for _, file := range fileList {
+		// No processing for files without reloads or custom group names
+		if !allFileMeta[file].reloadRequired && allFileMeta[file].reloadGroup == "" {
+			continue
+		}
+
+		var reloadID string
+		if len(allFileMeta[file].reload) > 0 {
+			reloadID = base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "%v", allFileMeta[file].reload))
+		}
+
+		// Group custom names - once encountered, no need to group by identical commands
+		fileReloadGroupName := allFileMeta[file].reloadGroup
+		if fileReloadGroupName != "" {
+			if reloadID != "" {
+				reloadIDtoGroupName[reloadID] = fileReloadGroupName
+			}
+
+			groupedDeployList.reloadIDtoFile[fileReloadGroupName] = append(groupedDeployList.reloadIDtoFile[fileReloadGroupName], file)
+			continue
+		}
+
+		// Put reloads without named groups into temp map for later sorting
+		if reloadID != "" {
+			noNamedGroups[reloadID] = append(noNamedGroups[reloadID], file)
+		}
+	}
+
+	// Put reloads into custom groups when custom groups have an identical set
+	for reloadID, reloadFiles := range noNamedGroups {
+		for _, reloadFile := range reloadFiles {
+			groupName, reloadShouldBeInGroup := reloadIDtoGroupName[reloadID]
+			if reloadShouldBeInGroup {
+				groupedDeployList.reloadIDtoFile[groupName] = append(groupedDeployList.reloadIDtoFile[groupName], reloadFile)
+			} else {
+				groupedDeployList.reloadIDtoFile[reloadID] = append(groupedDeployList.reloadIDtoFile[reloadID], reloadFile)
+			}
+		}
+	}
+
+	// Create file to reload id mapping
+	for reloadID, reloadFiles := range groupedDeployList.reloadIDtoFile {
+		for _, reloadFile := range reloadFiles {
+			groupedDeployList.fileToReloadID[reloadFile] = reloadID
+		}
+	}
+
+	// Create command array per group (deduped)
+	for reloadID := range groupedDeployList.reloadIDtoFile {
+		var groupReloadCmds []string
+
+		// Duplicate tracker
+		seen := make(map[string]bool)
+
+		// Use the main deployment list to preserve order of reload commands
+		for _, file := range fileList {
+			if groupedDeployList.fileToReloadID[file] != reloadID {
+				continue
+			}
+
+			for _, fileReloadCmd := range allFileMeta[file].reload {
+				// Skip duplicates after the first occurence - even between files
+				if seen[fileReloadCmd] {
+					continue
+				}
+
+				// Add files command to the groups command list
+				groupReloadCmds = append(groupReloadCmds, fileReloadCmd)
+
+				// Mark so it doesn't get added again
+				seen[fileReloadCmd] = true
+			}
+		}
+
+		// Add final list of reload commands for this group
+		groupedDeployList.reloadIDcommands[reloadID] = groupReloadCmds
+	}
+
+	// Count files per reload group
+	for reloadID, groupFiles := range groupedDeployList.reloadIDtoFile {
+		groupedDeployList.reloadIDfileCount[reloadID] += len(groupFiles)
+	}
+
 	return
 }

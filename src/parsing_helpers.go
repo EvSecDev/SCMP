@@ -733,6 +733,10 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 		info.reloadRequired = false
 	}
 
+	if json.ReloadGroup != "" {
+		info.reloadGroup = json.ReloadGroup
+	}
+
 	info.checks = json.CheckCommands
 	if len(info.checks) > 0 {
 		info.checksRequired = true
@@ -781,6 +785,9 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 	printMessage(verbosityFullData, "      Reload Required?  %t\n", info.reloadRequired)
 	if info.reloadRequired {
 		printMessage(verbosityFullData, "      Reload Commands   %s\n", info.reload)
+	}
+	if info.reloadGroup != "" {
+		printMessage(verbosityFullData, "      Reload Group      %s\n", info.reloadGroup)
 	}
 	return
 }

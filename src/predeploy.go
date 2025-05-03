@@ -38,12 +38,12 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	case "deployFailures":
 		commitFiles, hostOverride, err = lastDeploymentSummary.getFailures(fileOverride)
 	default:
-		logError("Unknown deployment mode", fmt.Errorf("mode must be deployChanges, deployAll, or deployFailures"), true)
+		logError("Unknown deployment mode", fmt.Errorf("mode must be deployChanges, deployAll, or deployFailures"), false)
 	}
 
-	if err != nil {
-		logError("Failed to retrieve files", err, true)
-	} else if len(commitFiles) == 0 {
+	logError("Failed to retrieve files", err, false)
+
+	if len(commitFiles) == 0 {
 		// Non-error - can happen under normal operations: When committing files outside of host directories
 		printMessage(verbosityStandard, "No files available for deployment.\n")
 		return
@@ -54,8 +54,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 	deniedUniversalFiles := mapDeniedUniversalFiles(allHostsFiles, universalFiles)
 
-	allDeploymentHosts, allDeploymentFiles := filterHostsAndFiles(deniedUniversalFiles, commitFiles, hostOverride)
-
+	allDeploymentHosts, allDeploymentFiles, hostDeploymentFiles := filterHostsAndFiles(deniedUniversalFiles, commitFiles, hostOverride)
 	if len(allDeploymentFiles) == 0 || len(allDeploymentHosts) == 0 {
 		// Non-error - can happen under normal operations: if user specifies change deploy mode with a host that didn't have any changes in the specified commit
 		printMessage(verbosityStandard, "No deployment files for available hosts.\n")
@@ -68,19 +67,18 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	allFileMeta, allFileData, err := parseFileContent(allDeploymentFiles, rawFileContent)
 	logError("Error parsing loaded files", err, true)
 
-	for _, host := range allDeploymentHosts {
-		// Reorder deployment list
-		newDeploymentFiles, err := handleFileDependencies(config.hostInfo[host].deploymentFiles, allFileMeta)
-		logError("Failed to resolve file dependencies", err, true)
-
-		// Save back to global
-		hostInfo := config.hostInfo[host]
-		hostInfo.deploymentFiles = newDeploymentFiles
-		config.hostInfo[host] = hostInfo
-	}
+	config.hostInfo, err = sortFiles(config.hostInfo, hostDeploymentFiles, allFileMeta)
+	logError("Failed sorting deployment files", err, true)
 
 	err = localSystemChecks()
 	logError("Error in local system checks", err, true)
+
+	printMessage(verbosityStandard, "Deploying %d item(s) to %d host(s)\n", len(allFileMeta), len(allDeploymentHosts))
+
+	if dryRunRequested {
+		printDeploymentInformation(allFileMeta, allDeploymentHosts)
+		return
+	}
 
 	// Retrieve keys and passwords for any hosts that require it
 	for _, endpointName := range allDeploymentHosts {
@@ -103,44 +101,32 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	deployMetrics.fileErr = make(map[string]string)
 	deployMetrics.hostErr = make(map[string]string)
 	deployMetrics.fileAction = make(map[string]string)
-
-	printMessage(verbosityStandard, "Deploying %d item(s) to %d host(s)\n", len(allFileMeta), len(allDeploymentHosts))
-
-	// Get current timestamp for deployment elapsed time metric
 	deployMetrics.startTime = time.Now().UnixMilli()
 
-	// Concurrency Limiter
-	connLimiter := make(chan struct{}, config.options.maxSSHConcurrency)
-
 	// Start SSH Deployments
+	// All failures and errors from here on are soft stops - program will finish, errors are tracked within deployment metrics, git commit will NOT be rolled back
 	var wg sync.WaitGroup
+	connLimiter := make(chan struct{}, config.options.maxSSHConcurrency)
 	for _, endpointName := range allDeploymentHosts {
 		hostInfo := config.hostInfo[endpointName]
 		proxyInfo := config.hostInfo[config.hostInfo[endpointName].proxy]
 
-		// If requesting multithreaded deployment, start go routine, otherwise run without concurrency
-		// All failures and errors from here on are soft stops - program will finish, errors are tracked with global FailTracker, git commit will NOT be rolled back
 		wg.Add(1)
 		if config.options.maxSSHConcurrency > 1 {
 			go sshDeploy(&wg, connLimiter, hostInfo, proxyInfo, allFileMeta, allFileData, deployMetrics)
 		} else {
+			// Max conns of 1 disables using go routine
 			sshDeploy(&wg, connLimiter, hostInfo, proxyInfo, allFileMeta, allFileData, deployMetrics)
+
+			// Don't continue to the next host on errors
 			if len(deployMetrics.fileErr) > 0 {
-				// Deployment error occured, don't continue with deployments
 				break
 			}
 		}
 	}
 	wg.Wait()
 
-	// Get final timestamp to mark end of deployment
 	deployMetrics.endTime = time.Now().UnixMilli()
-
-	if dryRunRequested {
-		printDeploymentInformation(allFileMeta, allDeploymentHosts)
-		return
-	}
-
 	deploymentSummary := deployMetrics.createReport(commitID)
 
 	// Show user what was done during deployment
