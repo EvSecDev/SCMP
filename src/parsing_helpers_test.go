@@ -334,6 +334,32 @@ file content file content file content`,
 			expectedError:            nil,
 		},
 		{
+			name: "Valid Metadata 2",
+			fileContents: `#|^^^|#
+#{
+#  "FileOwnerGroup": "root:root",
+#  "FilePermissions": 755,
+#  "Reload": [
+#    "command1",
+#    "command2"
+#  ]
+#}
+#|^^^|#
+file content file content file content`,
+			expectedMetadata: `
+{
+  "FileOwnerGroup": "root:root",
+  "FilePermissions": 755,
+  "Reload": [
+    "command1",
+    "command2"
+  ]
+}
+`,
+			expectedRemainingContent: "file content file content file content",
+			expectedError:            nil,
+		},
+		{
 			name:                     "Missing Start Delimiter",
 			fileContents:             `file content file content file content`,
 			expectedMetadata:         "",
@@ -458,7 +484,7 @@ func TestDetermineFileType(t *testing.T) {
 		{"0120000", "unsupported"}, // Special
 		{"0040000", "unsupported"}, // Directory
 		{"0160000", "unsupported"}, // Git submodule
-		{"0100755", "unsupported"}, // Executable
+		{"0100755", "regular"},     // Executable
 		{"0100664", "unsupported"}, // Deprecated
 		{"0", "unsupported"},       // Empty (no file)
 		{"", "unsupported"},        // Empty string

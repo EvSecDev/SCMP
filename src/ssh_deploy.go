@@ -191,7 +191,10 @@ func deployFiles(host HostMeta, deploymentList DeploymentList, allFileMeta map[s
 			var warning string
 			warning, err = runReloadCommands(host, deploymentList.reloadIDcommands[reloadGroup])
 			if err != nil {
-				printMessage(verbosityStandard, "Warning: Host %s:   %s\n", warning)
+				if warning != "" {
+					printMessage(verbosityStandard, "Warning: Host %s:   %s\n", host.name, warning)
+				}
+
 				// Reload encountered error, cleanup
 				failedFiles := deploymentList.reloadIDtoFile[reloadGroup]
 				for _, failedFile := range failedFiles {

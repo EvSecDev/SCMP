@@ -194,10 +194,12 @@ func (deploymentSummary DeploymentSummary) printFailures() (err error) {
 	}
 
 	for _, hostDeployReport := range deploymentSummary.Hosts {
-		printMessage(verbosityStandard, "Host: %s\n", hostDeployReport.Name)
+		if hostDeployReport.ErrorMsg != "" || hostDeployReport.Status == "Partial" || hostDeployReport.Status == "Failed" {
+			printMessage(verbosityStandard, "Host: %s\n", hostDeployReport.Name)
+		}
 
 		if hostDeployReport.ErrorMsg != "" {
-			printMessage(verbosityStandard, "  Host Error: %s\n", hostDeployReport.ErrorMsg)
+			printMessage(verbosityStandard, " Host Error: %s\n", hostDeployReport.ErrorMsg)
 		}
 
 		for _, fileDeployReport := range hostDeployReport.Items {
@@ -206,7 +208,7 @@ func (deploymentSummary DeploymentSummary) printFailures() (err error) {
 				continue
 			}
 
-			printMessage(verbosityStandard, "  File: '%s'\n", fileDeployReport.Name)
+			printMessage(verbosityStandard, " File: '%s'\n", fileDeployReport.Name)
 
 			// Print all the errors in a cascading format to show root cause
 			errorLayers := strings.Split(fileErrorMessage, ": ")
@@ -244,12 +246,6 @@ func (deploymentSummary DeploymentSummary) saveReport() (err error) {
 	}
 	deploymentSummaryText := string(deploymentSummaryJSON)
 
-	// Send error to journald
-	err = CreateJournaldLog(deploymentSummaryText, "err")
-	if err != nil {
-		return
-	}
-
 	// Add FailTracker string to fail file
 	failTrackerFile, err := os.Create(config.failTrackerFilePath)
 	if err != nil {
@@ -259,11 +255,17 @@ func (deploymentSummary DeploymentSummary) saveReport() (err error) {
 
 	deploymentSummaryText = deploymentSummaryText + "\n"
 
-	// Write string to file (overwrite old contents)
+	// Always overwrite old contents
 	_, err = failTrackerFile.WriteString(deploymentSummaryText)
 	if err != nil {
 		return
 	}
+
+	err = CreateJournaldLog(deploymentSummaryText, "err")
+	if err != nil {
+		return
+	}
+
 	return
 }
 

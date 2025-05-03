@@ -316,6 +316,14 @@ func writeNewDirectoryMetadata(localDirPath string, selectionMetadata RemoteFile
 		return
 	}
 
+	var fullFileContent strings.Builder
+	fullFileContent.WriteString(metaDelimiter)
+	fullFileContent.WriteString("\n")
+	fullFileContent.WriteString(string(metadataJSON))
+	fullFileContent.WriteString("\n")
+	fullFileContent.WriteString(metaDelimiter)
+	fullFileContent.WriteString("\n")
+
 	printMessage(verbosityProgress, "Writing directory metadata to repository\n")
 
 	err = os.MkdirAll(localDirPath, 0700)
@@ -331,7 +339,7 @@ func writeNewDirectoryMetadata(localDirPath string, selectionMetadata RemoteFile
 	}
 	defer directoryMetaFile.Close()
 
-	_, err = directoryMetaFile.Write(metadataJSON)
+	_, err = directoryMetaFile.WriteString(fullFileContent.String())
 	if err != nil {
 		err = fmt.Errorf("failed to write directory metadata to local repository: %v", err)
 		return

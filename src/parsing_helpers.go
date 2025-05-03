@@ -267,6 +267,10 @@ func extractMetadata(fileContents string) (metadataSection string, contentSectio
 	remainingContent := fileContents[:startIndex-len(metaDelimiter)] + fileContents[endIndex+len(endDelimiter):]
 	contentSection = []byte(remainingContent)
 
+	// Handle commented out metadata sections
+	metadataSection = strings.ReplaceAll(metadataSection, "\n#", "\n")
+	metadataSection = strings.ReplaceAll(metadataSection, "\r#", "\r")
+
 	return
 }
 
@@ -359,6 +363,9 @@ func determineFileType(fileMode string) (fileType string) {
 	if fileMode == "0100644" {
 		// Text file
 		fileType = "regular"
+	} else if fileMode == "0100755" {
+		// Executable file - treated same as regular
+		fileType = "regular"
 	} else if fileMode == "0120000" {
 		// Special - links
 		fileType = "unsupported"
@@ -367,9 +374,6 @@ func determineFileType(fileMode string) (fileType string) {
 		fileType = "unsupported"
 	} else if fileMode == "0160000" {
 		// Git submodule
-		fileType = "unsupported"
-	} else if fileMode == "0100755" {
-		// Executable
 		fileType = "unsupported"
 	} else if fileMode == "0100664" {
 		// Deprecated
@@ -490,7 +494,7 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 	statFields := strings.Split(statOutput, ",")
 	if len(statFields) != 7 {
 		// Refuse any stat that does not have the exact expected number of fields
-		err = fmt.Errorf("invalid file metadata: expected 7 fields, received %d fields", len(statFields))
+		err = fmt.Errorf("invalid file metadata: expected 7 fields, received %d fields: received %v", len(statFields), statFields)
 		return
 	}
 
@@ -648,33 +652,21 @@ func formatBytes(bytes int) (bytesWithUnits string) {
 func extractMetadataFromContents(repoFilePath string, content []byte) (fileContent []byte, jsonMetadata MetaHeader, err error) {
 	printMessage(verbosityData, "    Extracting file metadata\n")
 
-	if strings.HasSuffix(repoFilePath, directoryMetadataFileName) {
-		// Get just directory name
-		directoryName := filepath.Dir(repoFilePath)
+	// Extract metadata from file contents
+	var metadata string
+	metadata, fileContent, err = extractMetadata(string(content))
+	if err != nil {
+		err = fmt.Errorf("failed to extract metadata header from '%s': %v", repoFilePath, err)
+		return
+	}
 
-		// Extract metadata
-		err = json.Unmarshal(content, &jsonMetadata)
-		if err != nil {
-			err = fmt.Errorf("failed parsing directory JSON metadata for '%s': %v", directoryName, err)
-			return
-		}
-	} else {
-		// Extract metadata from file contents
-		var metadata string
-		metadata, fileContent, err = extractMetadata(string(content))
-		if err != nil {
-			err = fmt.Errorf("failed to extract metadata header from '%s': %v", repoFilePath, err)
-			return
-		}
+	printMessage(verbosityData, "    Parsing metadata header JSON\n")
 
-		printMessage(verbosityData, "    Parsing metadata header JSON\n")
-
-		// Parse JSON into a generic map
-		err = json.Unmarshal([]byte(metadata), &jsonMetadata)
-		if err != nil {
-			err = fmt.Errorf("failed parsing JSON metadata header for %s: %v", repoFilePath, err)
-			return
-		}
+	// Parse JSON into a generic map
+	err = json.Unmarshal([]byte(metadata), &jsonMetadata)
+	if err != nil {
+		err = fmt.Errorf("failed parsing JSON metadata header for %s: %v", repoFilePath, err)
+		return
 	}
 
 	return
@@ -798,26 +790,12 @@ func macroToValue(filePath string, inputs *[]string) {
 	const fileNameMacro string = "{@FILENAME}"
 	const filePathMacro string = "{@FILEPATH}"
 	const fileDirMacro string = "{@FILEDIR}"
-	const hostNameMacro string = "{@HOSTNAME}"
-	const hostLoginUserMacro string = "{@HOSTLOGINUSER}"
-	const hostIPMacro string = "{@HOSTIP}"
-	const hostPortMacro string = "{@HOSTPORT}"
+	const repoBaseDirMacro string = "{@REPOBASEDIR}"
 
 	// Get hostname for config lookups for macro values
-	hostName, targetFilePath := translateLocalPathtoRemotePath(filePath)
+	repoBaseDir, targetFilePath := translateLocalPathtoRemotePath(filePath)
 	baseFileName := filepath.Base(targetFilePath)
 	fileDirPath := filepath.Dir(targetFilePath)
-
-	// Get enpoint IP and port for macros
-	var endpointIP, endpointPort string
-	endpointSocket := strings.Split(config.hostInfo[hostName].endpoint, ":")
-	if len(endpointSocket) == 2 {
-		endpointIP = endpointSocket[0]
-		endpointPort = endpointSocket[1]
-	} else {
-		endpointIP = "unk"
-		endpointPort = "unk"
-	}
 
 	// Replace values in inputs
 	for index, input := range *inputs {
@@ -825,10 +803,7 @@ func macroToValue(filePath string, inputs *[]string) {
 		input = strings.ReplaceAll(input, fileNameMacro, baseFileName)
 		input = strings.ReplaceAll(input, filePathMacro, targetFilePath)
 		input = strings.ReplaceAll(input, fileDirMacro, fileDirPath)
-		input = strings.ReplaceAll(input, hostNameMacro, hostName)
-		input = strings.ReplaceAll(input, hostLoginUserMacro, config.hostInfo[hostName].endpointUser)
-		input = strings.ReplaceAll(input, hostIPMacro, endpointIP)
-		input = strings.ReplaceAll(input, hostPortMacro, endpointPort)
+		input = strings.ReplaceAll(input, repoBaseDirMacro, repoBaseDir)
 
 		// Save back to original
 		(*inputs)[index] = input

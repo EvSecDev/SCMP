@@ -204,6 +204,7 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 		printMessage(verbosityData, "  Filtering file %s\n", repoFilePath)
 
 		if !fileIsValid(repoFilePath, repoFile.Mode.String()) {
+			printMessage(verbosityFullData, "    File not valid\n")
 			continue
 		}
 

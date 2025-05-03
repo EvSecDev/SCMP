@@ -502,7 +502,8 @@ more data here`),
 				"host1/var/www/site1/" + directoryMetadataFileName: "dirModify",
 			},
 			rawFileContent: map[string][]byte{
-				"host1/var/www/site1/" + directoryMetadataFileName: []byte(`{
+				"host1/var/www/site1/" + directoryMetadataFileName: []byte(`#|^^^|#
+{
   "FileOwnerGroup": "root:www-data",
   "FilePermissions": 775,
   "Install": [
@@ -516,6 +517,7 @@ more data here`),
 	"systemctl is-active php8.3-fpm"
   ]
 }
+#|^^^|#
 `),
 			},
 			expectedallFileMeta: map[string]FileInfo{
@@ -732,31 +734,31 @@ func TestHandleFileDependencies(t *testing.T) {
 		},
 		{
 			name:                "Valid dependency order Real Paths",
-			hostDeploymentFiles: []string{"/etc/hosts", "/etc/apt/sources.list", "/etc/rsyslog.conf", "/etc/nginx/nginx.conf", "/etc/resolv.conf", "/etc/network/interfaces", "/etc/apt/apt.conf.d/00aptproxy"},
+			hostDeploymentFiles: []string{"host1/etc/hosts", "host1/etc/apt/sources.list", "host1/etc/rsyslog.conf", "host1/etc/nginx/nginx.conf", "host1/etc/resolv.conf", "host1/etc/network/interfaces", "host1/etc/apt/apt.conf.d/00aptproxy"},
 			allFileMeta: map[string]FileInfo{
-				"/etc/nginx/nginx.conf": {
-					dependencies: []string{"/etc/apt/sources.list"},
+				"host1/etc/nginx/nginx.conf": {
+					dependencies: []string{"host1/etc/apt/sources.list"},
 				},
-				"/etc/apt/sources.list": {
-					dependencies: []string{"/etc/apt/apt.conf.d/00aptproxy", "/etc/network/interfaces", "/etc/resolv.conf"},
+				"host1/etc/apt/sources.list": {
+					dependencies: []string{"host1/etc/apt/apt.conf.d/00aptproxy", "host1/etc/network/interfaces", "host1/etc/resolv.conf"},
 				},
-				"/etc/network/interfaces": {
+				"host1/etc/network/interfaces": {
 					dependencies: []string{},
 				},
-				"/etc/hosts": {
+				"host1/etc/hosts": {
 					dependencies: []string{},
 				},
-				"/etc/rsyslog.conf": {
-					dependencies: []string{"/etc/apt/sources.list"},
+				"host1/etc/rsyslog.conf": {
+					dependencies: []string{"host1/etc/apt/sources.list"},
 				},
-				"/etc/resolv.conf": {
-					dependencies: []string{"/etc/network/interfaces"},
+				"host1/etc/resolv.conf": {
+					dependencies: []string{"host1/etc/network/interfaces"},
 				},
-				"/etc/apt/apt.conf.d/00aptproxy": {
-					dependencies: []string{"/etc/network/interfaces"},
+				"host1/etc/apt/apt.conf.d/00aptproxy": {
+					dependencies: []string{"host1/etc/network/interfaces"},
 				},
 			},
-			expected:  []string{"/etc/hosts", "/etc/network/interfaces", "/etc/apt/apt.conf.d/00aptproxy", "/etc/resolv.conf", "/etc/apt/sources.list", "/etc/nginx/nginx.conf", "/etc/rsyslog.conf"},
+			expected:  []string{"host1/etc/hosts", "host1/etc/network/interfaces", "host1/etc/apt/apt.conf.d/00aptproxy", "host1/etc/resolv.conf", "host1/etc/apt/sources.list", "host1/etc/nginx/nginx.conf", "host1/etc/rsyslog.conf"},
 			expectErr: false,
 		},
 		{

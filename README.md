@@ -381,22 +381,19 @@ Notes:
 - Macro names are case-sensitive.
 - Macros inside of double quotes will throw a JSON formatting error
 
-Example of expansion given input of `Server01/etc/nginx/nginx.conf` (other values are retrieved from `.ssh/config`):
+Example of expansion given input of `Server01/etc/nginx/nginx.conf`:
 
 ```text
 {@FILEPATH}      -> /etc/nginx/nginx.conf
 {@FILEDIR}       -> /etc/nginx
 {@FILENAME}      -> nginx.conf
-{@HOSTNAME}      -> Server01
-{@HOSTLOGINUSER} -> user1
-{@HOSTIP}        -> 192.168.0.1
-{@HOSTPORT}      -> 22
+{@REPOBASEDIR}   -> Server01
 ```
 
 ### Inter-file Dependency
 
 Frequently, there is a need to deploy files in a certain order.
-In order to accomplish this, within a given file, you can define which files (by the expected remote target path) that it relies upon.
+In order to accomplish this, within a given file, you can define which files (by the local relative repository path) that it relies upon.
 This ensures that during deployment, the order in which files are deployed and reloaded is controllable.
 
 This feature does not work with files not tracked in the repository (if you require a certain remote untracked file or system state, please use `Checks` commands)
@@ -405,8 +402,8 @@ Example of metadata header:
 
 ```json
   "Dependencies": [
-    "/etc/resolv.conf",
-    "/etc/apt/sources.list"
+    "host1/etc/resolv.conf",
+    "host1/etc/apt/sources.list"
   ]
 ```
 
