@@ -49,7 +49,8 @@ func gitArtifactTracking() {
 	checkForArtifactErrors(&tracker.allErrors)
 
 	// Modify hash map so it only contains hashes of changed artifact files
-	for artifactFileName := range tracker.artifactHash {
+	copyTrackerArtifactHash := tracker.artifactHash
+	for artifactFileName := range copyTrackerArtifactHash {
 		wg.Add(1)
 		go hashArtifactFile(&wg, semaphore, artifactFileName, tracker)
 	}
@@ -154,18 +155,18 @@ func hashArtifactFile(wg *sync.WaitGroup, semaphore chan struct{}, artifactFileN
 	// Signal routine is done after return
 	defer wg.Done()
 
+	printMessage(verbosityData, "Hashing artifact %s\n", artifactFileName)
+
 	// Retrieve the hash of the current remote artifact file
-	currrentArtifactFileHash, err := SHA256SumStream(artifactFileName)
+	currentArtifactFileHash, err := SHA256SumStream(artifactFileName)
 	if err != nil {
-		tracker.logError(fmt.Errorf("failed hasing artifact file %s: %v", artifactFileName, err))
+		tracker.logError(fmt.Errorf("failed hashing artifact file %s: %v", artifactFileName, err))
 		return
 	}
 
-	printMessage(verbosityData, "Hashing artifact %s\n", artifactFileName)
-
 	// Add pointers hash to map by pointer name
 	tracker.artifactHashMutex.Lock()
-	tracker.artifactHash[artifactFileName] = currrentArtifactFileHash
+	tracker.artifactHash[artifactFileName] = currentArtifactFileHash
 	tracker.artifactHashMutex.Unlock()
 }
 
