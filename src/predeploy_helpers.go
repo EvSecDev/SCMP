@@ -24,8 +24,8 @@ func localSystemChecks() (err error) {
 	// Ensure system has an active network interface
 	var noActiveNetInterface bool
 	for _, iface := range systemNetInterfaces {
-		// Net interface is up and not loopback
-		if iface.Flags&net.FlagUp != 0 && iface.Flags&net.FlagLoopback == 0 {
+		// Net interface is up
+		if iface.Flags&net.FlagUp != 0 {
 			noActiveNetInterface = false
 			break
 		}
