@@ -211,7 +211,7 @@ then
 	create_release_notes "$repoRoot" "$tempReleaseDir"
 elif [[ -n $publishVersion ]]
 then
-	create_github_release "$githubUser" "$githubRepoName" "$publishVersion" "$tempReleaseDir"
+	create_github_release "$githubUser" "$githubRepoName" "$publishVersion"
 elif [[ $updatepackages == true ]]
 then
 	update_go_packages "$repoRoot" "$SRCdir"

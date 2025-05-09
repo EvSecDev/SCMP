@@ -7,7 +7,21 @@ function create_github_release() {
 	repoOwner=$1
 	githubRepo=$2
 	versionTag=$3
-	localReleaseDir=$4
+
+	if [[ -d $HOME/Downloads/releasetemp ]]
+	then
+		localReleaseDir="$HOME/Downloads/releasetemp"
+	elif [[ -d $HOME/.local/tmp/releasetemp ]]
+	then
+		localReleaseDir="$HOME/.local/tmp/releasetemp"
+	elif [[ -d /tmp/releasetemp ]]
+	then
+		localReleaseDir="/tmp/releasetemp"
+	else
+		echo -e "${RED}ERROR${RESET}: Unable to identify available temp dir, cannot continue" >&2
+		exit 1
+	fi
+
 	githubReleaseNotesFile="$localReleaseDir/release-notes.md"
 
 	if [[ -z $GITHUB_API_TOKEN ]]
