@@ -17,22 +17,18 @@ import (
 //	GLOBAL CONSTANTS
 // ###################################
 
-const metaDelimiter string = "#|^^^|#"                                          // Start and stop delimiter for repository file metadata header
-const defaultConfigPath string = "~/.ssh/config"                                // Default to users home directory ssh config file
-const directoryMetadataFileName string = ".directory_metadata_information.json" // hidden file to identify parent directories metadata
-const fileURIPrefix string = "file://"                                          // Used by the user to tell certain arguments to load file content
-const maxDirectoryLoopCount int = 200                                           // Maximum recursion for any loop over directories
-const artifactPointerFileExtension string = ".remote-artifact"                  // file extension to identify 'pointer' files for artifact files
-const (                                                                         // Descriptive Names for available verbosity levels
-	verbosityNone int = iota
-	verbosityStandard
-	verbosityProgress
-	verbosityData
-	verbosityFullData
-	verbosityDebug
-)
-const ( // Descriptive Names for stats fs types
-	dirType       string = "directory"
+const (
+	metaDelimiter                string = "#|^^^|#"                              // Start and stop delimiter for repository file metadata header
+	defaultConfigPath            string = "~/.ssh/config"                        // Default to users home directory ssh config file
+	artifactPointerFileExtension string = ".remote-artifact"                     // file extension to identify 'pointer' files for artifact files
+	directoryMetadataFileName    string = ".directory_metadata_information.json" // hidden file to identify parent directories metadata
+	fileURIPrefix                string = "file://"                              // Used by the user to tell certain arguments to load file content
+	maxDirectoryLoopCount        int    = 200                                    // Maximum recursion for any loop over directories
+
+	SHA256HashExpression string = `^[a-fA-F0-9]{64}`
+	SHA1HashExpression   string = `^[0-9a-fA-F]{40}$`
+
+	dirType       string = "directory" // Descriptive Names for stats fs types
 	fileType      string = "regular file"
 	fileEmptyType string = "regular empty file"
 	symlinkType   string = "symbolic link"
@@ -41,6 +37,16 @@ const ( // Descriptive Names for stats fs types
 	socketType    string = "socket"
 	portType      string = "port"
 	fifoType      string = "fifo"
+)
+
+// Descriptive Names for available verbosity levels
+const (
+	verbosityNone int = iota
+	verbosityStandard
+	verbosityProgress
+	verbosityData
+	verbosityFullData
+	verbosityDebug
 )
 
 // ###################################
@@ -66,7 +72,7 @@ type Config struct {
 	universalDirectory  string                  // Universal config directory inside git repo
 	allUniversalGroups  map[string][]string     // Universal group config directory names and their respective hosts
 	ignoreDirectories   []string                // Directories to ignore inside the git repository
-	options             Opts                    // Options specified by the user
+	options             Opts                    // Options specified/implied by the user
 	userHomeDirectory   string                  // Absolute path to users home directory (to expand '~/' in paths)
 	vaultFilePath       string                  // Path to password vault file
 	vault               map[string]Credential   // Password vault
@@ -74,6 +80,9 @@ type Config struct {
 
 type Opts struct {
 	maxSSHConcurrency        int    // Maximum threads for ssh sessions
+	calledByGitHook          bool   // Signal to err handling that rollback is available
+	dryRunEnabled            bool   // Tests deployment setup without connecting to remotes
+	wetRunEnabled            bool   // Tests deployment on remotes without mutating anything
 	runAsUser                string // User to run commands as (not login user)
 	disableSudo              bool   // Disable using sudo for remote commands
 	allowDeletions           bool   // Allow deletions in local repo to delete files on remote hosts or vault entries
@@ -246,10 +255,8 @@ type GitChangedFileMetadata struct {
 
 // #### Written to only from main
 
-var calledByGitHook bool       // for automatic rollback on parsing error
 var SHA256RegEx *regexp.Regexp // for validating hashes received from remote hosts
 var SHA1RegEx *regexp.Regexp   // for validating user supplied commit hashes
-var dryRunRequested bool       // for printing relevant information and bailing out before outbound remote connections are made
 
 // Integer for printing increasingly detailed information as program progresses
 //
@@ -322,6 +329,8 @@ Secure Configuration Management Program (SCMP)
                                                    Effective with both '-a' and '-d'
     -T, --dry-run                                  Does everything except start SSH connections
                                                    Prints out deployment information
+    -w, --wet-run                                  Connects to remotes and tests deployment without mutating actions
+                                                   [default: false]
     -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections
                                                    [default: 10] (1 disables concurrency)
     -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the
@@ -389,8 +398,10 @@ Secure Configuration Management Program (SCMP)
 	flag.StringVar(&localFileOverride, "local-files", "", "")
 	flag.BoolVar(&testConfig, "t", false, "")
 	flag.BoolVar(&testConfig, "test-config", false, "")
-	flag.BoolVar(&dryRunRequested, "T", false, "")
-	flag.BoolVar(&dryRunRequested, "dry-run", false, "")
+	flag.BoolVar(&config.options.dryRunEnabled, "T", false, "")
+	flag.BoolVar(&config.options.dryRunEnabled, "dry-run", false, "")
+	flag.BoolVar(&config.options.wetRunEnabled, "w", false, "")
+	flag.BoolVar(&config.options.wetRunEnabled, "wet-run", false, "")
 	flag.IntVar(&config.options.maxSSHConcurrency, "m", 10, "")
 	flag.IntVar(&config.options.maxSSHConcurrency, "max-conns", 10, "")
 	flag.StringVar(&modifyVaultHost, "p", "", "")
@@ -436,8 +447,8 @@ Secure Configuration Management Program (SCMP)
 		return
 	}
 
-	SHA256RegEx = regexp.MustCompile(`^[a-fA-F0-9]{64}`)
-	SHA1RegEx = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+	SHA256RegEx = regexp.MustCompile(SHA256HashExpression)
+	SHA1RegEx = regexp.MustCompile(SHA1HashExpression)
 
 	if installAAProf {
 		installAAProfile()

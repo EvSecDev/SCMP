@@ -96,7 +96,7 @@ func gitAdd(addGlob string) (err error) {
 	printMessage(verbosityFullData, "Raw add option: '%s'\n", addGlob)
 
 	// Exit if dry-run requested
-	if dryRunRequested {
+	if config.options.dryRunEnabled {
 		printMessage(verbosityStandard, "Dry-run requested, not altering worktree\n")
 		return
 	}
@@ -152,7 +152,7 @@ func gitCommit(gitCommitAction string) (err error) {
 	}
 
 	// Return if dry-run requested
-	if dryRunRequested {
+	if config.options.dryRunEnabled {
 		printMessage(verbosityStandard, "Dry-run requested, not committing\n")
 		printMessage(verbosityStandard, "Received commit message: '%s'\n", commitMessage)
 		return
@@ -167,7 +167,7 @@ func gitCommit(gitCommitAction string) (err error) {
 	}
 
 	// Set global to true, deployment might occur after this commit
-	calledByGitHook = true
+	config.options.calledByGitHook = true
 
 	return
 }

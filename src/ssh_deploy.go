@@ -37,11 +37,6 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	host.transferBufferFile = endpointInfo.remoteTransferBuffer
 	host.backupPath = endpointInfo.remoteBackupDir
 
-	// Bail before initiating outbound connections if in dry-run mode
-	if dryRunRequested {
-		return
-	}
-
 	// Connect to the SSH server
 	var err error
 	var proxyClient *ssh.Client

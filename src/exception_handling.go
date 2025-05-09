@@ -49,7 +49,7 @@ func logError(errorDescription string, errorMessage error, cleanupNeeded bool) {
 	// Only roll back commit if the program was started by a hook and if the commit rollback is requested
 	// Reset commit because the current commit should reflect what is deployed in the network
 	// Conceptually, the rough equivalent of this command: git reset --soft HEAD~1
-	if calledByGitHook && cleanupNeeded {
+	if config.options.calledByGitHook && cleanupNeeded {
 		err = gitRollBackOneCommit()
 		if err != nil {
 			fmt.Printf("Error rolling back commit. %v\n", err)

@@ -36,7 +36,7 @@ func runCmd(command string, hosts string) {
 		logError("Failed to retrieve host secrets", err, false)
 
 		// If user requested dry run - print host information and abort connections
-		if dryRunRequested {
+		if config.options.dryRunEnabled {
 			printHostInformation(config.hostInfo[endpointName])
 			continue
 		}
@@ -61,6 +61,10 @@ func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command strin
 		defer proxyClient.Close()
 	}
 	defer client.Close()
+
+	if config.options.wetRunEnabled {
+		return
+	}
 
 	// Execute user command
 	rawCmd := RemoteCommand{command}
@@ -113,7 +117,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 	// Semaphore to limit concurrency of host connections go routines as specified in main config
 	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
 
-	if dryRunRequested {
+	if config.options.dryRunEnabled {
 		// Notify user that program is in dry run mode
 		printMessage(verbosityStandard, "Requested dry-run, aborting deployment\n")
 		if globalVerbosityLevel < 2 {
@@ -147,7 +151,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 		}
 
 		// If user requested dry run - print host information and abort connections
-		if dryRunRequested {
+		if config.options.dryRunEnabled {
 			printHostInformation(config.hostInfo[endpointName])
 			continue
 		}

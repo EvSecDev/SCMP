@@ -27,7 +27,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 	err = retrieveGitRepoPath()
 	logError("Repository Error", err, false)
 
-	if dryRunRequested {
+	if config.options.dryRunEnabled {
 		printMessage(verbosityStandard, "Requested dry-run, aborting deployment\n")
 		if globalVerbosityLevel < 2 {
 			// If not running with higher verbosity, no need to collect deployment information
@@ -58,7 +58,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		proxyInfo := config.hostInfo[config.hostInfo[endpointName].proxy]
 
 		// If user requested dry run - print host information and abort connections
-		if dryRunRequested {
+		if config.options.dryRunEnabled {
 			printHostInformation(hostInfo)
 			continue
 		}

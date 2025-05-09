@@ -128,6 +128,8 @@ Secure Configuration Management Program (SCMP)
                                                    Effective with both '-a' and '-d'
     -T, --dry-run                                  Does everything except start SSH connections
                                                    Prints out deployment information
+    -w, --wet-run                                  Connects to remotes and tests deployment without mutating actions
+                                                   [default: false]
     -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections
                                                    [default: 10] (1 disables concurrency)
     -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the
@@ -307,7 +309,9 @@ If a particular host should not ever use the UniversalConf configs, then the con
 
 UniversalGroups is a set of directories that will only apply to a subset of hosts.
 The functionality is identical to the UniversalConfs directory, but will only apply to hosts that are apart of the group.
-You can specify the directory name and the hosts that should use the directory in the SSH config.
+
+You can specify the available universal directories in the SSH config with the global option `GroupDirs`.
+You can specify the per-host universal directories in the SSH config with the host option `GroupTags`.
 
 ### Directory Management
 
@@ -335,6 +339,19 @@ This metadata file should only be used where custom permissions are absolutely r
 
 File transfers for this program are done using SCP and are limited to 90 seconds per file.
 Something to keep in mind, your end to end bandwidth for a deployment will determine how large of a file can be transferred in that time.
+
+### Dry/Wet Test Runs
+
+Two options are present for testing deployments prior to actually performing actions.
+
+`Dry-run` is available to test all pre-deployment actions, such as organizing files and loading content.
+This will not connect to any remote host.
+It's purpose to allow you to validate that the current commit is valid locally (commit rollbacks are still enabled)
+
+`Wet-run` is available to test all pre-deployment and some deployment actions.
+This will connect to remote hosts and perform setup actions and checks but will not deploy or reload anything.
+Note: Check commands are still run in full in this mode.
+It's purpose is to allow you to validate what would most likely happen during an actual deployment without performing mutating actions.
 
 ### Validate File Metadata Header
 
@@ -484,7 +501,7 @@ _controller() {
     local cur prev opts
 
     # Define all available options
-    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --run-as-user --remote-hosts --remote-files --local-files --commitid --dry-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --with-summary --verbose --help --version --versionid"
+    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --run-as-user --remote-hosts --remote-files --local-files --commitid --dry-run --wet-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --with-summary --verbose --help --version --versionid"
 
     # Get the current word the user is typing
     cur="${COMP_WORDS[COMP_CWORD]}"

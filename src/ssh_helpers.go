@@ -376,10 +376,12 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuf
 		return
 	}
 
-	command = RemoteCommand{scriptInterpreter + " '" + remoteFilePath + "'"}
-	out, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 900)
-	if err != nil {
-		return
+	if !config.options.wetRunEnabled {
+		command = RemoteCommand{scriptInterpreter + " '" + remoteFilePath + "'"}
+		out, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 900)
+		if err != nil {
+			return
+		}
 	}
 
 	// Cleanup

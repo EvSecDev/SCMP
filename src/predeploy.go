@@ -75,7 +75,7 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 	printMessage(verbosityStandard, "Deploying %d item(s) to %d host(s)\n", len(allFileMeta), len(allDeploymentHosts))
 
-	if dryRunRequested {
+	if config.options.dryRunEnabled {
 		printDeploymentInformation(allFileMeta, allDeploymentHosts)
 		return
 	}
@@ -129,6 +129,10 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	deployMetrics.endTime = time.Now().UnixMilli()
 	deploymentSummary := deployMetrics.createReport(commitID)
 
+	if config.options.wetRunEnabled {
+		printMessage(verbosityStandard, "Wet-run enabled. No mutating actions taken, theoretical deployment summary:\n")
+	}
+
 	// Show user what was done during deployment
 	if config.options.detailedSummaryRequested {
 		// Detailed Summary
@@ -137,7 +141,6 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 
 		printMessage(verbosityStandard, "%s\n", string(deploymentSummaryJson))
 	} else {
-		// Short Summary
 		printMessage(verbosityStandard,
 			"Status: %s. Deployed %d item(s) (%s) to %d host(s). Deployment took %s\n",
 			deploymentSummary.Status,

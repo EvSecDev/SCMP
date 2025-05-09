@@ -172,6 +172,11 @@ func runInstallationCommands(host HostMeta, localMetadata FileInfo) (err error) 
 		for _, command := range localMetadata.install {
 			printMessage(verbosityData, "Host %s:   Running install command '%s'\n", host.name, command)
 
+			if config.options.wetRunEnabled {
+				printMessage(verbosityData, "Host %s:    Wet-run enabled, skipping command", host.name)
+				continue
+			}
+
 			command := RemoteCommand{command}
 			_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 180)
 			if err != nil {
@@ -188,6 +193,11 @@ func runReloadCommands(host HostMeta, reloadCommands []string) (warning string, 
 
 	for index, command := range reloadCommands {
 		printMessage(verbosityProgress, "Host %s:     Running reload command '%s'\n", host.name, command)
+
+		if config.options.wetRunEnabled {
+			printMessage(verbosityProgress, "Host %s:      Wet-run enabled, skipping command", host.name)
+			continue
+		}
 
 		rawCmd := RemoteCommand{command}
 		_, err = rawCmd.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 90)
@@ -453,6 +463,11 @@ func deleteFile(host HostMeta, targetFilePath string) (fileDeleted bool, err err
 
 	printMessage(verbosityData, "Host %s:   Deleting file '%s'\n", host.name, targetFilePath)
 
+	if config.options.wetRunEnabled {
+		fileDeleted = true // implied that file will always (try) to be deleted
+		return
+	}
+
 	// Attempt remove file
 	command := buildRm(targetFilePath)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 30)
@@ -535,6 +550,11 @@ func deploySymLink(host HostMeta, linkName string, linkTarget string) (linkModif
 		}
 	}
 
+	if config.options.wetRunEnabled {
+		linkModified = true // would have been modified
+		return
+	}
+
 	// Create symbolic link
 	command := buildLink(linkName, linkTarget)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
@@ -571,6 +591,11 @@ func deployFile(host HostMeta, repoFilePath string, localMetadata FileInfo, allF
 	}
 
 	printMessage(verbosityData, "Host %s:   File '%s': remote hash: '%s' - local hash: '%s'\n", host.name, targetFilePath, remoteMetadata.hash, localMetadata.hash)
+
+	if config.options.wetRunEnabled {
+		fileModified = true // would have been modified
+		return
+	}
 
 	// Create file if local is empty
 	if localMetadata.fileSize == 0 && !remoteMetadata.exists {
@@ -643,6 +668,10 @@ func deployDirectory(host HostMeta, dirInfo FileInfo) (dirModified bool, remoteM
 	if !remoteMetadata.exists {
 		printMessage(verbosityData, "Host %s:   Directory '%s' is missing, creating...\n", host.name, targetDirPath)
 
+		if config.options.wetRunEnabled {
+			return
+		}
+
 		command := buildMkdir(targetDirPath)
 		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
 		if err != nil {
@@ -665,6 +694,11 @@ func deployDirectory(host HostMeta, dirInfo FileInfo) (dirModified bool, remoteM
 
 	// Correct metadata of directory
 	printMessage(verbosityData, "Host %s:   Updating metdata for directory %s\n", host.name, targetDirPath)
+
+	if config.options.wetRunEnabled {
+		dirModified = true // would have been modified
+		return
+	}
 
 	err = modifyMetadata(host, remoteMetadata, dirInfo)
 	if err != nil {
