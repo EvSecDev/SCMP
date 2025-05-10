@@ -464,6 +464,13 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 	// Retrieve the first array item as the host directory name
 	hostDir = pathSplit[0]
 
+	// Allow relative paths within hosts (needed for relative symlinks)
+	_, parentDirIsHost := config.hostInfo[hostDir]
+	if !parentDirIsHost {
+		targetFilePath = localRepoPath
+		return
+	}
+
 	// Retrieve the second array item as the expected target path
 	targetFilePath = pathSplit[1]
 

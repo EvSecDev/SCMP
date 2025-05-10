@@ -505,6 +505,16 @@ func TestTranslateLocalPathtoRemotePath(t *testing.T) {
 	// Mock windows paths- shouldn't affect tests with unix paths
 	config.osPathSeparator = "\\"
 	config.repositoryPath = "/home/user/repo"
+	config.hostInfo = map[string]EndpointInfo{
+		"868_host_region1": {},
+		"host":             {},
+		"host1":            {},
+		"host2":            {},
+		"host3":            {},
+		"host4":            {},
+		"host9":            {},
+		"!@#$%^&*()_+":     {},
+	}
 
 	tests := []struct {
 		localRepoPath    string

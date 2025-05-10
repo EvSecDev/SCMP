@@ -546,6 +546,7 @@ func deploySymLink(host HostMeta, linkName string, linkTarget string) (linkModif
 
 		// Nothing to update, return
 		if oldMetadata.linkTarget == linkTarget {
+			printMessage(verbosityData, "Host %s:    link target is up-to-date\n", host.name)
 			return
 		}
 	}
@@ -556,13 +557,14 @@ func deploySymLink(host HostMeta, linkName string, linkTarget string) (linkModif
 	}
 
 	// Create symbolic link
-	command := buildLink(linkName, linkTarget)
+	command := buildLink(linkTarget, linkName)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("failed to create symbolic link: %v", err)
 		return
 	}
 
+	linkModified = true
 	return
 }
 

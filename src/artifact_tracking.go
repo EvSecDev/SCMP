@@ -17,7 +17,7 @@ type GitArtifactTracker struct {
 	pointerCurrentHash      map[string]string
 	pointerCurrentHashMutex sync.Mutex
 	artifactHash            map[string]string
-	artifactHashMutex       sync.Mutex
+	artifactHashMutex       sync.RWMutex
 	allErrors               []error
 	errMutex                sync.Mutex
 }
@@ -48,9 +48,14 @@ func gitArtifactTracking() {
 	wg.Wait()
 	checkForArtifactErrors(&tracker.allErrors)
 
+	// Copy out keys for iteration
+	var existingArtifactFiles []string
+	for artifactFileName := range tracker.artifactHash {
+		existingArtifactFiles = append(existingArtifactFiles, artifactFileName)
+	}
+
 	// Modify hash map so it only contains hashes of changed artifact files
-	copyTrackerArtifactHash := tracker.artifactHash
-	for artifactFileName := range copyTrackerArtifactHash {
+	for _, artifactFileName := range existingArtifactFiles {
 		wg.Add(1)
 		go hashArtifactFile(&wg, semaphore, artifactFileName, tracker)
 	}
