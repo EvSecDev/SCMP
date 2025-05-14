@@ -34,7 +34,7 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	var host HostMeta
 	host.name = endpointInfo.endpointName
 	host.password = endpointInfo.password
-	host.transferBufferFile = endpointInfo.remoteTransferBuffer
+	host.transferBufferDir = endpointInfo.remoteBufferDir
 	host.backupPath = endpointInfo.remoteBackupDir
 
 	// Connect to the SSH server

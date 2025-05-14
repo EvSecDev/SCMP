@@ -96,7 +96,7 @@ func printHostInformation(hostInfo EndpointInfo) {
 	printMessage(verbosityStandard, "  Options:\n")
 	printMessage(verbosityStandard, "       Endpoint Address:  %s\n", hostInfo.endpoint)
 	printMessage(verbosityStandard, "       SSH User:          %s\n", hostInfo.endpointUser)
-	printMessage(verbosityStandard, "       Transfer Buffer:   %s\n", hostInfo.remoteTransferBuffer)
+	printMessage(verbosityStandard, "       Transfer Dir:      %s\n", hostInfo.remoteBufferDir)
 	printMessage(verbosityStandard, "       Backup Dir:        %s\n", hostInfo.remoteBackupDir)
 }
 

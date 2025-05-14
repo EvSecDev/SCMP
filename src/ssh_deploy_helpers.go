@@ -138,9 +138,20 @@ func remoteDeploymentPreparation(host *HostMeta) (err error) {
 
 	printMessage(verbosityProgress, "Host %s: Preparing remote config backup directory\n", host.name)
 
+	// Create transfer directory
+	command = buildMkdir(host.transferBufferDir)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, host.password, 10)
+	if err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "file exists") {
+			err = fmt.Errorf("failed to setup remote transfer directory: %v", err)
+			return
+		}
+		err = nil // reset err so caller doesnt think function failed
+	}
+
 	// Create backup directory
 	command = buildMkdir(host.backupPath)
-	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("failed to setup remote temporary backup directory: %v", err)
 		// Since we blindly try to create the directory, ignore errors about it already existing
@@ -267,6 +278,7 @@ func getOldRemoteInfo(host HostMeta, targetPath string) (remoteMetadata RemoteFi
 	// Return early if not present
 	remoteMetadata.exists = exists
 	if !exists {
+		printMessage(verbosityData, "Host %s:    File %s: remote does not exist, not extracting metadata\n", host.name, targetPath)
 		return
 	}
 
@@ -424,14 +436,18 @@ func transferFile(host HostMeta, localFileContent []byte, remoteFilePath string,
 		}
 	}
 
+	// Unique file name for buffer file
+	tempFileName := base64.StdEncoding.EncodeToString([]byte(remoteFilePath))
+	bufferFilePath := host.transferBufferDir + "/" + tempFileName
+
 	// SCP to temp file
-	err = SCPUpload(host.sshClient, localFileContent, host.transferBufferFile)
+	err = SCPUpload(host.sshClient, localFileContent, bufferFilePath)
 	if err != nil {
 		return
 	}
 
 	// Ensure owner/group are correct
-	command := buildChown(host.transferBufferFile, fileOwnerGroup)
+	command := buildChown(bufferFilePath, fileOwnerGroup)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
@@ -439,7 +455,7 @@ func transferFile(host HostMeta, localFileContent []byte, remoteFilePath string,
 	}
 
 	// Ensure permissions are correct
-	command = buildChmod(host.transferBufferFile, filePermissions)
+	command = buildChmod(bufferFilePath, filePermissions)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
@@ -447,7 +463,7 @@ func transferFile(host HostMeta, localFileContent []byte, remoteFilePath string,
 	}
 
 	// Move file from tmp dir to actual deployment path
-	command = buildMv(host.transferBufferFile, remoteFilePath)
+	command = buildMv(bufferFilePath, remoteFilePath)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 30)
 	if err != nil {
 		err = fmt.Errorf("failed to move new file into place: %v", err)
@@ -791,7 +807,7 @@ func cleanupRemote(host HostMeta) {
 	printMessage(verbosityProgress, "Host %s: Cleaning up remote temporary directories\n", host.name)
 
 	// Cleanup temporary files
-	command := buildRmAll(host.transferBufferFile, host.backupPath)
+	command := buildRmAll(host.transferBufferDir, host.backupPath)
 	_, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 30)
 	if err != nil {
 		// Only print error if there was a file to remove in the first place

@@ -201,7 +201,7 @@ func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo E
 	defer client.Close()
 
 	// Run the script remotely
-	scriptOutput, err := executeScript(client, hostInfo.password, hostInfo.remoteTransferBuffer, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+	scriptOutput, err := executeScript(client, hostInfo.password, hostInfo.remoteBufferDir, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 	if err != nil {
 		executionErrorsMutex.Lock()
 		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.endpointName, err)

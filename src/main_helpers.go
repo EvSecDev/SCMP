@@ -200,10 +200,10 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 
 		// Save remote transfer buffer and backup dir into host info map
 		hostInfo.remoteBackupDir, _ = sshConfig.Get(hostPattern, "RemoteBackupDir")
-		hostInfo.remoteTransferBuffer, _ = sshConfig.Get(hostPattern, "RemoteTransferBuffer")
+		hostInfo.remoteBufferDir, _ = sshConfig.Get(hostPattern, "RemoteBufferDir")
 
 		// Ensure trailing slashes don't make their way into the path
-		hostInfo.remoteTransferBuffer = strings.TrimSuffix(hostInfo.remoteTransferBuffer, "/")
+		hostInfo.remoteBufferDir = strings.TrimSuffix(hostInfo.remoteBufferDir, "/")
 
 		// Save deployment state of this host
 		hostInfo.deploymentState, _ = sshConfig.Get(hostPattern, "DeploymentState")

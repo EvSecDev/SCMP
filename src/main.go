@@ -96,21 +96,21 @@ type Opts struct {
 
 // Struct for host-specific Information
 type EndpointInfo struct {
-	deploymentState      string              // Avoids deploying anything to host - so user can prevent deployments to otherwise up and health hosts
-	ignoreUniversal      bool                // Prevents deployments for this host to use anything from the primary Universal configs directory
-	requiresVault        bool                // Direct match to the config option "PasswordRequired"
-	universalGroups      map[string]struct{} // Map to store the CSV for config option "GroupTags"
-	deploymentList       DeploymentList      // Ordered list of files and their groupings
-	endpointName         string              // Name of host as it appears in config and in git repo top-level directory names
-	proxy                string              // Name of the proxy host to use (if any)
-	endpoint             string              // Address:port of the host
-	endpointUser         string              // Login user name of the host
-	identityFile         string              // Key identity file path (private or public)
-	privateKey           ssh.Signer          // Actual private key contents
-	keyAlgo              string              // Algorithm of the private key
-	password             string              // Password for the EndpointUser
-	remoteTransferBuffer string              // Temporary Buffer file that will be used to transfer local config to remote host prior to moving into place
-	remoteBackupDir      string              // Temporary directory to store backups of existing remote configs while reloads are performed
+	deploymentState string              // Avoids deploying anything to host - so user can prevent deployments to otherwise up and health hosts
+	ignoreUniversal bool                // Prevents deployments for this host to use anything from the primary Universal configs directory
+	requiresVault   bool                // Direct match to the config option "PasswordRequired"
+	universalGroups map[string]struct{} // Map to store the CSV for config option "GroupTags"
+	deploymentList  DeploymentList      // Ordered list of files and their groupings
+	endpointName    string              // Name of host as it appears in config and in git repo top-level directory names
+	proxy           string              // Name of the proxy host to use (if any)
+	endpoint        string              // Address:port of the host
+	endpointUser    string              // Login user name of the host
+	identityFile    string              // Key identity file path (private or public)
+	privateKey      ssh.Signer          // Actual private key contents
+	keyAlgo         string              // Algorithm of the private key
+	password        string              // Password for the EndpointUser
+	remoteBufferDir string              // Temporary Buffer directory that will be used to transfer local config to remote host prior to moving into place
+	remoteBackupDir string              // Temporary directory to store backups of existing remote configs while reloads are performed
 }
 
 type DeploymentList struct {
@@ -172,12 +172,12 @@ type RemoteFileInfo struct {
 
 // Deployment host metadata to easily pass between SSH functions
 type HostMeta struct {
-	name               string
-	osFamily           string
-	password           string
-	sshClient          *ssh.Client
-	transferBufferFile string
-	backupPath         string
+	name              string
+	osFamily          string
+	password          string
+	sshClient         *ssh.Client
+	transferBufferDir string
+	backupPath        string
 }
 
 // Type for commands run remotely
@@ -435,7 +435,7 @@ Secure Configuration Management Program (SCMP)
 	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...%s", os.Args[0], usage) }
 	flag.Parse()
 
-	const progVersion string = "v4.6.1"
+	const progVersion string = "v4.7.0"
 	if versionInfoRequested {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)

@@ -466,7 +466,8 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 
 	// Allow relative paths within hosts (needed for relative symlinks)
 	_, parentDirIsHost := config.hostInfo[hostDir]
-	if !parentDirIsHost {
+	_, parentDirIsUniversal := config.allUniversalGroups[hostDir]
+	if !parentDirIsHost && !parentDirIsUniversal && hostDir != config.universalDirectory {
 		targetFilePath = localRepoPath
 		return
 	}

@@ -342,13 +342,17 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	return
 }
 
-func executeScript(sshClient *ssh.Client, SudoPassword string, remoteTransferBuffer string, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) (out string, err error) {
-	err = SCPUpload(sshClient, scriptFileBytes, remoteTransferBuffer)
+func executeScript(sshClient *ssh.Client, SudoPassword string, transferBufferDir string, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) (out string, err error) {
+	// Unique file name for buffer file
+	tempFileName := base64.StdEncoding.EncodeToString([]byte(remoteFilePath))
+	bufferFilePath := transferBufferDir + "/" + tempFileName
+
+	err = SCPUpload(sshClient, scriptFileBytes, bufferFilePath)
 	if err != nil {
 		return
 	}
 
-	command := buildMv(remoteTransferBuffer, remoteFilePath)
+	command := buildMv(bufferFilePath, remoteFilePath)
 	_, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
 	if err != nil {
 		return

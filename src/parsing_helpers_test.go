@@ -505,6 +505,7 @@ func TestTranslateLocalPathtoRemotePath(t *testing.T) {
 	// Mock windows paths- shouldn't affect tests with unix paths
 	config.osPathSeparator = "\\"
 	config.repositoryPath = "/home/user/repo"
+	config.universalDirectory = "Universal"
 	config.hostInfo = map[string]EndpointInfo{
 		"868_host_region1": {},
 		"host":             {},
@@ -514,6 +515,9 @@ func TestTranslateLocalPathtoRemotePath(t *testing.T) {
 		"host4":            {},
 		"host9":            {},
 		"!@#$%^&*()_+":     {},
+	}
+	config.allUniversalGroups = map[string][]string{
+		"Universal_VMs": {"host4", "host9"},
 	}
 
 	tests := []struct {
@@ -525,6 +529,8 @@ func TestTranslateLocalPathtoRemotePath(t *testing.T) {
 		{"host9/etc/some dir/File Number 1", "host9", "/etc/some dir/File Number 1"},
 		{"host/dir/file.txt", "host", "/dir/file.txt"},
 		{"host2/dir/subdir/file.txt", "host2", "/dir/subdir/file.txt"},
+		{"Universal/etc/resolv.conf", "Universal", "/etc/resolv.conf"},
+		{"Universal_VMs/etc/modules.d/01load", "Universal_VMs", "/etc/modules.d/01load"},
 		{"../../otherdir/dir/targetfile", "", ""},
 		{"868_host_region1\\etc\\serv\\file1.conf", "868_host_region1", "/etc/serv/file1.conf"},
 		{"file1.txt", "", ""},

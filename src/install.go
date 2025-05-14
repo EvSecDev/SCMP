@@ -198,7 +198,7 @@ func installDefaultSSHConfig() {
 # Global Config Settings #
 ##########################
 #  Ignore SCMP Host Configuration Options
-IgnoreUnknown           PasswordVault,PasswordRequired,DeploymentState,IgnoreTemplates,RemoteBackupDir,RemoteTransferBuffer,UniversalDirectory,GroupDirs,GroupTags,IgnoreDirectories
+IgnoreUnknown           PasswordVault,PasswordRequired,DeploymentState,IgnoreTemplates,RemoteBackupDir,RemoteBufferDir,UniversalDirectory,GroupDirs,GroupTags,IgnoreDirectories
 #  Store any login/sudo passwords in an encrypted file here
 PasswordVault           ~/.ssh/scmpc.vault
 #  Directory Name that contains files relevant to all hosts
@@ -233,7 +233,7 @@ IgnoreDirectories       Templates,Extras
 #Host Squid
 #        Hostname       192.168.20.22
 #       RemoteBackupDir         /var/tmp/.scmpbackups
-#       RemoteTransferBuffer    /var/tmp/.scmpbuffer
+#       RemoteBufferDir		    /var/tmp/.scmpbuffer
 #Host DB01
 #        Hostname       psql01.domain.com
 #       Port            2202
@@ -264,7 +264,7 @@ Host *
         HostbasedAuthentication         no
         #  SCMP Global Settings
         RemoteBackupDir                 /tmp/.scmpbackups
-        RemoteTransferBuffer            /tmp/.scmpbuffer
+        RemoteBufferDir            		/tmp/.scmpbuffer
 	`
 
 	// Check if config already exists

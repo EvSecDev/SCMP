@@ -79,12 +79,23 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 			selectedFiles = strings.Split(remoteFileOverride, ",")
 		}
 
-		// Initialize buffer file (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
-		err = SCPUpload(client, []byte{12}, hostInfo.remoteTransferBuffer)
+		// Initialize buffer  (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
+		command := buildMkdir(hostInfo.remoteBufferDir)
+		_, err = command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password, 10)
+		if err != nil {
+			if !strings.Contains(strings.ToLower(err.Error()), "file exists") {
+				logError("Error creating remote transfer directory", err, false)
+			}
+			err = nil
+		}
+
+		remoteBufferFilePath := hostInfo.remoteBufferDir + "/transfer"
+
+		err = SCPUpload(client, []byte{12}, remoteBufferFilePath)
 		logError(fmt.Sprintf("Failed to initialize buffer file on remote host %s", endpointName), err, false)
 
 		for _, targetFilePath := range selectedFiles {
-			err = handleSelectedFile(targetFilePath, endpointName, client, hostInfo.password, hostInfo.remoteTransferBuffer)
+			err = handleSelectedFile(targetFilePath, endpointName, client, hostInfo.password, remoteBufferFilePath)
 			logError("Error seeding repository", err, false)
 		}
 	}
@@ -179,7 +190,7 @@ func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.
 	}
 
 	printMessage(verbosityProgress, "  Selection '%s': Parsing metadata...\n", remoteFilePath)
-	
+
 	selectionMetadata, err := extractMetadataFromStat(statOutput)
 	if err != nil {
 		err = fmt.Errorf("failed parsing stat output: %v", err)
