@@ -4,6 +4,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
 	"time"
 )
@@ -157,6 +158,15 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	err = deploymentSummary.saveReport()
 	logError("Error in recording deployment failures", err, false)
 
-	err = postDeployCleanup(deployMetrics)
-	logError("Error running post-deployment cleanup", err, false)
+	if len(deployMetrics.fileErr) > 0 {
+		// Remove fail tracker file after successful redeployment - best effort
+		err = os.Remove(config.failTrackerFilePath)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// No warning if the file doesn't exist
+			} else {
+				logError("Failed removing failtracker file", err, false)
+			}
+		}
+	}
 }
