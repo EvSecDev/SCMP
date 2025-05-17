@@ -5,23 +5,6 @@ then
 	exit 1
 fi
 
-# Global Constants
-readonly SRCdir="src"
-readonly outputEXE="controller"
-readonly packagePrintLine='fmt.Print("Direct Package Imports: ' # Line in src file that prints package list for program version argument
-readonly readmeHelpMenuStartDelimiter="### Controller Help Menu"
-readonly srcHelpMenuStartDelimiter="const usage = "
-readonly fullNameProgramPrefix="${outputEXE}_v"
-readonly githubRepoName="SCMP"
-readonly githubUser="EvSecDev"
-
-# Bail on any failure
-set -e
-
-# Check for required commands
-command -v go >/dev/null
-command -v sha256sum >/dev/null
-
 # Define colors - unsupported terminals fail safe
 if [ -t 1 ] && { [[ "$TERM" =~ "xterm" ]] || [[ "$COLORTERM" == "truecolor" ]] || tput setaf 1 &>/dev/null; }
 then
@@ -32,6 +15,22 @@ then
 	readonly RESET='\033[0m'
 	readonly BOLD='\033[1m'
 fi
+
+readonly configFile="build.conf"
+# shellcheck source=./build.conf
+source "$configFile"
+if [[ $? != 0 ]]
+then
+	echo -e "${RED}[-] ERROR${RESET}: Failed to import build config variables in $configFile" >&2
+	exit 1
+fi
+
+# Bail on any failure
+set -e
+
+# Check for required commands
+command -v go >/dev/null
+command -v sha256sum >/dev/null
 
 # Variables
 repoRoot=$(pwd)
