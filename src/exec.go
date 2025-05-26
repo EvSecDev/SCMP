@@ -69,7 +69,13 @@ func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command strin
 	// Execute user command
 	rawCmd := RemoteCommand{command}
 	commandOutput, err := rawCmd.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password, 900)
-	logError("Command Failed", err, false)
+	if err != nil {
+		if config.options.forceEnabled {
+			printMessage(verbosityStandard, "Error:  %v\n", err)
+		} else {
+			logError("Command Failed", err, false)
+		}
+	}
 
 	// Show command output
 	printMessage(verbosityStandard, "  Host '%s' Command Output:\n%s\n", hostInfo.endpointName, commandOutput)
@@ -164,7 +170,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 			go executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
 		} else {
 			executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
-			if len(executionErrors) > 0 {
+			if len(executionErrors) > 0 && !config.options.forceEnabled {
 				// Execution error occured, don't continue with other hosts
 				break
 			}

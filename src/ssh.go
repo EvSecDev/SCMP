@@ -156,7 +156,7 @@ func checkConnection(err error) (retryAvailable bool, connectionSucceeded bool) 
 
 // Uploads content to specified remote file path via SCP
 func SCPUpload(client *ssh.Client, localFileContent []byte, remoteFilePath string) (err error) {
-	transferClient, err := scp.NewClientBySSHWithTimeout(client, 90*time.Second)
+	transferClient, err := scp.NewClientBySSHWithTimeout(client, 900*time.Second)
 	if err != nil {
 		err = fmt.Errorf("failed to create scp session: %v", err)
 		return

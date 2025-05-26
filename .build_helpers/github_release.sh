@@ -3,7 +3,7 @@ command -v jq >/dev/null
 command -v curl >/dev/null
 
 function create_github_release() {
-	local repoOwner githubRepo versionTag localReleaseDir githubReleaseNotesFile releaseNotes releaseMeta curlOutput releaseID finalReleaseURL
+	local repoOwner githubRepo versionTag localReleaseDir githubReleaseNotesFile releaseNotes releaseMeta curlOutput releaseID finalReleaseURL preReleaseSet
 	repoOwner=$1
 	githubRepo=$2
 	versionTag=$3
@@ -42,7 +42,15 @@ function create_github_release() {
 	# Escape newlines and carriage returns for inclusion in JSON
 	releaseNotes=$(echo "$releaseNotes" | sed ':a;N;$!ba;s/\n/\\n/g')
 
-	releaseMeta='{"tag_name":"'$versionTag'","target_commitish":"main","name":"","body":"'$releaseNotes'","draft":false,"prerelease":false,"generate_release_notes":false}'
+	# Pre-release if major version number is 0
+	if [[ $versionTag =~ ^v0\. ]]
+	then
+		preReleaseSet='true'
+	else
+		preReleaseSet='false'
+	fi
+
+	releaseMeta='{"tag_name":"'$versionTag'","target_commitish":"main","name":"","body":"'$releaseNotes'","draft":false,"prerelease":'$preReleaseSet',"generate_release_notes":false}'
 	if ! jq . <<< "$releaseMeta" >/dev/null
 	then
 		echo -e "   ${RED}[-] ERROR${RESET}: Invalid release JSON, please check for unsupported characters in release notes" >&2

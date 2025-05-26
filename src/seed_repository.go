@@ -81,7 +81,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 
 		// Initialize buffer  (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
 		command := buildMkdir(hostInfo.remoteBufferDir)
-		_, err = command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password, 10)
+		_, err = command.SSHexec(client, config.options.runAsUser, true, hostInfo.password, 10)
 		if err != nil {
 			if !strings.Contains(strings.ToLower(err.Error()), "file exists") {
 				logError("Error creating remote transfer directory", err, false)
