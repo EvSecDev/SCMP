@@ -2,7 +2,6 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"math"
@@ -55,7 +54,7 @@ func retrieveURIFile(input string) (csv string, err error) {
 	// Trim newlines/spaces from beginning/end
 	file = strings.TrimSpace(file)
 
-	// Split file contens by newlins
+	// Split file contents by newlines
 	lines := strings.Split(file, "\n")
 
 	// If file is multi-line, convert into CSV
@@ -68,12 +67,16 @@ func retrieveURIFile(input string) (csv string, err error) {
 		return
 	}
 
-	// Compile the regular expression to match space or comma
-	separatorRegex := regexp.MustCompile(`[ ,]+`)
+	// Replace commas with spaces to unify the separator
+	replacer := strings.NewReplacer(",", " ")
+	normalized := replacer.Replace(csv)
 
-	// Use the regular expression to split the string one first line
-	lineArray := separatorRegex.Split(lines[0], -1)
-	csv = strings.Join(lineArray, ",")
+	// Split on whitespace
+	fields := strings.Fields(normalized)
+
+	// Join back with a single comma
+	csv = strings.Join(fields, ",")
+
 	printMessage(verbosityFullData, "Extracted Override List from File: %v\n", csv)
 	return
 }
@@ -112,7 +115,7 @@ func checkForOverride(override string, current string) (skip bool) {
 			userRegex, err := regexp.Compile(userChoice)
 			if err != nil {
 				// Invalid regex, always skip (but print high verbosity what happened)
-				printMessage(verbosityData, "WARNING: Invalid regular expression: %v", err)
+				printMessage(verbosityStandard, "WARNING: Invalid regular expression: %v", err)
 				return
 			}
 
@@ -627,7 +630,11 @@ func loadArtifactContent(artifactPath string, artifactPointerPath string, artifa
 	}
 
 	// Use hash already in pointer file as hash of actual artifact file contents
-	contentHash = SHA256RegEx.FindString(string(artifactPointerContent))
+	validHash, contentHash := hasHex64Prefix(string(artifactPointerContent))
+	if !validHash {
+		err = fmt.Errorf("invalid hash retrieved from remote-artifact file '%s'", artifactPointerPath)
+		return
+	}
 
 	// Retrieve artifact file data if not already loaded
 	_, artifactDataAlreadyLoaded := allFileData[contentHash]
@@ -754,52 +761,4 @@ func macroToValue(filePath string, inputs *[]string) {
 		// Save back to original
 		(*inputs)[index] = input
 	}
-}
-
-// isText checks if a string is likely plain text or binary data based on the first 500 bytes
-func isText(inputBytes *[]byte) (isPlainText bool) {
-	// Allow 30% non-printable in input
-	const maximumNonPrintablePercentage float64 = 30
-
-	totalCharacters := len(*inputBytes)
-	if totalCharacters > 500 {
-		totalCharacters = 500
-	}
-
-	// Empty files can be treated as plain text (Avoid divide by 0)
-	if totalCharacters == 0 {
-		isPlainText = true
-		return
-	}
-
-	// PDF files have a start that is plain text, identify PDF header to reject it as plain text
-	if len(*inputBytes) > 9 {
-		PDFHeaderBytes := []byte{37, 80, 68, 70, 45, 49, 46, 52, 10}
-		headerComparison := bytes.Compare((*inputBytes)[:9], PDFHeaderBytes)
-		if headerComparison == 0 {
-			isPlainText = false
-			return
-		}
-	}
-
-	// Count the number of characters outside the ASCII printable range (32-126) - skipping DEL
-	var nonPrintableCount int
-	for i := range totalCharacters {
-		b := (*inputBytes)[i]
-		if b < 32 || b > 126 {
-			nonPrintableCount++
-		}
-	}
-
-	// Get percentage of non printable characters found
-	nonPrintablePercentage := (float64(nonPrintableCount) / float64(totalCharacters)) * 100
-	printMessage(verbosityData, "  Data is %.2f%% non-printable ASCII characters (max: %g%%)\n", nonPrintablePercentage, maximumNonPrintablePercentage)
-
-	// Determine if input is text or binary
-	if nonPrintablePercentage < maximumNonPrintablePercentage {
-		isPlainText = true
-	} else {
-		isPlainText = false
-	}
-	return
 }

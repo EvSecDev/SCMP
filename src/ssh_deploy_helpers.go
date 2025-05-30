@@ -160,7 +160,11 @@ func restoreOldFile(host HostMeta, targetFilePath string, remoteMetadata RemoteF
 	}
 
 	// Parse hash command output to get just the hex
-	remoteFileHash := SHA256RegEx.FindString(commandOutput)
+	validHash, remoteFileHash := hasHex64Prefix(commandOutput)
+	if !validHash {
+		err = fmt.Errorf("invalid hash received from remote sha256sum command")
+		return
+	}
 
 	// Ensure restoration succeeded
 	if remoteMetadata.hash != remoteFileHash {

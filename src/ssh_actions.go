@@ -79,7 +79,12 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 		return
 	}
 
-	newRemoteFileHash := SHA256RegEx.FindString(commandOutput)
+	validHash, newRemoteFileHash := hasHex64Prefix(commandOutput)
+	if !validHash {
+		err = fmt.Errorf("invalid hash received from remote sha256sum command")
+		return
+	}
+
 	if newRemoteFileHash != fileContentHash {
 		err = fmt.Errorf("hash of config file post deployment does not match hash of pre deployment")
 		return
@@ -129,7 +134,12 @@ func getOldRemoteInfo(host HostMeta, targetPath string) (remoteMetadata RemoteFi
 		}
 
 		// Parse hash command output to get just the hex
-		remoteMetadata.hash = SHA256RegEx.FindString(commandOutput)
+		var validHash bool
+		validHash, remoteMetadata.hash = hasHex64Prefix(commandOutput)
+		if !validHash {
+			err = fmt.Errorf("invalid hash received from remote sha256sum command")
+			return
+		}
 	}
 
 	return

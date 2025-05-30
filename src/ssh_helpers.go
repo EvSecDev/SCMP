@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -154,9 +153,6 @@ func SSHIdentityToKey(SSHIdentityFile string) (privateKey ssh.Signer, keyAlgo st
 
 // Validates endpoint address and port, then combines both strings
 func parseEndpointAddress(endpointIP string, Port string) (endpointSocket string, err error) {
-	// Use regex for v4 match
-	IPv4RegEx := regexp.MustCompile(`^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$`)
-
 	// Verify endpoint Port
 	endpointPort, _ := strconv.Atoi(Port)
 	if endpointPort <= 0 || endpointPort > 65535 {
@@ -166,7 +162,7 @@ func parseEndpointAddress(endpointIP string, Port string) (endpointSocket string
 
 	// Verify IP address
 	IPCheck := net.ParseIP(endpointIP)
-	if IPCheck == nil && !IPv4RegEx.MatchString(endpointIP) {
+	if IPCheck == nil {
 		err = fmt.Errorf("endpoint ip '%s' is not valid", endpointIP)
 		return
 	}
@@ -364,7 +360,11 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, transferBufferDir
 		return
 	}
 	// Parse hash command output to get just the hex
-	remoteScriptHash = SHA256RegEx.FindString(remoteScriptHash)
+	validHash, remoteScriptHash := hasHex64Prefix(remoteScriptHash)
+	if !validHash {
+		err = fmt.Errorf("invalid hash received from remote sha256sum command")
+		return
+	}
 
 	printMessage(verbosityFullData, "Remote Script Hash '%s'\n", remoteScriptHash)
 

@@ -98,7 +98,11 @@ func retrieveArtifactFileNames(wg *sync.WaitGroup, semaphore chan struct{}, arti
 	}
 
 	// Get old hash from pointer file
-	oldArtifactFileHash := SHA256RegEx.FindString(string(artifactPointerFileContent))
+	validHash, oldArtifactFileHash := hasHex64Prefix(string(artifactPointerFileContent))
+	if !validHash {
+		tracker.logError(fmt.Errorf("invalid hash retrieved from file %s: %v", artifactPointerFileName, err))
+		return
+	}
 
 	// Safely write pointer file name to map
 	tracker.pointerMetaMapMutex.Lock()

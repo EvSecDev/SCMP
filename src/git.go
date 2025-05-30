@@ -199,7 +199,7 @@ func getCommit(commitID *string) (tree *object.Tree, commit *object.Commit, err 
 	}
 
 	// Verify commit ID string content
-	if !SHA1RegEx.MatchString(*commitID) {
+	if !isHex40(*commitID) {
 		err = fmt.Errorf("invalid commit ID: hash is not 40 characters and/or is not hexadecimal")
 		return
 	}

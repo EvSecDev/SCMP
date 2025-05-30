@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"regexp"
 	"runtime"
 	"strings"
 	"sync"
@@ -24,9 +23,6 @@ const (
 	directoryMetadataFileName    string = ".directory_metadata_information.json" // hidden file to identify parent directories metadata
 	fileURIPrefix                string = "file://"                              // Used by the user to tell certain arguments to load file content
 	maxDirectoryLoopCount        int    = 200                                    // Maximum recursion for any loop over directories
-
-	SHA256HashExpression string = `^[a-fA-F0-9]{64}`
-	SHA1HashExpression   string = `^[0-9a-fA-F]{40}$`
 
 	dirType       string = "directory" // Descriptive Names for stats fs types
 	fileType      string = "regular file"
@@ -253,11 +249,6 @@ type GitChangedFileMetadata struct {
 	toMode      string
 }
 
-// #### Written to only from main
-
-var SHA256RegEx *regexp.Regexp // for validating hashes received from remote hosts
-var SHA1RegEx *regexp.Regexp   // for validating user supplied commit hashes
-
 // Integer for printing increasingly detailed information as program progresses
 //
 //	0 - None: quiet (prints nothing but errors)
@@ -446,9 +437,6 @@ Secure Configuration Management Program (SCMP)
 		fmt.Println(progVersion)
 		return
 	}
-
-	SHA256RegEx = regexp.MustCompile(SHA256HashExpression)
-	SHA1RegEx = regexp.MustCompile(SHA1HashExpression)
 
 	if installAAProf {
 		installAAProfile()
