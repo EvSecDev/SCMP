@@ -2,7 +2,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -12,7 +11,7 @@ import (
 type GitArtifactTracker struct {
 	pointerToArtifact       map[string]string
 	pointerMapMutex         sync.Mutex
-	pointerMetadata         map[string]string
+	pointerMetadata         map[string]MetaHeader
 	pointerMetaMapMutex     sync.Mutex
 	pointerCurrentHash      map[string]string
 	pointerCurrentHashMutex sync.Mutex
@@ -30,7 +29,7 @@ func gitArtifactTracking() {
 	// Store artifact information and mapping between pointer and artifact file
 	tracker := &GitArtifactTracker{
 		pointerToArtifact:  make(map[string]string),
-		pointerMetadata:    make(map[string]string),
+		pointerMetadata:    make(map[string]MetaHeader),
 		pointerCurrentHash: make(map[string]string),
 		artifactHash:       make(map[string]string),
 	}
@@ -92,7 +91,7 @@ func retrieveArtifactFileNames(wg *sync.WaitGroup, semaphore chan struct{}, arti
 	}
 
 	// Grab metadata out of contents
-	metadata, artifactPointerFileContent, err := extractMetadata(string(artifactPointerFileBytes))
+	jsonMetadata, artifactPointerFileContent, err := extractMetadata(string(artifactPointerFileBytes))
 	if err != nil {
 		tracker.logError(fmt.Errorf("failed metadata extraction file %s: %v", artifactPointerFileName, err))
 		return
@@ -103,16 +102,8 @@ func retrieveArtifactFileNames(wg *sync.WaitGroup, semaphore chan struct{}, arti
 
 	// Safely write pointer file name to map
 	tracker.pointerMetaMapMutex.Lock()
-	tracker.pointerMetadata[artifactPointerFileName] = metadata
+	tracker.pointerMetadata[artifactPointerFileName] = jsonMetadata
 	tracker.pointerMetaMapMutex.Unlock()
-
-	// Parse JSON into a generic map
-	var jsonMetadata MetaHeader
-	err = json.Unmarshal([]byte(metadata), &jsonMetadata)
-	if err != nil {
-		tracker.logError(fmt.Errorf("failed metadata parsing file %s: %v", artifactPointerFileName, err))
-		return
-	}
 
 	// Ensure header has required location object
 	if jsonMetadata.ExternalContentLocation == "" {
@@ -210,17 +201,9 @@ func writeUpdatedArtifactHash(wg *sync.WaitGroup, semaphore chan struct{}, artif
 	newArtifactHash := tracker.artifactHash[artifactFileName]
 	tracker.artifactHashMutex.Unlock()
 
-	// Combine existing metadata header with new artifact hash
-	var builder strings.Builder
-	builder.WriteString(metaDelimiter)
-	builder.WriteString(metadata)
-	builder.WriteString(metaDelimiter)
-	builder.WriteString("\n")
-	builder.WriteString(newArtifactHash)
-	builder.WriteString("\n")
-
 	// Write new artifact hash into pointer file
-	err := os.WriteFile(artifactPointerFileName, []byte(builder.String()), 0600)
+	newArtifactHashBytes := []byte(newArtifactHash)
+	err := writeLocalRepoFile(artifactPointerFileName, metadata, &newArtifactHashBytes)
 	if err != nil {
 		tracker.logError(err)
 		return

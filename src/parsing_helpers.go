@@ -3,7 +3,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -233,43 +232,6 @@ func mapDeniedUniversalFiles(allHostsFiles map[string]map[string]struct{}, unive
 			}
 		}
 	}
-
-	return
-}
-
-// Function to extract and validate metadata JSON from file contents
-func extractMetadata(fileContents string) (metadataSection string, contentSection []byte, err error) {
-	// Add newline so file content doesnt have empty line at the top
-	endDelimiter := metaDelimiter + "\n"
-
-	// Find the start and end of the metadata section
-	startIndex := strings.Index(fileContents, metaDelimiter)
-	if startIndex == -1 {
-		err = fmt.Errorf("json start delimiter missing")
-		return
-	}
-	startIndex += len(metaDelimiter)
-
-	endIndex := strings.Index(fileContents[startIndex:], endDelimiter)
-	if endIndex == -1 {
-		testEndIndex := strings.Index(fileContents[startIndex:], metaDelimiter)
-		if testEndIndex == -1 {
-			err = fmt.Errorf("json end delimiter missing")
-			return
-		}
-		err = fmt.Errorf("json end delimiter missing")
-		return
-	}
-	endIndex += startIndex
-
-	// Extract the metadata section and remaining content into their own vars
-	metadataSection = fileContents[startIndex:endIndex]
-	remainingContent := fileContents[:startIndex-len(metaDelimiter)] + fileContents[endIndex+len(endDelimiter):]
-	contentSection = []byte(remainingContent)
-
-	// Handle commented out metadata sections
-	metadataSection = strings.ReplaceAll(metadataSection, "\n#", "\n")
-	metadataSection = strings.ReplaceAll(metadataSection, "\r#", "\r")
 
 	return
 }
@@ -653,30 +615,6 @@ func formatBytes(bytes int) (bytesWithUnits string) {
 
 	// Return the formatted string
 	bytesWithUnits = fmt.Sprintf("%.2f %s", value, units[unitIndex])
-	return
-}
-
-// Takes raw local file content and separates the metadata header from actual file content
-func extractMetadataFromContents(repoFilePath string, content []byte) (fileContent []byte, jsonMetadata MetaHeader, err error) {
-	printMessage(verbosityData, "    Extracting file metadata\n")
-
-	// Extract metadata from file contents
-	var metadata string
-	metadata, fileContent, err = extractMetadata(string(content))
-	if err != nil {
-		err = fmt.Errorf("failed to extract metadata header from '%s': %v", repoFilePath, err)
-		return
-	}
-
-	printMessage(verbosityData, "    Parsing metadata header JSON\n")
-
-	// Parse JSON into a generic map
-	err = json.Unmarshal([]byte(metadata), &jsonMetadata)
-	if err != nil {
-		err = fmt.Errorf("failed parsing JSON metadata header for %s: %v", repoFilePath, err)
-		return
-	}
-
 	return
 }
 

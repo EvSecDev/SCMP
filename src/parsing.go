@@ -464,7 +464,7 @@ func parseFileContent(allDeploymentFiles map[string]string, rawFileContent map[s
 		content := rawFileContent[repoFilePath]
 
 		// Retrieve metadata depending on if this is a directory or a file
-		fileContent, jsonMetadata, lerr := extractMetadataFromContents(repoFilePath, content)
+		jsonMetadata, fileContent, lerr := extractMetadata(string(content))
 		if lerr != nil {
 			err = fmt.Errorf("failed to separate metadata from file content: %v", lerr)
 			return

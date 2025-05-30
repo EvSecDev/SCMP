@@ -255,7 +255,7 @@ func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.
 	}
 
 	// Write metadata and content to repository file
-	err = writeNewFileFull(localFilePath, fileMetadata, &fileContents)
+	err = writeLocalRepoFile(localFilePath, fileMetadata, &fileContents)
 	if err != nil {
 		err = fmt.Errorf("failed to add file to repository: %v", err)
 		return
