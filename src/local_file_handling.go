@@ -171,7 +171,7 @@ func writeNewDirectoryMetadata(localDirPath string, selectionMetadata RemoteFile
 	return
 }
 
-func handleArtifactFiles(localFilePath *string, fileContents *[]byte) (externalContentLocation string, err error) {
+func handleArtifactFiles(localFilePath *string, fileContents *[]byte, optCache *SeedRepoUserChoiceCache) (externalContentLocation string, err error) {
 	fileIsPlainText := isText(fileContents)
 
 	// Return early if file is not an artifact
@@ -180,16 +180,39 @@ func handleArtifactFiles(localFilePath *string, fileContents *[]byte) (externalC
 		return
 	}
 
+	// Repetitive artifact dirs - find most reused to suggest to user
+	var mostReusedDir string
+	var highestNum int
+	for artifactDir, dirRepeatCnt := range optCache.artifactExtDir {
+		if dirRepeatCnt < 2 {
+			continue
+		}
+
+		if dirRepeatCnt > highestNum {
+			highestNum = dirRepeatCnt
+		}
+
+		mostReusedDir = artifactDir
+	}
+
 	// Make file depending on if plain text or binary
 	var userResponse string
 	printMessage(verbosityStandard, "  File is not plain text, it should probably be stored outside of git\n")
-	fmt.Print("  Specify a directory path where the actual file should be stored or enter nothing to store file directly in repository\n")
+	fmt.Print("  Specify a directory path where the actual file should be stored or enter 'none' to store file directly in repository\n")
+	if mostReusedDir != "" {
+		fmt.Printf("Default (press enter): '%v'\n", mostReusedDir)
+	}
+
 	fmt.Print("Path to External Directory: ")
 	fmt.Scanln(&userResponse)
 
-	if userResponse == "" {
+	if strings.ToLower(userResponse) == "none" || (userResponse == "" && mostReusedDir == "") {
 		printMessage(verbosityProgress, "  Did not receive an external content location for artifact, ARTIFACT CONTENTS WILL BE STORED IN REPOSITORY\n")
 		return
+	}
+
+	if userResponse == "" {
+		userResponse = mostReusedDir
 	}
 
 	// Ensure artifact fileContents are not written into repository
@@ -207,6 +230,8 @@ func handleArtifactFiles(localFilePath *string, fileContents *[]byte) (externalC
 	if err != nil {
 		return
 	}
+
+	optCache.artifactExtDir[fmt.Sprintf("%v", artifactFilePath)]++
 
 	// Store real file path in git-tracked file (set URI prefix)
 	externalContentLocation = fileURIPrefix + artifactFilePath

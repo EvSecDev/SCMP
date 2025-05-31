@@ -249,6 +249,12 @@ type GitChangedFileMetadata struct {
 	toMode      string
 }
 
+type SeedRepoUserChoiceCache struct {
+	reloadCmd      map[string][]string
+	reloadCnt      map[string]int
+	artifactExtDir map[string]int
+}
+
 // Integer for printing increasingly detailed information as program progresses
 //
 //	0 - None: quiet (prints nothing but errors)

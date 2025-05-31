@@ -94,7 +94,7 @@ func dirListMenu(endpointName string, maxNameLenght int, dirList []string, curre
 
 // Takes user selection array and parses options
 // Handles saving file/director choices, changing directories, and exiting selection
-func parseUserSelections(userSelections []string, dirList []string, directoryState DirectoryState, client *ssh.Client, sudoPassword string) (userRequestedExit bool, selectedFiles []string, directoryStateNew DirectoryState) {
+func parseUserSelections(userSelections []string, dirList []string, directoryState DirectoryState, host HostMeta) (userRequestedExit bool, selectedFiles []string, directoryStateNew DirectoryState) {
 	// Sync current directory state to return value
 	directoryStateNew = directoryState
 
@@ -137,7 +137,7 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 			printMessage(verbosityData, "  Recursing into directory '%s' for all files\n", absolutePath)
 
 			command := RemoteCommand{"find '" + absolutePath + "' -type f"}
-			findOutput, err := command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, sudoPassword, 120)
+			findOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 120)
 			if err != nil {
 				return
 			}
@@ -266,7 +266,7 @@ func writeNewDirectoryTreeMetadata(endpointName string, remoteFilePath string, c
 	return
 }
 
-func handleNewReloadCommands(remoteFilePath string, localFilePath string) (reloadCmds []string, err error) {
+func handleNewReloadCommands(remoteFilePath string, localFilePath string, optCache *SeedRepoUserChoiceCache) (reloadCmds []string, err error) {
 	// Recommended reload commands for known configuration files
 	// If user wants reloads, they will be prompted to use the reloads below if the file has the prefix of a map key (reloads are optional)
 	// names surrounded by '??' indicate sections that should be filled in with relevant info from user selected files
@@ -303,6 +303,21 @@ func handleNewReloadCommands(remoteFilePath string, localFilePath string) (reloa
 	if reloadWanted != "y" {
 		printMessage(verbosityProgress, "  User did not want reload commands, skipping reload selection logic\n")
 		return
+	}
+
+	// Repetitive reloads - find most reused to suggest to user
+	var mostReusedReload string
+	var highestNum int
+	for reloadStr, reloadRepeatCnt := range optCache.reloadCnt {
+		if reloadRepeatCnt < 2 {
+			continue
+		}
+
+		if reloadRepeatCnt > highestNum {
+			highestNum = reloadRepeatCnt
+		}
+
+		mostReusedReload = reloadStr
 	}
 
 	// Setup metadata depending on user choice
@@ -351,6 +366,10 @@ func handleNewReloadCommands(remoteFilePath string, localFilePath string) (reloa
 	// Get array of commands from user
 	if userDoesNotWantDefaults || fileHasNoDefaults {
 		fmt.Printf("Enter reload commands (press Enter after each command, leave an empty line to finish):\n")
+		if mostReusedReload != "" {
+			fmt.Printf("Default (press enter): '%v'\n", optCache.reloadCmd[mostReusedReload])
+		}
+
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			cmd := scanner.Text()
@@ -371,7 +390,14 @@ func handleNewReloadCommands(remoteFilePath string, localFilePath string) (reloa
 				continue
 			}
 			reloadCmds = append(reloadCmds, cmd)
+
 		}
+		if len(reloadCmds) == 0 {
+			reloadCmds = optCache.reloadCmd[mostReusedReload]
+		}
+
+		optCache.reloadCmd[fmt.Sprintf("%v", reloadCmds)] = reloadCmds
+		optCache.reloadCnt[fmt.Sprintf("%v", reloadCmds)]++
 	}
 
 	return

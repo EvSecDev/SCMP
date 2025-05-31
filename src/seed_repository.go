@@ -63,16 +63,23 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 			continue
 		}
 
-		client, proxyClient, err := connectToSSH(hostInfo, proxyInfo)
+		var host HostMeta
+		host.name = hostInfo.endpointName
+		host.password = hostInfo.password
+		host.transferBufferDir = hostInfo.remoteBufferDir
+		host.backupPath = hostInfo.remoteBackupDir
+
+		var proxyClient *ssh.Client
+		host.sshClient, proxyClient, err = connectToSSH(hostInfo, proxyInfo)
 		logError("Failed connect to SSH server", err, false)
 		if proxyClient != nil {
 			defer proxyClient.Close()
 		}
-		defer client.Close()
+		defer host.sshClient.Close()
 
 		var selectedFiles []string
 		if remoteFileOverride == "" {
-			selectedFiles, err = interactiveSelection(endpointName, client, hostInfo.password)
+			selectedFiles, err = interactiveSelection(host)
 			logError("Error retrieving remote file list", err, false)
 		} else {
 			// Set user choices directly
@@ -81,7 +88,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 
 		// Initialize buffer  (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
 		command := buildMkdir(hostInfo.remoteBufferDir)
-		_, err = command.SSHexec(client, config.options.runAsUser, true, hostInfo.password, 10)
+		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, hostInfo.password, 10)
 		if err != nil {
 			if !strings.Contains(strings.ToLower(err.Error()), "file exists") {
 				logError("Error creating remote transfer directory", err, false)
@@ -89,20 +96,24 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 			err = nil
 		}
 
-		remoteBufferFilePath := hostInfo.remoteBufferDir + "/transfer"
+		host.transferBufferDir = hostInfo.remoteBufferDir + "/transfer"
 
-		err = SCPUpload(client, []byte{12}, remoteBufferFilePath)
+		err = SCPUpload(host.sshClient, []byte{12}, host.transferBufferDir)
 		logError(fmt.Sprintf("Failed to initialize buffer file on remote host %s", endpointName), err, false)
 
+		optCache := &SeedRepoUserChoiceCache{}
+		optCache.reloadCmd = make(map[string][]string)
+		optCache.reloadCnt = make(map[string]int)
+		optCache.artifactExtDir = make(map[string]int)
 		for _, targetFilePath := range selectedFiles {
-			err = handleSelectedFile(targetFilePath, endpointName, client, hostInfo.password, remoteBufferFilePath)
+			err = handleSelectedFile(targetFilePath, host, optCache)
 			logError("Error seeding repository", err, false)
 		}
 	}
 }
 
 // Runs the CLI-based menu that user will use to select which files to download
-func interactiveSelection(endpointName string, client *ssh.Client, SudoPassword string) (selectedFiles []string, err error) {
+func interactiveSelection(host HostMeta) (selectedFiles []string, err error) {
 	// Start selection at root of filesystem - '/'
 	var directoryState DirectoryState
 	directoryState.current = "/"
@@ -113,7 +124,7 @@ func interactiveSelection(endpointName string, client *ssh.Client, SudoPassword 
 		// Get file names and info for the directory
 		command := buildLsList(directoryState.current)
 		var directoryList string
-		directoryList, err = command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 30)
+		directoryList, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 30)
 		if err != nil {
 			// All errors except permission denied exits selection menu
 			if !strings.Contains(err.Error(), "Permission denied") {
@@ -141,12 +152,12 @@ func interactiveSelection(endpointName string, client *ssh.Client, SudoPassword 
 		dirList, maxNameLenght := parseDirEntries(directoryList)
 
 		// Show Menu - Print the directory contents in columns
-		userSelections := dirListMenu(endpointName, maxNameLenght, dirList, directoryState.current)
+		userSelections := dirListMenu(host.name, maxNameLenght, dirList, directoryState.current)
 
 		// Parse users selections
 		var userRequestedExit bool
 		var dirSelectedFiles []string
-		userRequestedExit, dirSelectedFiles, directoryState = parseUserSelections(userSelections, dirList, directoryState, client, SudoPassword)
+		userRequestedExit, dirSelectedFiles, directoryState = parseUserSelections(userSelections, dirList, directoryState, host)
 		selectedFiles = append(selectedFiles, dirSelectedFiles...)
 		if userRequestedExit {
 			// Stop selecting
@@ -158,16 +169,16 @@ func interactiveSelection(endpointName string, client *ssh.Client, SudoPassword 
 }
 
 // Downloads user selected files/directories and metadata and writes information to repository
-func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.Client, SudoPassword string, tmpRemoteFilePath string) (err error) {
+func handleSelectedFile(remoteFilePath string, host HostMeta, optCache *SeedRepoUserChoiceCache) (err error) {
 	// Ensure decorators from ls do not get fed into repo
 	remoteFilePath = strings.TrimSuffix(remoteFilePath, "*")
 	remoteFilePath = strings.TrimSuffix(remoteFilePath, "@")
 
 	// Use target file path and hosts name for repo file location
-	localFilePath := filepath.Join(endpointName, strings.ReplaceAll(remoteFilePath, "/", config.osPathSeparator))
+	localFilePath := filepath.Join(host.name, strings.ReplaceAll(remoteFilePath, "/", config.osPathSeparator))
 
 	command := buildUnameKernel()
-	unameOutput, err := command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 5)
+	unameOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 5)
 	if err != nil {
 		err = fmt.Errorf("failed to determine OS, cannot continue: %v", err)
 		return
@@ -183,7 +194,7 @@ func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.
 		err = fmt.Errorf("received unknown os type: %s", unameOutput)
 		return
 	}
-	statOutput, err := command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
+	statOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
@@ -209,27 +220,27 @@ func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.
 
 	printMessage(verbosityProgress, "  File '%s': Downloading file\n", remoteFilePath)
 
-	command = RemoteCommand{"cp '" + remoteFilePath + "' '" + tmpRemoteFilePath + "'"}
-	_, err = command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 20)
+	command = RemoteCommand{"cp '" + remoteFilePath + "' '" + host.transferBufferDir + "'"}
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 20)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
 	}
 
-	command = buildChmod(tmpRemoteFilePath, 666)
-	_, err = command.SSHexec(client, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
+	command = buildChmod(host.transferBufferDir, 666)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
 	}
 
-	fileContents, err := SCPDownload(client, tmpRemoteFilePath)
+	fileContents, err := SCPDownload(host.sshClient, host.transferBufferDir)
 	if err != nil {
 		return
 	}
 
 	// Retrieve and write to repo parent directory permissions that are unique
-	err = writeNewDirectoryTreeMetadata(endpointName, remoteFilePath, client, SudoPassword)
+	err = writeNewDirectoryTreeMetadata(host.name, remoteFilePath, host.sshClient, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed to walk directory tree metadata for file %s: %v", remoteFilePath, err)
 		return
@@ -243,13 +254,13 @@ func handleSelectedFile(remoteFilePath string, endpointName string, client *ssh.
 	fileMetadata.TargetFilePermissions = selectionMetadata.permissions
 
 	// Get reload commands from user
-	fileMetadata.ReloadCommands, err = handleNewReloadCommands(remoteFilePath, localFilePath)
+	fileMetadata.ReloadCommands, err = handleNewReloadCommands(remoteFilePath, localFilePath, optCache)
 	if err != nil {
 		return
 	}
 
 	// Check for binary files and handle them separately from text files
-	fileMetadata.ExternalContentLocation, err = handleArtifactFiles(&localFilePath, &fileContents)
+	fileMetadata.ExternalContentLocation, err = handleArtifactFiles(&localFilePath, &fileContents, optCache)
 	if err != nil {
 		return
 	}
