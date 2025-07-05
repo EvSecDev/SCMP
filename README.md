@@ -116,6 +116,8 @@ Secure Configuration Management Program (SCMP)
                                                    cached deployment summary file
     -e, --execute <"command"|file:///>             Run adhoc single command or upload and
                                                    execute the script on remote hosts
+    -S, --scp                                      Transfer files only
+                                                   Use -r, -l, -R - one-to-one mapping between -l/-R
     -u, --run-as-user <username>                   User name to run sudo commands as
                                                    [default: root]
     -r, --remote-hosts <host1,host2,...|file://>   Override hosts to connect to for deployment
@@ -187,7 +189,7 @@ Secure Configuration Management Program (SCMP)
       - `controller --install-default-config`
     - 3b) **Optional**: If you want to install the AppArmor profile, run this command
       - `sudo controller --install-apparmor-profile`
-    - 3c) **Optional**: If you want bash auto-completion for the controller arguments, see the snippet to add to your `~/.bashrc` in the Notes section
+    - 3c) **Optional**: If you want bash auto-completion for the controller arguments, see the snippet in the Notes section to add to your `~/.bashrc`
 4. Configure the SSH configuration file for all the remote Linux hosts you wish to manage (see comments in config for what the fields mean)
 5. Done! Proceed to remote preparation
 
@@ -339,6 +341,40 @@ This metadata file should only be used where custom permissions are absolutely r
 
 File transfers for this program are done using SCP and are limited to 90 seconds per file.
 Something to keep in mind, your end to end bandwidth for a deployment will determine how large of a file can be transferred in that time.
+
+To do bulk file transfers there is the `scp` argument.
+It utilizes the same local and remote file name selection as deployments (`--local-files`, `--remote-files`) as well as `--remote-hosts` for host selection.
+
+File uploads for this argument are limited to one-to-many or one-to-one.
+
+#### Examples one-to-one
+
+`controller --scp --remote-hosts host1,host2 --local-files Local/path/to/file1 --remote-files /path/to/file1`
+
+```text
+Local/path/to/file1
+  -> host1,host2 /path/to/file1
+```
+
+`controller --scp --remote-hosts host1,host2 --local-files Local/path/to/file1,Local/path/to/file2 --remote-files /path/to/file1,/path/to/file2`
+
+```text
+Local/path/to/file1
+  -> host1,host2 /path/to/file2
+
+Local/path/to/file2
+  -> host1,host2 /path/to/file2
+```
+
+#### Examples one-to-many
+
+`controller --scp --remote-hosts host1,host2 --local-files Local/path/to/file1 --remote-files /path/to/file1,/path/to/file2`
+
+```text
+Local/path/to/file1
+  -> host1,host2 /path/to/file1
+  -> host1,host2 /path/to/file2
+```
 
 ### Dry/Wet Test Runs
 
@@ -501,7 +537,7 @@ _controller() {
     local cur prev opts
 
     # Define all available options
-    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --run-as-user --remote-hosts --remote-files --local-files --commitid --dry-run --wet-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --with-summary --verbose --help --version --versionid"
+    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --scp --run-as-user --remote-hosts --remote-files --local-files --commitid --dry-run --wet-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --with-summary --verbose --help --version --versionid"
 
     # Get the current word the user is typing
     cur="${COMP_WORDS[COMP_CWORD]}"

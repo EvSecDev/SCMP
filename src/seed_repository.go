@@ -88,7 +88,7 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 
 		// Initialize buffer  (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
 		command := buildMkdir(hostInfo.remoteBufferDir)
-		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, hostInfo.password, 10)
+		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, hostInfo.password)
 		if err != nil {
 			if !strings.Contains(strings.ToLower(err.Error()), "file exists") {
 				logError("Error creating remote transfer directory", err, false)
@@ -124,7 +124,7 @@ func interactiveSelection(host HostMeta) (selectedFiles []string, err error) {
 		// Get file names and info for the directory
 		command := buildLsList(directoryState.current)
 		var directoryList string
-		directoryList, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 30)
+		directoryList, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		if err != nil {
 			// All errors except permission denied exits selection menu
 			if !strings.Contains(err.Error(), "Permission denied") {
@@ -178,7 +178,7 @@ func handleSelectedFile(remoteFilePath string, host HostMeta, optCache *SeedRepo
 	localFilePath := filepath.Join(host.name, strings.ReplaceAll(remoteFilePath, "/", config.osPathSeparator))
 
 	command := buildUnameKernel()
-	unameOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 5)
+	unameOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed to determine OS, cannot continue: %v", err)
 		return
@@ -194,7 +194,7 @@ func handleSelectedFile(remoteFilePath string, host HostMeta, optCache *SeedRepo
 		err = fmt.Errorf("received unknown os type: %s", unameOutput)
 		return
 	}
-	statOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
+	statOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
@@ -220,15 +220,15 @@ func handleSelectedFile(remoteFilePath string, host HostMeta, optCache *SeedRepo
 
 	printMessage(verbosityProgress, "  File '%s': Downloading file\n", remoteFilePath)
 
-	command = RemoteCommand{"cp '" + remoteFilePath + "' '" + host.transferBufferDir + "'"}
-	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 20)
+	command = RemoteCommand{"cp '" + remoteFilePath + "' '" + host.transferBufferDir + "'", 20, false}
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return
 	}
 
 	command = buildChmod(host.transferBufferDir, 666)
-	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)
 		return

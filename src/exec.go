@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"golang.org/x/crypto/ssh"
 )
 
 // Global for script execution concurrency
@@ -66,9 +68,11 @@ func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command strin
 		return
 	}
 
+	printMessage(verbosityStandard, "  Host '%s':\n", hostInfo.endpointName)
+
 	// Execute user command
-	rawCmd := RemoteCommand{command}
-	commandOutput, err := rawCmd.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password, 900)
+	rawCmd := RemoteCommand{command, 900, true}
+	_, err = rawCmd.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password)
 	if err != nil {
 		if config.options.forceEnabled {
 			printMessage(verbosityStandard, "Error:  %v\n", err)
@@ -77,8 +81,7 @@ func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command strin
 		}
 	}
 
-	// Show command output
-	printMessage(verbosityStandard, "  Host '%s' Command Output:\n%s\n", hostInfo.endpointName, commandOutput)
+	printMessage(verbosityStandard, "  Host '%s' Command Completed Successfully\n", hostInfo.endpointName)
 }
 
 // Run a script on host(s)
@@ -118,23 +121,29 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 
 	printMessage(verbosityFullData, "Local Script Hash '%s'\n", scriptHash)
 
-	printMessage(verbosityStandard, "Executing script '%s'\n", localScriptFilePath)
+	// If user only specified a single host, dont use threads
+	if !strings.Contains(hosts, ",") {
+		config.options.maxSSHConcurrency = 1
+	}
+
+	printMessage(verbosityStandard, "Executing script '%s' on %s\n", localScriptFilePath, hosts)
 
 	// Semaphore to limit concurrency of host connections go routines as specified in main config
 	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
 
 	if config.options.dryRunEnabled {
 		// Notify user that program is in dry run mode
-		printMessage(verbosityStandard, "Requested dry-run, aborting deployment\n")
-		if globalVerbosityLevel < 2 {
-			// If not running with higher verbosity, no need to collect deployment information
-			return
-		}
-		printMessage(verbosityProgress, "Outputting information collected for deployment:\n")
+		printMessage(verbosityProgress, "Requested dry-run, outputting information collected for executions:\n")
 	}
 
 	// Retrieve keys and passwords for any hosts that require it
 	for endpointName := range config.hostInfo {
+		// Only retrieve for hosts specified
+		if checkForOverride(hosts, endpointName) {
+			printMessage(verbosityProgress, "  Skipping host %s, not desired\n", endpointName)
+			continue
+		}
+
 		// Retrieve host secrets
 		config.hostInfo[endpointName], err = retrieveHostSecrets(config.hostInfo[endpointName])
 		logError("Error retrieving host secrets", err, true)
@@ -145,6 +154,10 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 			config.hostInfo[proxyName], err = retrieveHostSecrets(config.hostInfo[proxyName])
 			logError("Error retrieving proxy secrets", err, true)
 		}
+	}
+
+	if config.options.wetRunEnabled {
+		printMessage(verbosityStandard, "Wet-run enabled. Connections and uploads will be tested but script will NOT be executed\n")
 	}
 
 	// Run script per host
@@ -167,9 +180,9 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 		// Upload and execute the script - disable concurrency if maxconns is 1
 		wg.Add(1)
 		if config.options.maxSSHConcurrency > 1 {
-			go executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+			go executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash, false)
 		} else {
-			executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+			executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash, true)
 			if len(executionErrors) > 0 && !config.options.forceEnabled {
 				// Execution error occured, don't continue with other hosts
 				break
@@ -186,7 +199,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 }
 
 // Connect to a host, upload a script, execute script and print output
-func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo EndpointInfo, proxyInfo EndpointInfo, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) {
+func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo EndpointInfo, proxyInfo EndpointInfo, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string, streamOutput bool) {
 	// Signal routine is done after return
 	defer wg.Done()
 
@@ -194,25 +207,81 @@ func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo E
 	semaphore <- struct{}{}
 	defer func() { <-semaphore }() // Release the token when the goroutine finishes
 
+	// Save meta info for this host in a structure to easily pass around required pieces
+	var host HostMeta
+	host.name = hostInfo.endpointName
+	host.password = hostInfo.password
+	host.transferBufferDir = hostInfo.remoteBufferDir
+	host.backupPath = hostInfo.remoteBackupDir
+
 	// Connect to the SSH server
-	client, proxyClient, err := connectToSSH(hostInfo, proxyInfo)
+	var err error
+	var proxyClient *ssh.Client
+	host.sshClient, proxyClient, err = connectToSSH(hostInfo, proxyInfo)
 	if err != nil {
 		executionErrorsMutex.Lock()
 		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.endpointName, err)
 		executionErrorsMutex.Unlock()
+		return
 	}
 	if proxyClient != nil {
 		defer proxyClient.Close()
 	}
-	defer client.Close()
+	defer host.sshClient.Close()
+
+	printMessage(verbosityProgress, "Host %s: Determining remote OS\n", host.name)
+	command := buildUnameKernel()
+	unameOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
+	if err != nil {
+		executionErrorsMutex.Lock()
+		executionErrors += fmt.Sprintf("failed to determine OS, cannot deploy: %v", err)
+		executionErrorsMutex.Unlock()
+		return
+	}
+
+	osName := strings.ToLower(unameOutput)
+	if strings.Contains(osName, "bsd") {
+		host.osFamily = "bsd"
+	} else if strings.Contains(osName, "linux") {
+		host.osFamily = "linux"
+	} else {
+		executionErrorsMutex.Lock()
+		executionErrors += fmt.Sprintf("received unknown os type: %s", unameOutput)
+		executionErrorsMutex.Unlock()
+		host.osFamily = "unknown"
+		return
+	}
+
+	printMessage(verbosityProgress, "Host %s: Preparing remote transfer directory\n", hostInfo.endpointName)
+	command = buildMkdir(hostInfo.remoteBufferDir)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, hostInfo.password)
+	if err != nil {
+		if !strings.Contains(strings.ToLower(err.Error()), "file exists") {
+			executionErrorsMutex.Lock()
+			executionErrors += fmt.Sprintf("  Host '%s': failed to setup remote transfer directory: %v\n", hostInfo.endpointName, err)
+			executionErrorsMutex.Unlock()
+			return
+		}
+		err = nil
+	}
 
 	// Run the script remotely
-	scriptOutput, err := executeScript(client, hostInfo.password, hostInfo.remoteBufferDir, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash)
+	var scriptOutput string
+	if streamOutput {
+		printMessage(verbosityStandard, "  Host '%s':\n", hostInfo.endpointName)
+		_, err = executeScript(host, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash, streamOutput)
+	} else {
+		scriptOutput, err = executeScript(host, scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash, streamOutput)
+	}
 	if err != nil {
 		executionErrorsMutex.Lock()
 		executionErrors += fmt.Sprintf("  Host '%s': %v\n", hostInfo.endpointName, err)
 		executionErrorsMutex.Unlock()
 	}
 
-	printMessage(verbosityStandard, "  Host '%s':\n%s\n", hostInfo.endpointName, scriptOutput)
+	if scriptOutput != "" {
+		printMessage(verbosityStandard, "  Host '%s':\n%s\n", hostInfo.endpointName, scriptOutput)
+	} else if err == nil && !config.options.wetRunEnabled {
+		printMessage(verbosityStandard, "  Host '%s': Script Completed Successfully\n", hostInfo.endpointName)
+	}
 }

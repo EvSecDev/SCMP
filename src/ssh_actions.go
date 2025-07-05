@@ -19,7 +19,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 	}
 	if !directoryExists {
 		command := buildMkdir(directoryPath)
-		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
+		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		if err != nil {
 			err = fmt.Errorf("failed to create directory: %v", err)
 			return
@@ -38,7 +38,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 
 	// Ensure owner/group are correct
 	command := buildChown(bufferFilePath, fileOwnerGroup)
-	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
 		return
@@ -46,7 +46,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 
 	// Ensure permissions are correct
 	command = buildChmod(bufferFilePath, filePermissions)
-	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
 		return
@@ -54,7 +54,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 
 	// Move file from tmp dir to actual deployment path
 	command = buildMv(bufferFilePath, targetFilePath)
-	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 30)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed to move new file into place: %v", err)
 		return
@@ -73,7 +73,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 
 	// Ensure final file is intact
 	command = buildHashCmd(targetFilePath)
-	commandOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 90)
+	commandOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during hash of deployed file: %v", err)
 		return
@@ -127,7 +127,7 @@ func getOldRemoteInfo(host HostMeta, targetPath string) (remoteMetadata RemoteFi
 		// Get the SHA256 hash of the remote old conf file
 		command := buildHashCmd(targetPath)
 		var commandOutput string
-		commandOutput, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 90)
+		commandOutput, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during hash of old config file: %v", err)
 			return
@@ -202,9 +202,12 @@ func checkRemoteFileDirExistence(host HostMeta, remotePath string) (exists bool,
 		command = buildBSDStat(remotePath)
 	} else if host.osFamily == "linux" {
 		command = buildStat(remotePath)
+	} else {
+		err = fmt.Errorf("unknown OS family")
+		return
 	}
 
-	statOutput, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
+	statOutput, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		exists = false
 		if strings.Contains(err.Error(), "No such file or directory") {
@@ -224,7 +227,7 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 		printMessage(verbosityFullData, "Host %s:    File '%s': changing permissions\n", host.name, localMetadata.targetFilePath)
 
 		command := buildChmod(localMetadata.targetFilePath, localMetadata.permissions)
-		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
+		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
 			return
@@ -237,7 +240,7 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 		printMessage(verbosityFullData, "Host %s:    File '%s': changing ownership\n", host.name, localMetadata.targetFilePath)
 
 		command := buildChown(localMetadata.targetFilePath, localMetadata.ownerGroup)
-		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password, 10)
+		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
 			return

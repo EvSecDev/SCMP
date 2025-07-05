@@ -23,6 +23,7 @@ const (
 	directoryMetadataFileName    string = ".directory_metadata_information.json" // hidden file to identify parent directories metadata
 	fileURIPrefix                string = "file://"                              // Used by the user to tell certain arguments to load file content
 	maxDirectoryLoopCount        int    = 200                                    // Maximum recursion for any loop over directories
+	defaultRemoteCommandTimeout  int    = 10                                     // Time in seconds for remote command to be considered dead
 
 	dirType       string = "directory" // Descriptive Names for stats fs types
 	fileType      string = "regular file"
@@ -178,7 +179,9 @@ type HostMeta struct {
 
 // Type for commands run remotely
 type RemoteCommand struct {
-	string
+	string            // Command string
+	timeout      int  // In seconds
+	streamStdout bool // Progressively stream output of command to stdout of this program (almost always false)
 }
 
 // Used for metrics - counting post deployment
@@ -282,6 +285,7 @@ func main() {
 	var deployAllRequested bool
 	var deployFailuresRequested bool
 	var executeCommands string
+	var scpRequested bool
 	var commitID string
 	var hostOverride string
 	var remoteFileOverride string
@@ -314,6 +318,8 @@ Secure Configuration Management Program (SCMP)
                                                    cached deployment summary file
     -e, --execute <"command"|file:///>             Run adhoc single command or upload and
                                                    execute the script on remote hosts
+    -S, --scp                                      Transfer files only
+                                                   Use -r, -l, -R - one-to-one mapping between -l/-R
     -u, --run-as-user <username>                   User name to run sudo commands as
                                                    [default: root]
     -r, --remote-hosts <host1,host2,...|file://>   Override hosts to connect to for deployment
@@ -383,6 +389,8 @@ Secure Configuration Management Program (SCMP)
 	flag.BoolVar(&deployFailuresRequested, "deploy-failures", false, "")
 	flag.StringVar(&executeCommands, "e", "", "")
 	flag.StringVar(&executeCommands, "execute", "", "")
+	flag.BoolVar(&scpRequested, "S", false, "")
+	flag.BoolVar(&scpRequested, "scp", false, "")
 	flag.StringVar(&commitID, "C", "", "")
 	flag.StringVar(&commitID, "commitid", "", "")
 	flag.StringVar(&config.options.runAsUser, "u", "root", "")
@@ -489,6 +497,9 @@ Secure Configuration Management Program (SCMP)
 	} else if gitAddRequested != "" {
 		err := gitAdd(gitAddRequested)
 		logError("Failed to add changes to working tree", err, false)
+	} else if scpRequested {
+		err = bulkFileTransfer(hostOverride, localFileOverride, remoteFileOverride)
+		logError("Failed to transfer files", err, false)
 	} else if modifyVaultHost != "" {
 		err = modifyVault(modifyVaultHost)
 		logError("Error modifying vault", err, false)

@@ -338,24 +338,24 @@ func writeKnownHost(cleanHost string, pubKeyType string, remotePubKey string) (e
 	return
 }
 
-func executeScript(sshClient *ssh.Client, SudoPassword string, transferBufferDir string, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string) (out string, err error) {
+func executeScript(host HostMeta, scriptInterpreter string, remoteFilePath string, scriptFileBytes []byte, scriptHash string, streamOutput bool) (out string, err error) {
 	// Unique file name for buffer file
 	tempFileName := base64.StdEncoding.EncodeToString([]byte(remoteFilePath))
-	bufferFilePath := transferBufferDir + "/" + tempFileName
+	bufferFilePath := host.transferBufferDir + "/" + tempFileName
 
-	err = SCPUpload(sshClient, scriptFileBytes, bufferFilePath)
+	err = SCPUpload(host.sshClient, scriptFileBytes, bufferFilePath)
 	if err != nil {
 		return
 	}
 
 	command := buildMv(bufferFilePath, remoteFilePath)
-	_, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		return
 	}
 
 	command = buildHashCmd(remoteFilePath)
-	remoteScriptHash, err := command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 90)
+	remoteScriptHash, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		return
 	}
@@ -375,22 +375,48 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, transferBufferDir
 	}
 
 	command = buildChmod(remoteFilePath, 700)
-	_, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		return
 	}
 
 	if !config.options.wetRunEnabled {
-		command = RemoteCommand{scriptInterpreter + " '" + remoteFilePath + "'"}
-		out, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 900)
+		command = RemoteCommand{scriptInterpreter + " '" + remoteFilePath + "'", 900, streamOutput}
+		out, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		if err != nil {
 			return
 		}
+	} else {
+		// Verify script on wet-run
+
+		var statOutput string
+		_, statOutput, err = checkRemoteFileDirExistence(host, remoteFilePath)
+		if err != nil {
+			return
+		}
+
+		var scriptInfo RemoteFileInfo
+		scriptInfo, err = extractMetadataFromStat(statOutput)
+		if err != nil {
+			return
+		}
+
+		if !scriptInfo.exists {
+			err = fmt.Errorf("uploaded script was not found at path %s", remoteFilePath)
+			return
+		}
+
+		if scriptInfo.permissions < 700 {
+			err = fmt.Errorf("uploaded script could not be made executable")
+			return
+		}
+
+		printMessage(verbosityStandard, "  Host '%s': Script would have executed\n", host.name)
 	}
 
 	// Cleanup
 	command = buildRm(remoteFilePath)
-	_, err = command.SSHexec(sshClient, config.options.runAsUser, config.options.disableSudo, SudoPassword, 10)
+	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		return
 	}
@@ -404,6 +430,7 @@ func executeScript(sshClient *ssh.Client, SudoPassword string, transferBufferDir
 func buildUnameKernel() (remoteCommand RemoteCommand) {
 	const unameCmd string = "uname -s"
 	remoteCommand.string = unameCmd
+	remoteCommand.timeout = defaultRemoteCommandTimeout
 	return
 }
 
@@ -411,6 +438,7 @@ func buildStat(remotePath string) (remoteCommand RemoteCommand) {
 	// Fixed output for extractMetadataFromStat function parsing
 	const statCmd string = "stat --format='[%n],[%F],[%U],[%G],[%a],[%s],[%N]' "
 	remoteCommand.string = statCmd + "'" + remotePath + "'"
+	remoteCommand.timeout = defaultRemoteCommandTimeout
 	return
 }
 
@@ -418,48 +446,56 @@ func buildBSDStat(remotePath string) (remoteCommand RemoteCommand) {
 	// Fixed output for extractMetadataFromStat function parsing
 	const statBsdCmd string = "stat -f '[%N],[%HT],[%Su],[%Sg],[%Lp],[%z],[target=%Y]' "
 	remoteCommand.string = statBsdCmd + "'" + remotePath + "'"
+	remoteCommand.timeout = defaultRemoteCommandTimeout
 	return
 }
 
 func buildLs(remotePath string) (remoteCommand RemoteCommand) {
 	const lsCmd string = "ls -A "
 	remoteCommand.string = lsCmd + "'" + remotePath + "'"
+	remoteCommand.timeout = defaultRemoteCommandTimeout
 	return
 }
 
 func buildLsList(remotePath string) (remoteCommand RemoteCommand) {
 	const lsNamesCmd string = "ls -1AF "
 	remoteCommand.string = lsNamesCmd + "'" + remotePath + "'"
+	remoteCommand.timeout = 15
 	return
 }
 
 func buildHashCmd(remotePath string) (remoteCommand RemoteCommand) {
 	const hashCmd string = "sha256sum "
 	remoteCommand.string = hashCmd + "'" + remotePath + "'"
+	remoteCommand.timeout = 90
 	return
 }
 
 func buildMv(srcRemotePath string, dstRemotePath string) (remoteCommand RemoteCommand) {
 	const mvCmd string = "mv "
 	remoteCommand.string = mvCmd + "'" + srcRemotePath + "' '" + dstRemotePath + "'"
+	remoteCommand.timeout = 90
 	return
 }
 
 func buildCp(srcRemotePath string, dstRemotePath string) (remoteCommand RemoteCommand) {
 	const cpCmd string = "cp -p "
 	remoteCommand.string = cpCmd + "'" + srcRemotePath + "' '" + dstRemotePath + "'"
+	remoteCommand.timeout = 90
 	return
 }
 
 func buildMkdir(remotePath string) (remoteCommand RemoteCommand) {
 	const mkdirCmd string = "mkdir -p "
 	remoteCommand.string = mkdirCmd + "'" + remotePath + "'"
+	remoteCommand.timeout = 30
 	return
 }
 
 func buildChown(remotePath string, ownerGroup string) (remoteCommand RemoteCommand) {
 	const chownCmd string = "chown "
 	remoteCommand.string = chownCmd + "'" + ownerGroup + "' '" + remotePath + "'"
+	remoteCommand.timeout = 20
 	return
 }
 
@@ -467,12 +503,14 @@ func buildChmod(remotePath string, permissionBits int) (remoteCommand RemoteComm
 	const chmodCmd string = "chmod "
 	permissionString := strconv.Itoa(permissionBits)
 	remoteCommand.string = chmodCmd + "'" + permissionString + "' '" + remotePath + "'"
+	remoteCommand.timeout = 20
 	return
 }
 
 func buildRm(remotePath string) (remoteCommand RemoteCommand) {
 	const rmCmd string = "rm "
 	remoteCommand.string = rmCmd + "'" + remotePath + "'"
+	remoteCommand.timeout = 15
 	return
 }
 
@@ -487,23 +525,27 @@ func buildRmAll(remotePaths ...string) (remoteCommand RemoteCommand) {
 	itemsToRemove := strings.Join(requestedPaths, " ")
 
 	remoteCommand.string = rmAllCmd + itemsToRemove
+	remoteCommand.timeout = 90
 	return
 }
 
 func buildRmdir(remotePath string) (remoteCommand RemoteCommand) {
 	const rmdirCmd string = "rmdir "
 	remoteCommand.string = rmdirCmd + "'" + remotePath + "'"
+	remoteCommand.timeout = defaultRemoteCommandTimeout
 	return
 }
 
 func buildLink(linkName string, linkTarget string) (remoteCommand RemoteCommand) {
 	const lnCmd string = "ln -snf "
 	remoteCommand.string = lnCmd + "'" + linkTarget + "' '" + linkName + "'"
+	remoteCommand.timeout = defaultRemoteCommandTimeout
 	return
 }
 
-func buildTouch(remotePath string) (RemoteCommand RemoteCommand) {
+func buildTouch(remotePath string) (remoteCommand RemoteCommand) {
 	const touchCmd string = "touch"
-	RemoteCommand.string = touchCmd + " '" + remotePath + "'"
+	remoteCommand.string = touchCmd + " '" + remotePath + "'"
+	remoteCommand.timeout = defaultRemoteCommandTimeout
 	return
 }
