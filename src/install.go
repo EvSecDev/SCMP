@@ -158,7 +158,7 @@ func createNewRepository(newRepoInfo string) {
 
 		// Add reloads/checks or dont depending on example file name
 		if !strings.Contains(exampleFile, "noreload") {
-			metadataHeader.ReloadCommands = []string{"ls /var/log/custom.log", "ping -W2 -c1 syslog.example.com >/dev/null"}
+			metadataHeader.ReloadCommands = []string{"ls /var/log/custom.log", "ping -W2 -c1 syslog.example.com"}
 			metadataHeader.CheckCommands = []string{"systemctl restart rsyslog.service", "systemctl is-active rsyslog"}
 		}
 
@@ -188,6 +188,8 @@ func createNewRepository(newRepoInfo string) {
 		},
 	})
 	logError("Failed to create first commit", err, false)
+
+	printMessage(verbosityStandard, "Successfully created new git repository in %s\n", repoPath)
 }
 
 // Install sample SSH config if it doesn't already exist
@@ -264,24 +266,28 @@ Host *
         HostbasedAuthentication         no
         #  SCMP Global Settings
         RemoteBackupDir                 /tmp/.scmpbackups
-        RemoteBufferDir            		/tmp/.scmpbuffer
-	`
+        RemoteBufferDir            	    /tmp/.scmpbuffer
+`
 
 	// Check if config already exists
 	_, err := os.Stat(configPath)
 	if !os.IsNotExist(err) {
-		printMessage(verbosityProgress, "SSH Config file already exists, not overwritting it. Please configure manually.\n")
+		printMessage(verbosityStandard, "SSH Config file already exists, not overwritting it. Please configure manually.\n")
 		return
+	} else if os.IsNotExist(err) {
+		err = nil // create the file
 	} else if err != nil {
-		printMessage(verbosityProgress, "Unable to check if SSH config file already exists: %v\n", err)
+		printMessage(verbosityStandard, "Unable to check if SSH config file already exists: %v\n", err)
 		return
 	}
 
 	err = os.WriteFile(configPath, []byte(defaultConfig), 0640)
 	if err != nil {
-		printMessage(verbosityProgress, "Failed to write sample SSH config: %v\n", err)
+		printMessage(verbosityStandard, "Failed to write sample SSH config: %v\n", err)
 		return
 	}
+
+	printMessage(verbosityStandard, "Successfully created new example config in %s\n", configPath)
 }
 
 // If apparmor LSM is available on this system and running as root, auto install the profile - failures are not printed under normal verbosity
@@ -336,17 +342,17 @@ profile SCMController @{exelocation} flags=(enforce) {
 	systemAAPath := "/sys/kernel/security/apparmor/profiles"
 	_, err := os.Stat(systemAAPath)
 	if os.IsNotExist(err) {
-		printMessage(verbosityProgress, "AppArmor not supported by this system\n")
+		printMessage(verbosityStandard, "AppArmor not supported by this system\n")
 		return
 	} else if err != nil {
-		printMessage(verbosityProgress, "Unable to check if AppArmor is supported by this system: %v\n", err)
+		printMessage(verbosityStandard, "Unable to check if AppArmor is supported by this system: %v\n", err)
 		return
 	}
 
 	// Write Apparmor Profile to /etc
 	err = os.WriteFile(AppArmorProfilePath, []byte(AppArmorProfile), 0644)
 	if err != nil {
-		printMessage(verbosityProgress, "Failed to write apparmor profile: %v\n", err)
+		printMessage(verbosityStandard, "Failed to write apparmor profile: %v\n", err)
 		return
 	}
 
@@ -354,7 +360,7 @@ profile SCMController @{exelocation} flags=(enforce) {
 	command := exec.Command("apparmor_parser", "-r", AppArmorProfilePath)
 	_, err = command.CombinedOutput()
 	if err != nil {
-		printMessage(verbosityProgress, "Failed to reload apparmor profile: %v\n", err)
+		printMessage(verbosityStandard, "Failed to reload apparmor profile: %v\n", err)
 		return
 	}
 

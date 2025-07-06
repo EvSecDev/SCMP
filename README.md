@@ -68,7 +68,6 @@ If you like what this program can do or want to expand functionality yourself, f
   - Ability to mark individual hosts as offline to prevent deployments to that host
   - Apply file groups to distribute single file version to all or a subset of all hosts
 - SSH
-  - Password-based login
   - Key-based authentication (by file or ssh-agent, per host or all hosts)
   - SSH Proxy connections (Bastions, Jump hosts, ect.)
   - Concurrent connections (and option to limit/disable concurrency)

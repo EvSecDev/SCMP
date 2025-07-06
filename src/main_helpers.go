@@ -189,6 +189,7 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 
 		// Get identity file path
 		hostInfo.identityFile, _ = sshConfig.Get(hostPattern, "IdentityFile")
+		hostInfo.identityFile = expandHomeDirectory(hostInfo.identityFile)
 
 		// Create list of hosts that would need vault access
 		passwordRequired, _ := sshConfig.Get(hostPattern, "PasswordRequired")
@@ -261,6 +262,9 @@ func filterHostGroups(endpointName string, universalGroupsCSV string, ignoreUniv
 
 // Ensures variables that contains paths do not have '~/' and is replaced with absolute path
 func expandHomeDirectory(path string) (absolutePath string) {
+	path = strings.Trim(path, `"`)
+	path = strings.Trim(path, `'`)
+
 	// Return early if path doesn't have '~/' prefix
 	if !strings.HasPrefix(path, "~/") {
 		absolutePath = path
