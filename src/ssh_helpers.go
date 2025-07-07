@@ -536,7 +536,7 @@ func buildRmdir(remotePath string) (remoteCommand RemoteCommand) {
 	return
 }
 
-func buildLink(linkName string, linkTarget string) (remoteCommand RemoteCommand) {
+func buildLink(linkTarget string, linkName string) (remoteCommand RemoteCommand) {
 	const lnCmd string = "ln -snf "
 	remoteCommand.string = lnCmd + "'" + linkTarget + "' '" + linkName + "'"
 	remoteCommand.timeout = defaultRemoteCommandTimeout
