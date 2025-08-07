@@ -24,7 +24,11 @@ func runCmd(command string, hosts string) {
 
 	printMessage(verbosityStandard, "Executing command '%s' on hosts '%s'\n", command, hosts)
 
+	// Semaphore to limit concurrency of host connections go routines
+	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
+
 	// Loop hosts chosen by user and prepare relevant host information for deployment
+	var wg sync.WaitGroup
 	for endpointName := range config.hostInfo {
 		skipHost := checkForOverride(hosts, endpointName)
 		if skipHost {
@@ -51,11 +55,24 @@ func runCmd(command string, hosts string) {
 		}
 
 		// Run the command
-		executeCommand(config.hostInfo[endpointName], config.hostInfo[proxyName], command)
+		wg.Add(1)
+		if config.options.maxSSHConcurrency > 1 {
+			go executeCommand(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], command, false)
+		} else {
+			executeCommand(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], command, true)
+		}
 	}
+	wg.Wait()
 }
 
-func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command string) {
+func executeCommand(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo EndpointInfo, proxyInfo EndpointInfo, command string, streamOutput bool) {
+	// Signal routine is done after return
+	defer wg.Done()
+
+	// Acquire a token from the semaphore channel
+	semaphore <- struct{}{}
+	defer func() { <-semaphore }() // Release the token when the goroutine finishes
+
 	// Connect to the SSH server
 	client, proxyClient, err := connectToSSH(hostInfo, proxyInfo)
 	logError("Failed to connect to host", err, false)
@@ -68,11 +85,15 @@ func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command strin
 		return
 	}
 
-	printMessage(verbosityStandard, "  Host '%s':\n", hostInfo.endpointName)
-
 	// Execute user command
-	rawCmd := RemoteCommand{command, 900, true}
-	_, err = rawCmd.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password)
+	var cmdOutput string
+	rawCmd := RemoteCommand{command, 900, streamOutput}
+	if streamOutput {
+		printMessage(verbosityStandard, "  Host '%s':\n", hostInfo.endpointName)
+		_, err = rawCmd.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password)
+	} else {
+		cmdOutput, err = rawCmd.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password)
+	}
 	if err != nil {
 		if config.options.forceEnabled {
 			printMessage(verbosityStandard, "Error:  %v\n", err)
@@ -81,7 +102,11 @@ func executeCommand(hostInfo EndpointInfo, proxyInfo EndpointInfo, command strin
 		}
 	}
 
-	printMessage(verbosityStandard, "  Host '%s' Command Completed Successfully\n", hostInfo.endpointName)
+	if cmdOutput != "" {
+		printMessage(verbosityStandard, "  Host '%s':\n%s\n", hostInfo.endpointName, cmdOutput)
+	} else {
+		printMessage(verbosityStandard, "  Host '%s': Command Completed Successfully\n\n", hostInfo.endpointName)
+	}
 }
 
 // Run a script on host(s)
@@ -128,7 +153,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 
 	printMessage(verbosityStandard, "Executing script '%s' on %s\n", localScriptFilePath, hosts)
 
-	// Semaphore to limit concurrency of host connections go routines as specified in main config
+	// Semaphore to limit concurrency of host connections go routines
 	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
 
 	if config.options.dryRunEnabled {
