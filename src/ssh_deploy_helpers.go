@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 func remoteDeploymentPreparation(host *HostMeta) (err error) {
@@ -55,13 +56,27 @@ func remoteDeploymentPreparation(host *HostMeta) (err error) {
 	return
 }
 
+func watchLongCommand(hostname string, command string, done chan struct{}) {
+	select {
+	case <-time.After(5 * time.Second):
+		// If task takes more than 5 seconds, print status
+		printMessage(verbosityStandard, "Host %s:     Reload command still running: '%s'\n", hostname, command)
+	case <-done:
+		// If the task finishes before 5 seconds, no feedback message
+	}
+}
+
 func runCheckCommands(host HostMeta, localMetadata FileInfo) (err error) {
 	if localMetadata.checksRequired {
 		for _, command := range localMetadata.checks {
 			printMessage(verbosityData, "Host %s:   Running check command '%s'\n", host.name, command)
 
+			done := make(chan struct{})
+			go watchLongCommand(host.name, command, done)
+
 			command := RemoteCommand{command, 90, false}
 			_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
+			close(done)
 			if err != nil {
 				return
 			}
@@ -80,8 +95,12 @@ func runInstallationCommands(host HostMeta, localMetadata FileInfo) (err error) 
 				continue
 			}
 
+			done := make(chan struct{})
+			go watchLongCommand(host.name, command, done)
+
 			command := RemoteCommand{command, 180, false}
 			_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
+			close(done)
 			if err != nil {
 				return
 			}
@@ -102,8 +121,12 @@ func runReloadCommands(host HostMeta, reloadCommands []string) (warning string, 
 			continue
 		}
 
+		done := make(chan struct{})
+		go watchLongCommand(host.name, command, done)
+
 		rawCmd := RemoteCommand{command, 90, false}
 		_, err = rawCmd.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
+		close(done)
 		if err != nil {
 			if index > 1 {
 				warning = "first reload command succeeded, but a later command failed. This might mean the service is currently running a bad configuration."
