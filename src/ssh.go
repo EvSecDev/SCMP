@@ -17,7 +17,7 @@ import (
 
 // Standard SSH client configuration settings for specific host
 func setupSSHConfig(hostInfo EndpointInfo) (config *ssh.ClientConfig) {
-	const versionString string = "SSH-2.0-OpenSSH_9.9p2" // Some IPS rules flag on GO's ssh client string
+	const versionString string = "SSH-2.0-OpenSSH_10.0p2" // Some IPS rules flag on GO's ssh client string
 	const defaultTimeout time.Duration = 30 * time.Second
 
 	config = &ssh.ClientConfig{
@@ -254,7 +254,7 @@ func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSu
 	// Add prefix to command
 	command.string = cmdPrefix + command.string
 
-	printMessage(verbosityDebug, "  Running command '%s'\n", command)
+	printMessage(verbosityDebug, "  Running command '%s'\n", command.string)
 
 	err = session.Start(command.string)
 	if err != nil {

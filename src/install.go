@@ -314,8 +314,8 @@ profile SCMController @{exelocation} flags=(enforce) {
   network netlink raw,
   network inet stream,
   network inet6 stream,
-  unix (create) type=stream,
-  unix (create) type=dgram,
+  unix (create connect send receive getattr) type=stream,
+  unix (create connect bind send getattr) type=dgram,
 
   ## Startup Configurations needed
   @{configdir}/** rw,
