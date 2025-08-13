@@ -27,7 +27,7 @@ func retrieveGitRepoPath() (err error) {
 	// Error if .git directory is not present in current directory
 	_, err = os.Stat(expectedDotGitPath)
 	if os.IsNotExist(err) {
-		err = fmt.Errorf("not in a git repository, unable to continue")
+		err = fmt.Errorf("not in the root of a git repository, unable to continue")
 		return
 	} else if err != nil {
 		return
