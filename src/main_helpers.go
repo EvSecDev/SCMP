@@ -4,9 +4,11 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/kevinburke/ssh_config"
@@ -314,19 +316,45 @@ func promptUser(userPrompt string, printVars ...interface{}) (userResponse strin
 
 // Prompts user for a secret value (does not echo back entered text)
 func promptUserForSecret(userPrompt string, printVars ...interface{}) (userResponse []byte, err error) {
-	// Create PTY if not in terminal
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	fd := int(os.Stdin.Fd())
+
+	// Throw error if not in terminal - stdin not available outside terminal for users
+	if !term.IsTerminal(fd) {
 		err = fmt.Errorf("not in a terminal, prompts do not work")
 		return
 	}
 
-	// Regular prompt
-	fmt.Printf(userPrompt, printVars...)
-	userResponse, err = term.ReadPassword(int(os.Stdin.Fd()))
+	// Save old terminal state
+	oldState, err := term.MakeRaw(fd)
 	if err != nil {
+		err = fmt.Errorf("failed to set terminal raw mode: %v", err)
+		return
+	}
+	defer func() {
+		// Restore terminal state upon program exit
+		_ = term.Restore(fd, oldState)
+		fmt.Println()
+	}()
+
+	// Catch signals to ensure cleanup occurs prior to exit
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigs
+		_ = term.Restore(fd, oldState)
+		fmt.Println()
+		os.Exit(1)
+	}()
+
+	// Print prompt
+	fmt.Printf(userPrompt, printVars...)
+
+	// Read secret input from user
+	userResponse, err = term.ReadPassword(fd)
+	if err != nil {
+		err = fmt.Errorf("error reading password: %v", err)
 		return
 	}
 
-	fmt.Println()
 	return
 }
