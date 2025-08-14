@@ -22,7 +22,29 @@ func runCmd(command string, hosts string) {
 		logError("Argument error", fmt.Errorf("remote-hosts cannot be empty when running commands"), false)
 	}
 
-	printMessage(verbosityStandard, "Executing command '%s' on hosts '%s'\n", command, hosts)
+	var err error
+
+	// Retrieve keys and passwords for any hosts that require it
+	for endpointName := range config.hostInfo {
+		// Only retrieve for hosts specified
+		if checkForOverride(hosts, endpointName) {
+			printMessage(verbosityProgress, "  Skipping host %s, not desired\n", endpointName)
+			continue
+		}
+
+		// Retrieve host secrets
+		config.hostInfo[endpointName], err = retrieveHostSecrets(config.hostInfo[endpointName])
+		logError("Error retrieving host secrets", err, true)
+
+		// Retrieve proxy secrets (if proxy is needed)
+		proxyName := config.hostInfo[endpointName].proxy
+		if proxyName != "" {
+			config.hostInfo[proxyName], err = retrieveHostSecrets(config.hostInfo[proxyName])
+			logError("Error retrieving proxy secrets", err, true)
+		}
+	}
+
+	printMessage(verbosityStandard, "Executing command '%s' on host(s) '%s'\n", command, hosts)
 
 	// Semaphore to limit concurrency of host connections go routines
 	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
@@ -35,11 +57,6 @@ func runCmd(command string, hosts string) {
 			printMessage(verbosityProgress, "  Skipping host %s, not desired\n", endpointName)
 			continue
 		}
-
-		// Retrieve host secrets (keys,passwords)
-		var err error
-		config.hostInfo[endpointName], err = retrieveHostSecrets(config.hostInfo[endpointName])
-		logError("Failed to retrieve host secrets", err, false)
 
 		// If user requested dry run - print host information and abort connections
 		if config.options.dryRunEnabled {
@@ -151,7 +168,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 		config.options.maxSSHConcurrency = 1
 	}
 
-	printMessage(verbosityStandard, "Executing script '%s' on %s\n", localScriptFilePath, hosts)
+	printMessage(verbosityStandard, "Executing script '%s' on host(s) %s\n", localScriptFilePath, hosts)
 
 	// Semaphore to limit concurrency of host connections go routines
 	semaphore := make(chan struct{}, config.options.maxSSHConcurrency)
