@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -180,6 +181,16 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 			hostInfo.endpoint, err = parseEndpointAddress(endpointAddr, endpointPort)
 			if err != nil {
 				err = fmt.Errorf("failed parsing network address: %v", err)
+				return
+			}
+		}
+
+		// Get timeout value if present
+		connectTimeout, _ := sshConfig.Get(hostPattern, "ConnectTimeout")
+		if connectTimeout != "" {
+			hostInfo.connectTimeout, err = strconv.Atoi(connectTimeout)
+			if err != nil {
+				err = fmt.Errorf("failed parsing connect timeout value: %v", err)
 				return
 			}
 		}

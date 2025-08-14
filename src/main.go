@@ -24,6 +24,8 @@ const (
 	fileURIPrefix                string = "file://"                              // Used by the user to tell certain arguments to load file content
 	maxDirectoryLoopCount        int    = 200                                    // Maximum recursion for any loop over directories
 	defaultRemoteCommandTimeout  int    = 10                                     // Time in seconds for remote command to be considered dead
+	defaultConnectTimeout        int    = 30                                     // Time in seconds for SSH connection timeout
+	sshVersionString             string = "SSH-2.0-OpenSSH_10.0p2"               // Some IPS rules flag on GO's ssh client string
 
 	dirType       string = "directory" // Descriptive Names for stats fs types
 	fileType      string = "regular file"
@@ -106,6 +108,7 @@ type EndpointInfo struct {
 	privateKey      ssh.Signer          // Actual private key contents
 	keyAlgo         string              // Algorithm of the private key
 	password        string              // Password for the EndpointUser
+	connectTimeout  int                 // Timeout in seconds for connection to this host
 	remoteBufferDir string              // Temporary Buffer directory that will be used to transfer local config to remote host prior to moving into place
 	remoteBackupDir string              // Temporary directory to store backups of existing remote configs while reloads are performed
 }

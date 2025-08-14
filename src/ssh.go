@@ -17,8 +17,12 @@ import (
 
 // Standard SSH client configuration settings for specific host
 func setupSSHConfig(hostInfo EndpointInfo) (config *ssh.ClientConfig) {
-	const versionString string = "SSH-2.0-OpenSSH_10.0p2" // Some IPS rules flag on GO's ssh client string
-	const defaultTimeout time.Duration = 30 * time.Second
+	var connectTimeout time.Duration
+	if hostInfo.connectTimeout > 0 {
+		connectTimeout = time.Duration(hostInfo.connectTimeout) * time.Second
+	} else {
+		connectTimeout = time.Duration(defaultConnectTimeout) * time.Second
+	}
 
 	config = &ssh.ClientConfig{
 		User: hostInfo.endpointUser,
@@ -26,12 +30,12 @@ func setupSSHConfig(hostInfo EndpointInfo) (config *ssh.ClientConfig) {
 			ssh.PublicKeys(hostInfo.privateKey),
 			ssh.Password(hostInfo.password),
 		},
-		ClientVersion: versionString,
+		ClientVersion: sshVersionString,
 		HostKeyAlgorithms: []string{
 			hostInfo.keyAlgo,
 		},
 		HostKeyCallback: hostKeyCallback,
-		Timeout:         defaultTimeout,
+		Timeout:         connectTimeout,
 	}
 	return
 }

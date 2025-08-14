@@ -221,6 +221,7 @@ IgnoreDirectories       Templates,Extras
 #       GroupTags       UniversalConfs_MONAGENT
 #Host DNS01
 #        Hostname       ns1.domain.com
+#        ConnectTimeout 15
 #Host PBX
 #        Hostname       192.168.10.4
 #       User            root
