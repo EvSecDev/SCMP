@@ -17,6 +17,14 @@ import (
 // ###################################
 
 const (
+	// Descriptive Names for available verbosity levels
+	verbosityNone int = iota
+	verbosityStandard
+	verbosityProgress
+	verbosityData
+	verbosityFullData
+	verbosityDebug
+
 	metaDelimiter                string = "#|^^^|#"                              // Start and stop delimiter for repository file metadata header
 	defaultConfigPath            string = "~/.ssh/config"                        // Default to users home directory ssh config file
 	artifactPointerFileExtension string = ".remote-artifact"                     // file extension to identify 'pointer' files for artifact files
@@ -27,25 +35,16 @@ const (
 	defaultConnectTimeout        int    = 30                                     // Time in seconds for SSH connection timeout
 	sshVersionString             string = "SSH-2.0-OpenSSH_10.0p2"               // Some IPS rules flag on GO's ssh client string
 
-	dirType       string = "directory" // Descriptive Names for stats fs types
+	// Descriptive Names for stats fs types
+	dirType       string = "directory"
 	fileType      string = "regular file"
 	fileEmptyType string = "regular empty file"
 	symlinkType   string = "symbolic link"
-	deviceType    string = "block special file"
-	charType      string = "character special file"
-	socketType    string = "socket"
-	portType      string = "port"
-	fifoType      string = "fifo"
-)
-
-// Descriptive Names for available verbosity levels
-const (
-	verbosityNone int = iota
-	verbosityStandard
-	verbosityProgress
-	verbosityData
-	verbosityFullData
-	verbosityDebug
+	// deviceType    string = "block special file"
+	// charType      string = "character special file"
+	// socketType    string = "socket"
+	// portType      string = "port"
+	// fifoType      string = "fifo"
 )
 
 // ###################################
@@ -443,7 +442,7 @@ Secure Configuration Management Program (SCMP)
 	flag.Usage = func() { fmt.Printf("Usage: %s [OPTIONS]...%s", os.Args[0], usage) }
 	flag.Parse()
 
-	const progVersion string = "v4.8.2"
+	const progVersion string = "v4.8.3"
 	if versionInfoRequested {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)

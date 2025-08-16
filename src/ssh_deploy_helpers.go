@@ -113,7 +113,7 @@ func runInstallationCommands(host HostMeta, localMetadata FileInfo) (err error) 
 func runReloadCommands(host HostMeta, reloadCommands []string) (warning string, err error) {
 	printMessage(verbosityProgress, "Host %s:   Starting execution of reload commands\n", host.name)
 
-	for index, command := range reloadCommands {
+	for _, command := range reloadCommands {
 		printMessage(verbosityProgress, "Host %s:     Running reload command '%s'\n", host.name, command)
 
 		if config.options.wetRunEnabled {
@@ -128,9 +128,6 @@ func runReloadCommands(host HostMeta, reloadCommands []string) (warning string, 
 		_, err = rawCmd.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		close(done)
 		if err != nil {
-			if index > 1 {
-				warning = "first reload command succeeded, but a later command failed. This might mean the service is currently running a bad configuration."
-			}
 			err = fmt.Errorf("failed SSH Command on host during reload command %s: %v", command, err)
 			return
 		}

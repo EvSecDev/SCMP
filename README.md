@@ -53,7 +53,7 @@ If you like what this program can do or want to expand functionality yourself, f
     - Option to temporarily disable globally for a deployment
   - Run a linear series of commands to install services associated with files/directories (part of JSON metadata header)
   - Easy retry of deployment failures with a single argument
-  - Fail-safe file deployment - automatic restore of previous file version if any remote failure is encountered
+  - Fail-safe file deployment - automatic restore of previous file version and service reload if any remote failure is encountered during initial reload
 - File/Directory Management
   - Create/modify files/file content and directories
   - Modify permissions, owner, and group of files and directories
@@ -494,6 +494,8 @@ An example of its usage would be install a package.
 It is recommended to use some sort of pre-check/validation/test option for your first reload command for a particular config file.
 Something like `nginx -t` or `nft -f /etc/nftables.conf -c` ensures that the syntax of the file you are pushing is valid before enabling the new config.
 This also ensures that if the actual reload command (like `systemctl restart`) fails, that the system is left running the previously known-good config.
+
+If any of the reload commands fail, controller will restore the previous file version and run the reload commands again to ensure the service is properly rolled back.
 
 These reload commands will be grouped when identical between several files in the deployment.
 This ensures that if you change multiple files that all require the same systemd service to be restarted, that the service is only restarted once.

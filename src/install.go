@@ -324,6 +324,7 @@ profile SCMController @{exelocation} flags=(enforce) {
   ## Program Accesses
   /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
   /usr/share/zoneinfo/** r,
+  owner /proc/*/mountinfo r,
 
   ## Repository access
   # allow read/write for files in repository (write is needed for seeding operations)
