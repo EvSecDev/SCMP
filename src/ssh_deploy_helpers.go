@@ -39,7 +39,7 @@ func remoteDeploymentPreparation(host *HostMeta) (err error) {
 			err = fmt.Errorf("failed to setup remote transfer directory: %v", err)
 			return
 		}
-		err = nil // reset err so caller doesnt think function failed
+		err = nil // reset err so caller doesn't think function failed
 	}
 
 	// Create backup directory
@@ -49,7 +49,7 @@ func remoteDeploymentPreparation(host *HostMeta) (err error) {
 		err = fmt.Errorf("failed to setup remote temporary backup directory: %v", err)
 		// Since we blindly try to create the directory, ignore errors about it already existing
 		if strings.Contains(strings.ToLower(err.Error()), "file exists") {
-			err = nil // reset err so caller doesnt think function failed
+			err = nil // reset err so caller doesn't think function failed
 			return
 		}
 	}
@@ -221,7 +221,7 @@ func deleteFile(host HostMeta, targetFilePath string) (fileDeleted bool, err err
 		err = nil
 	}
 
-	// Deletion occured, signal as such
+	// Deletion occurred, signal as such
 	fileDeleted = true
 
 	printMessage(verbosityData, "Host %s:   Checking for empty directories to delete\n", host.name)

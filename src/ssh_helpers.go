@@ -255,7 +255,7 @@ func hostKeyCallback(hostname string, remote net.Addr, PubKey ssh.PublicKey) (er
 		}
 	}
 
-	// If global was set, dont ask user to add unknown key
+	// If global was set, don't ask user to add unknown key
 	if addAllUnknownHosts {
 		err = writeKnownHost(cleanHost, pubKeyType, remotePubKey)
 		if err != nil {

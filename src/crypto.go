@@ -236,7 +236,7 @@ func SHA256SumStream(filePath string) (hash string, err error) {
 			return
 		}
 		if bytesRead == 0 {
-			err = nil // Ensure previous EOF error doesnt get returned
+			err = nil // Ensure previous EOF error doesn't get returned
 			break     // End of file
 		}
 

@@ -184,7 +184,7 @@ func checkForDiff(remoteMetadata RemoteFileInfo, localMetadata FileInfo) (conten
 		ownershipDiffers = false
 	}
 
-	// If either piece of metadata differs, whole metdata is different
+	// If either piece of metadata differs, whole metadata is different
 	if ownershipDiffers || permissionsDiffer {
 		metadataDiffers = true
 	} else if !ownershipDiffers && !permissionsDiffer {
@@ -198,11 +198,12 @@ func checkForDiff(remoteMetadata RemoteFileInfo, localMetadata FileInfo) (conten
 // Also retrieve metadata for file/dir
 func checkRemoteFileDirExistence(host HostMeta, remotePath string) (exists bool, statOutput string, err error) {
 	var command RemoteCommand
-	if host.osFamily == "bsd" {
+	switch host.osFamily {
+	case "bsd":
 		command = buildBSDStat(remotePath)
-	} else if host.osFamily == "linux" {
+	case "linux":
 		command = buildStat(remotePath)
-	} else {
+	default:
 		err = fmt.Errorf("unknown OS family")
 		return
 	}

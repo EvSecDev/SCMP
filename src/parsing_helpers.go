@@ -158,7 +158,7 @@ func parseAllRepoFiles(tree *object.Tree) (allHostsFiles map[string]map[string]s
 				break
 			}
 
-			// Fail if next file doesnt work
+			// Fail if next file doesn't work
 			err = fmt.Errorf("failed retrieving commit file: %v", err)
 			return
 		}
@@ -212,7 +212,7 @@ func mapDeniedUniversalFiles(allHostsFiles map[string]map[string]struct{}, unive
 
 	// Created denied map for each host in config
 	for endpointName := range config.hostInfo {
-		// Initialize innner map
+		// Initialize inner map
 		deniedUniversalFiles[endpointName] = make(map[string]struct{})
 
 		// Find overlaps between group files and host files - record overlapping group files in denied map
@@ -325,29 +325,30 @@ func repoFileIsNotValid(path string) (fileIsNotValid bool) {
 // Marks file type based on mode
 func determineFileType(fileMode string) (fileType string) {
 	// Set type of file in commit - skip unsupported
-	if fileMode == "0100644" {
+	switch fileMode {
+	case "0100644":
 		// Text file
 		fileType = "regular"
-	} else if fileMode == "0100755" {
+	case "0100755":
 		// Executable file - treated same as regular
 		fileType = "regular"
-	} else if fileMode == "0120000" {
+	case "0120000":
 		// Special - links
 		fileType = "unsupported"
-	} else if fileMode == "0040000" {
+	case "0040000":
 		// Directory
 		fileType = "unsupported"
-	} else if fileMode == "0160000" {
+	case "0160000":
 		// Git submodule
 		fileType = "unsupported"
-	} else if fileMode == "0100664" {
+	case "0100664":
 		// Deprecated
 		fileType = "unsupported"
-	} else if fileMode == "0" {
+	case "0":
 		// Empty (no file)
 		fileType = "unsupported"
-	} else {
-		// Unknown - dont process
+	default:
+		// Unknown - don't process
 		fileType = "unsupported"
 	}
 
@@ -413,7 +414,7 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 		return
 	}
 
-	// Separate on first occurence of path separator
+	// Separate on first occurrence of path separator
 	pathSplit := strings.SplitN(localRepoPath, "/", 2)
 
 	// Bad - only accept length of 2
@@ -446,7 +447,7 @@ func translateLocalPathtoRemotePath(localRepoPath string) (hostDir string, targe
 }
 
 // Parses custom format used with stat command
-// Relies on the stat formatting found in global constatnt statCmd
+// Relies on the stat formatting found in global constant statCmd
 func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err error) {
 	// Index Names:
 	// - 0 = name
@@ -455,7 +456,7 @@ func extractMetadataFromStat(statOutput string) (fileInfo RemoteFileInfo, err er
 	// - 3 = Group
 	// - 4 = PermissionBits
 	// - 5 = Size in bytes
-	// - 6 = Derefenced name if applicable, otherwise just file name in single quotes
+	// - 6 = Dereferenced name if applicable, otherwise just file name in single quotes
 	//[/etc/rmt],[symbolic link],[root],[root],[777],[13],['/etc/rmt' -> '/usr/sbin/rmt']
 	const linkDelimiter string = "' -> '"
 	const bsdLinkPrefix string = "target="
@@ -738,7 +739,7 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 }
 
 // Convert any macros to their actual values
-// Alters input value to replace all ocurrences of supported macros
+// Alters input value to replace all occurrences of supported macros
 func macroToValue(filePath string, inputs *[]string) {
 	const fileNameMacro string = "{@FILENAME}"
 	const filePathMacro string = "{@FILEPATH}"
@@ -752,7 +753,7 @@ func macroToValue(filePath string, inputs *[]string) {
 
 	// Replace values in inputs
 	for index, input := range *inputs {
-		// Replace all occurences of all macros
+		// Replace all occurrences of all macros
 		input = strings.ReplaceAll(input, fileNameMacro, baseFileName)
 		input = strings.ReplaceAll(input, filePathMacro, targetFilePath)
 		input = strings.ReplaceAll(input, fileDirMacro, fileDirPath)

@@ -90,7 +90,7 @@ func connectToSSH(hostInfo EndpointInfo, proxyInfo EndpointInfo) (client *ssh.Cl
 
 			printMessage(verbosityData, "Host %s: Connected by TCP to SSH server\n", hostInfo.endpointName)
 
-			// SSH Hanshake with end server through proxy (error is evaluated below)
+			// SSH Handshake with end server through proxy (error is evaluated below)
 			var clientConn ssh.Conn
 			var clientChannel <-chan ssh.NewChannel
 			var clientRequest <-chan *ssh.Request
@@ -277,7 +277,7 @@ func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSu
 		err = stdin.Close()
 		if err != nil {
 			if strings.Contains(err.Error(), "EOF") {
-				// End of file is not an error - reset err and dont return
+				// End of file is not an error - reset err and don't return
 				err = nil
 			} else {
 				err = fmt.Errorf("failed to close stdin: %v", err)

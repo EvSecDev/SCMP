@@ -110,7 +110,7 @@ func (deployMetrics *DeploymentMetrics) createReport(commitID string) (deploymen
 		}
 
 		if hostItemsDeployed == hostSummary.TotalItems {
-			// If all items were successful, whole host deploy was successfuly
+			// If all items were successful, whole host deploy was successful
 			hostSummary.Status = "Deployed"
 			deploymentSummary.Counters.CompletedHosts++
 		} else if hostItemsDeployed > 0 {

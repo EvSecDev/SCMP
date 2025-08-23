@@ -72,12 +72,13 @@ func CreateJournaldLog(errorMessage string, requestedPriority string) (err error
 
 	// Priority by request input
 	msgPriority := journal.PriAlert
-	if requestedPriority == "err" {
+	switch requestedPriority {
+	case "err":
 		msgPriority = journal.PriErr
-	} else if requestedPriority == "info" {
+	case "info":
 		msgPriority = journal.PriInfo
-	} else {
-		// No priority, dont create a log entry
+	default:
+		// No priority, don't create a log entry
 		return
 	}
 

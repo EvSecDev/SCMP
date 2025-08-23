@@ -153,7 +153,7 @@ func parseChangedFiles(changedFiles []GitChangedFileMetadata, fileOverride strin
 				commitFiles[changedFile.toPath] = "create"
 			}
 		} else if changedFile.fromPath == changedFile.toPath && fromFileIsValid && toFileIsValid {
-			// Editted in place
+			// Edited in place
 			//   like `nano etc/file.txt`
 			if strings.HasSuffix(changedFile.toPath, directoryMetadataFileName) {
 				printMessage(verbosityFullData, "  Dir Metadata '%s' is modified in place and will modify target directory\n", changedFile.toPath)
@@ -193,7 +193,7 @@ func getRepoFiles(tree *object.Tree, fileOverride string) (commitFiles map[strin
 				break
 			}
 
-			// Fail if next file doesnt work
+			// Fail if next file doesn't work
 			err = fmt.Errorf("failed retrieving commit file: %v", err)
 			return
 		}
@@ -365,7 +365,7 @@ func filterHostsAndFiles(deniedUniversalFiles map[string]map[string]struct{}, co
 	return
 }
 
-// Writes hosts secrest (key, password) into received map
+// Writes hosts secrets (key, password) into received map
 func retrieveHostSecrets(oldHostInfo EndpointInfo) (newHostInfo EndpointInfo, err error) {
 	// Copy current global config for this host to local
 	newHostInfo = oldHostInfo
@@ -555,7 +555,7 @@ func handleFileDependencies(rawDeploymentFiles []string, allFileMeta map[string]
 			noDeps = append(noDeps, file)
 		}
 	}
-	sort.Strings(noDeps) // Ensure no_dependency files are in lexiconographical order
+	sort.Strings(noDeps) // Ensure no_dependency files are in lexicographical order
 
 	queue := noDeps // Start queue from files with no dependents
 	result := []string{}
@@ -674,7 +674,7 @@ func createReloadGroups(fileList []string, allFileMeta map[string]FileInfo) (gro
 			}
 
 			for _, fileReloadCmd := range allFileMeta[file].reload {
-				// Skip duplicates after the first occurence - even between files
+				// Skip duplicates after the first occurrence - even between files
 				if seen[fileReloadCmd] {
 					continue
 				}

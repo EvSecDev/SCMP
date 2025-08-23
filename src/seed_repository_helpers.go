@@ -176,7 +176,7 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 				// Remove current directory from the stack
 				directoryStateNew.stack = directoryState.stack[:len(directoryState.stack)-1]
 			} else if dirIndex >= 1 && dirIndex <= len(dirList) {
-				// If selection is not directory, dont cd into anything
+				// If selection is not directory, don't cd into anything
 				name := dirList[dirIndex-1] // Get file name from user selection number
 				if !strings.HasSuffix(name, "/") {
 					continue
@@ -209,7 +209,7 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 	return
 }
 
-// Walks directory tree above file and retireves its metadata and writes metadata files to repo if it differs from standard system umask
+// Walks directory tree above file and retrieves its metadata and writes metadata files to repo if it differs from standard system umask
 func writeNewDirectoryTreeMetadata(endpointName string, remoteFilePath string, client *ssh.Client, SudoPassword string) (err error) {
 	// Directory permissions to ignore
 	const defaultOwner string = "root"
@@ -325,7 +325,7 @@ func handleNewReloadCommands(remoteFilePath string, localFilePath string, optCac
 	var userDoesNotWantDefaults, fileHasNoDefaults bool
 	for filePathPrefix, defaultReloadCommandArray := range DefaultReloadCommands {
 		if !strings.Contains(remoteFilePath, filePathPrefix) {
-			// Target file path does not match any defauts, skipping file
+			// Target file path does not match any defaults, skipping file
 			fileHasNoDefaults = true
 			continue
 		}

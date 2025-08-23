@@ -163,7 +163,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 
 	printMessage(verbosityFullData, "Local Script Hash '%s'\n", scriptHash)
 
-	// If user only specified a single host, dont use threads
+	// If user only specified a single host, don't use threads
 	if !strings.Contains(hosts, ",") {
 		config.options.maxSSHConcurrency = 1
 	}
@@ -226,7 +226,7 @@ func runScript(scriptFile string, hosts string, remoteFilePath string) {
 		} else {
 			executeScriptOnHost(&wg, semaphore, config.hostInfo[endpointName], config.hostInfo[proxyName], scriptInterpreter, remoteFilePath, scriptFileBytes, scriptHash, true)
 			if len(executionErrors) > 0 && !config.options.forceEnabled {
-				// Execution error occured, don't continue with other hosts
+				// Execution error occurred, don't continue with other hosts
 				break
 			}
 		}
