@@ -77,12 +77,6 @@ function compile_program_prechecks() {
 	then
 		update_program_package_imports "$repoRoot/$SRCdir" "$packagePrintLine"
 	fi
-
-	# Ensure readme has updated code blocks
-	if type -t update_readme &>/dev/null
-	then
-		update_readme "$SRCdir" "$srcHelpMenuStartDelimiter" "$readmeHelpMenuStartDelimiter"
-	fi
 }
 
 function compile_program() {
@@ -112,7 +106,8 @@ function compile_program() {
 	cd "$repoRoot"
 
 	# Get version
-	buildVersion=$(./$outputEXE --versionid)
+	buildVersion=$(./$outputEXE version)
+	helpMenu=$(./$outputEXE -h)
 
 	# Rename to more descriptive if full build was requested
 	if [[ $buildFull == true ]]
@@ -137,6 +132,12 @@ function compile_program() {
 		fi
 
 		mv "$outputEXE" "$deployedBinaryPath"
+	fi
+
+	# Ensure readme has updated code blocks
+	if type -t update_readme &>/dev/null
+	then
+		update_readme "$helpMenu" "$srcHelpMenuStartDelimiter" "$readmeHelpMenuStartDelimiter"
 	fi
 
 	echo -e "   ${GREEN}[+] DONE${RESET}: Built version ${BOLD}${BLUE}$buildVersion${RESET}"

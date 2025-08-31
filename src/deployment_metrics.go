@@ -5,7 +5,60 @@ import (
 	"encoding/json"
 	"os"
 	"strings"
+	"sync"
 )
+
+// Used for metrics - counting post deployment
+type DeploymentMetrics struct {
+	startTime       int64
+	hostFiles       map[string][]string
+	hostFilesMutex  sync.Mutex
+	hostErr         map[string]string
+	hostErrMutex    sync.Mutex
+	fileErr         map[string]string
+	fileErrMutex    sync.RWMutex
+	fileAction      map[string]string
+	fileActionMutex sync.Mutex
+	hostBytes       map[string]int
+	hostBytesMutex  sync.Mutex
+	endTime         int64
+}
+
+// Summary of actions done and collected metrics
+// Status could be UpToDate,Deployed,Partial,Failed
+type DeploymentSummary struct {
+	Status          string `json:"Status"`
+	StartTime       string `json:"Start-Time"`
+	EndTime         string `json:"End-Time"`
+	ElapsedTime     string `json:"Elapsed-Time"`     // Human readable
+	TransferredData string `json:"Transferred-Size"` // Human readable
+	Counters        struct {
+		Hosts          int `json:"Hosts" `
+		Items          int `json:"Items"`
+		CompletedHosts int `json:"Hosts-Completed"`
+		CompletedItems int `json:"Items-Completed"`
+		FailedHosts    int `json:"Hosts-Failed"`
+		FailedItems    int `json:"Items-Failed"`
+	} `json:"Counters"`
+	CommitID string        `json:"Deployment-Commit-Hash"`
+	Hosts    []HostSummary `json:"Hosts,omitempty"`
+}
+
+type HostSummary struct {
+	Name            string        `json:"Name"`
+	Status          string        `json:"Status,omitempty"`
+	ErrorMsg        string        `json:"Error-Message,omitempty"`
+	TotalItems      int           `json:"Total-Items,omitempty"`
+	TransferredData string        `json:"Transferred-Size,omitempty"`
+	Items           []ItemSummary `json:"Items,omitempty"`
+}
+
+type ItemSummary struct {
+	Name     string `json:"Name"`
+	Action   string `json:"Deployment-Action"`
+	Status   string `json:"Status,omitempty"`
+	ErrorMsg string `json:"Error-Message,omitempty"`
+}
 
 func (metric *DeploymentMetrics) addHostBytes(host string, deployedBytes int) {
 	// Lock and write to metric var - increment total transferred bytes

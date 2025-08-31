@@ -3,6 +3,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,34 +15,50 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+func entryInstall(commandname string, args []string) {
+	var installAAProf bool
+	var installDefaultConfig bool
+	var newRepoBranch string
+	var newRepoPath string
+
+	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	commandFlags.StringVar(&newRepoPath, "repository-path", "", "Path to new repository")
+	commandFlags.StringVar(&newRepoBranch, "repository-branch-name", "main", "Initial branch new for new repository")
+	commandFlags.BoolVar(&installDefaultConfig, "default-config", false, "Write default SSH configuration file")
+	commandFlags.BoolVar(&installAAProf, "apparmor-profile", false, "Enable apparmor profile if supported")
+	setGlobalArguments(commandFlags)
+
+	commandFlags.Usage = func() {
+		printHelpMenu(commandFlags, commandname, nil, "", false)
+	}
+	if len(args) < 1 {
+		printHelpMenu(commandFlags, commandname, nil, "", false)
+		os.Exit(1)
+	}
+	commandFlags.Parse(args[0:])
+
+	if installAAProf {
+		installAAProfile()
+		return
+	}
+	if installDefaultConfig {
+		installDefaultSSHConfig()
+		return
+	}
+	if newRepoPath != "" {
+		createNewRepository(newRepoPath, newRepoBranch)
+		return
+	} else {
+		printHelpMenu(commandFlags, commandname, nil, "", false)
+		os.Exit(1)
+	}
+}
+
 // Sets up new git repository based on controller-expected directory format
 // Also creates initial commit so the first deployment will have something to compare against
-func createNewRepository(newRepoInfo string) {
+func createNewRepository(repoPath string, initialBranchName string) {
 	const autoCommitUserName string = "SCMPController"
 	const autoCommitUserEmail string = "scmpc@localhost"
-
-	userRepoChoices := strings.Split(newRepoInfo, ":")
-
-	// Default repo values
-	repoPath := expandHomeDirectory("~/SCMPGit")
-	initialBranchName := "main"
-
-	// Set user choice if provided
-	switch len(userRepoChoices) {
-	case 0:
-		// Both repoPath and initialBranchName are set to defaults
-	case 1:
-		// User specified only the repo path
-		repoPath = userRepoChoices[0]
-		// Default branch name is already set to "main"
-	case 2:
-		// User specified both repo path and branch name
-		repoPath = userRepoChoices[0]
-		initialBranchName = userRepoChoices[1]
-	default:
-		logError("Invalid Argument", fmt.Errorf("invalid new repository option length"), false)
-	}
-
 	config.osPathSeparator = string(os.PathSeparator)
 
 	// Only take absolute paths from user choice
@@ -156,7 +173,7 @@ func createNewRepository(newRepoInfo string) {
 		metadataHeader.TargetFileOwnerGroup = "root:root"
 		metadataHeader.TargetFilePermissions = 640
 
-		// Add reloads/checks or dont depending on example file name
+		// Add reloads/checks or don't depending on example file name
 		if !strings.Contains(exampleFile, "noreload") {
 			metadataHeader.ReloadCommands = []string{"ls /var/log/custom.log", "ping -W2 -c1 syslog.example.com"}
 			metadataHeader.CheckCommands = []string{"systemctl restart rsyslog.service", "systemctl is-active rsyslog"}

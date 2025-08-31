@@ -2,10 +2,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -14,6 +16,34 @@ import (
 	"github.com/kevinburke/ssh_config"
 	"golang.org/x/term"
 )
+
+// Argument Groups
+
+func setGlobalArguments(fs *flag.FlagSet) {
+	fs.BoolVar(&config.options.detailedSummaryRequested, "with-summary", false, "Generate JSON summary of actions")
+	fs.StringVar(&config.logFilePath, "log-file", "", "Write events to log file (using --verbose level)")
+	fs.BoolVar(&config.options.forceEnabled, "force", false, "Do not exit/abort on failures")
+	fs.BoolVar(&config.options.allowDeletions, "allow-deletions", false, "Permits deletions of files/entries")
+	fs.BoolVar(&config.options.dryRunEnabled, "T", false, "Conducts non-mutating actions (no remote actions)")
+	fs.BoolVar(&config.options.dryRunEnabled, "dry-run", false, "Conducts non-mutating actions (no remote actions)")
+	fs.BoolVar(&config.options.wetRunEnabled, "w", false, "Conducts non-mutating actions (including remote actions)")
+	fs.BoolVar(&config.options.wetRunEnabled, "wet-run", false, "Conducts non-mutating actions (including remote actions)")
+	fs.IntVar(&globalVerbosityLevel, "v", 1, "Increase detailed progress messages (Higher is more verbose) <0...5>")
+	fs.IntVar(&globalVerbosityLevel, "verbosity", 1, "Increase detailed progress messages (Higher is more verbose) <0...5>")
+}
+
+func setDeployConfArguments(fs *flag.FlagSet) {
+	fs.StringVar(&config.filePath, "c", defaultConfigPath, "Path to the configuration file")
+	fs.StringVar(&config.filePath, "config", defaultConfigPath, "Path to the configuration file")
+}
+
+func setSSHArguments(fs *flag.FlagSet) {
+	fs.StringVar(&config.options.runAsUser, "u", "root", "User name to run sudo commands as")
+	fs.StringVar(&config.options.runAsUser, "run-as-user", "root", "User name to run sudo commands as")
+	fs.BoolVar(&config.options.disableSudo, "disable-privilege-escalation", false, "Disables use of sudo when executing commands remotely")
+	fs.IntVar(&config.options.maxSSHConcurrency, "m", 10, "Maximum simultaneous SSH connections (1 disables threading)")
+	fs.IntVar(&config.options.maxSSHConcurrency, "max-conns", 10, "Maximum simultaneous SSH connections (1 disables threading)")
+}
 
 // Print message to stdout
 // Message will only print if the global verbosity level is equal to or smaller than requiredVerbosityLevel
@@ -43,6 +73,195 @@ func printMessage(requiredVerbosityLevel int, message string, vars ...interface{
 		config.eventLog = append(config.eventLog, fmt.Sprintf(message, vars...))
 		config.eventLogMutex.Unlock()
 	}
+}
+
+const baseIndentSpaces int = 2 // like "[  ]-t, --test  Some usage text"
+
+// Full standardized help menu (wraps option printer as well)
+func printHelpMenu(fs *flag.FlagSet, commandname string, subcommands []string, usageTrailer string, fullMenu bool) {
+	usage := os.Args[0]
+	if commandname != "" {
+		usage += " " + commandname
+	}
+	if len(subcommands) == 1 {
+		usage += " " + subcommands[0]
+	} else if len(subcommands) > 1 {
+		usage += " [subcommand]"
+	}
+	usage += " [arguments]..."
+	if usageTrailer != "" {
+		usage += " " + usageTrailer
+	}
+
+	fmt.Printf("Usage: %s\n\n", usage)
+
+	if fullMenu {
+		fmt.Println(helpMenuTitle)
+		fmt.Printf(helpMenuSubTitle)
+	}
+
+	if len(subcommands) > 0 {
+		indent := strings.Repeat(" ", baseIndentSpaces)
+
+		fmt.Printf("%sSubcommands:\n", indent)
+
+		cmdIndent := strings.Repeat(" ", baseIndentSpaces+2)
+
+		// Fixed ordering (in case a map was source of info)
+		sort.Strings(subcommands)
+
+		for _, subcommand := range subcommands {
+			fmt.Printf("%s%s\n", cmdIndent, subcommand)
+		}
+		fmt.Println()
+	}
+
+	printFlagOptions(fs)
+
+	if fullMenu {
+		fmt.Printf(helpMenuTrailer)
+	}
+}
+
+// Custom printer to deduplicate short/long usages and indent automatically
+func printFlagOptions(fs *flag.FlagSet) {
+	const shortArgPrefix string = "-"      // like "  [-]t, --test  Some usage text"
+	const shortLongArgJoiner string = ", " // like "  -t[, ]--test  Some usage text"
+	const longArgPrefix string = "--"      // like "  -t, [--]test  Some usage text"
+	const argToUsageSpaces int = 2         // like "  -t, --test[  ]Some usage text"
+
+	type optInfo struct {
+		names      []string
+		usage      string
+		defaultVal string
+		hasShort   bool
+	}
+
+	seen := make(map[string]*optInfo)
+
+	// Deduplicate usages by exact usage text match
+	fs.VisitAll(func(arg *flag.Flag) {
+		name := arg.Name
+		var shortArgName, longArgName string
+		if len(name) == 1 {
+			shortArgName = name
+		} else {
+			longArgName = name
+		}
+
+		usageText := arg.Usage
+
+		hasShort := shortArgName != ""
+
+		// Add formatted arg text
+		usage, seenUsage := seen[usageText]
+		if seenUsage {
+			if shortArgName != "" {
+				usage.names = append(usage.names, shortArgPrefix+shortArgName)
+				usage.hasShort = true
+			}
+			if longArgName != "" {
+				usage.names = append(usage.names, longArgPrefix+longArgName)
+			}
+		} else {
+			names := []string{}
+			if shortArgName != "" {
+				names = append(names, shortArgPrefix+shortArgName)
+			}
+			if longArgName != "" {
+				names = append(names, longArgPrefix+longArgName)
+			}
+			seen[usageText] = &optInfo{
+				names:      names,
+				usage:      arg.Usage,
+				defaultVal: arg.DefValue,
+				hasShort:   hasShort,
+			}
+		}
+	})
+
+	// Deduplicated option list
+	opts := []*optInfo{}
+	for _, opt := range seen {
+		opts = append(opts, opt)
+	}
+
+	// Ensure short args come before long args
+	for _, opt := range seen {
+		if len(opt.names) <= 1 {
+			continue
+		}
+
+		sort.Slice(opt.names, func(indexA, indexB int) bool {
+			flagNameA := opt.names[indexA]
+			flagNameB := opt.names[indexB]
+
+			return len(flagNameA) < len(flagNameB)
+		})
+	}
+
+	// Sort list to group long/short args
+	sort.Slice(opts, func(indexA, indexB int) bool {
+		flagA := opts[indexA]
+		flagB := opts[indexB]
+
+		firstNameA := strings.ToLower(flagA.names[0])
+		firstNameB := strings.ToLower(flagB.names[0])
+
+		return firstNameA < firstNameB
+	})
+
+	// accounts for short arg prefix length, short arg default len (1), and joiner length
+	longShortArgOffset := len(shortLongArgJoiner) + len(shortArgPrefix) + 1
+
+	// Calculate max length flags for alignment
+	maxLen := 0
+	for _, opt := range opts {
+		left := strings.Join(opt.names, shortLongArgJoiner)
+		if !opt.hasShort {
+			leftLen := len(left) + longShortArgOffset
+			if leftLen > maxLen {
+				maxLen = leftLen
+			}
+		} else {
+			if len(left) > maxLen {
+				maxLen = len(left)
+			}
+		}
+	}
+
+	// Print option list
+	fmt.Printf("%sOptions:\n", strings.Repeat(" ", baseIndentSpaces))
+	for _, opt := range opts {
+		left := strings.Join(opt.names, shortLongArgJoiner)
+
+		// Indent based on short/long
+		indentSpaces := baseIndentSpaces
+		if !opt.hasShort {
+			indentSpaces += longShortArgOffset
+		}
+		indent := strings.Repeat(" ", indentSpaces)
+
+		// Padding for this line to offset usage text
+		leftLen := len(left) + (0)
+		if !opt.hasShort {
+			leftLen += longShortArgOffset
+		}
+		paddingSpaces := maxLen - leftLen + argToUsageSpaces
+		if paddingSpaces < argToUsageSpaces {
+			paddingSpaces = argToUsageSpaces
+		}
+		padding := strings.Repeat(" ", paddingSpaces)
+
+		// Skip printing any "empty" defaults
+		desc := opt.usage
+		if opt.defaultVal != "" && opt.defaultVal != "false" && opt.defaultVal != "0" {
+			desc += fmt.Sprintf(" [default: %s]", opt.defaultVal)
+		}
+
+		fmt.Printf("%s%s%s%s\n", indent, left, padding, desc)
+	}
+
 }
 
 // Parse out options from config file into global
@@ -135,10 +354,9 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 		return
 	}
 
-	// Check maxconns is valid
+	// If max conns is not set, default to no concurrency
 	if config.options.maxSSHConcurrency == 0 {
-		err = fmt.Errorf("max connections cannot be 0")
-		return
+		config.options.maxSSHConcurrency = 1
 	}
 
 	// Password vault file

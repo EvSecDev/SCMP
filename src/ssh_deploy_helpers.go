@@ -15,7 +15,7 @@ func remoteDeploymentPreparation(host *HostMeta) (err error) {
 	command := buildUnameKernel()
 	unameOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
-		err = fmt.Errorf("failed to determine OS, cannot deploy: %v", err)
+		err = fmt.Errorf("unable to determine OS, cannot deploy: %v", err)
 		return
 	}
 
@@ -60,7 +60,7 @@ func watchLongCommand(hostname string, command string, done chan struct{}) {
 	select {
 	case <-time.After(5 * time.Second):
 		// If task takes more than 5 seconds, print status
-		printMessage(verbosityStandard, "Host %s:     Reload command still running: '%s'\n", hostname, command)
+		printMessage(verbosityStandard, "Host %s:     Command still running: '%s'\n", hostname, command)
 	case <-done:
 		// If the task finishes before 5 seconds, no feedback message
 	}

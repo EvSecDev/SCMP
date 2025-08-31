@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,37 @@ import (
 	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/chacha20poly1305"
 )
+
+type Credential struct {
+	LoginUserPassword string `json:"loginUserPassword"` // For secrets vault
+}
+
+func entrySecrets(commandname string, args []string) {
+	var modifyVaultHost string
+
+	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	setDeployConfArguments(commandFlags)
+	commandFlags.StringVar(&modifyVaultHost, "p", "", "Create/Update/Delete password for given host name")
+	commandFlags.StringVar(&modifyVaultHost, "modify-vault-password", "", "Create/Update/Delete password for given host name")
+	setGlobalArguments(commandFlags)
+
+	commandFlags.Usage = func() {
+		printHelpMenu(commandFlags, commandname, nil, "", false)
+	}
+	if len(args) < 1 {
+		printHelpMenu(commandFlags, commandname, nil, "", false)
+		os.Exit(1)
+	}
+	commandFlags.Parse(args[0:])
+
+	err := config.extractOptions(config.filePath)
+	logError("Error in controller configuration", err, true)
+
+	if modifyVaultHost != "" {
+		err := modifyVault(modifyVaultHost)
+		logError("Error modifying vault", err, false)
+	}
+}
 
 func modifyVault(endpointName string) (err error) {
 	// Ensure vault file exists, if not create it
@@ -62,9 +94,14 @@ func modifyVault(endpointName string) (err error) {
 		}
 	}
 
+	_, hostExists := config.hostInfo[endpointName]
+	if !hostExists {
+		printMessage(verbosityStandard, "Warning: selected host '%s' is not defined in configuration file\n", endpointName)
+	}
+
 	// Get password from user for host
 	loginUserName := config.hostInfo[endpointName].endpointUser
-	hostPassword, err := promptUserForSecret("Enter '%s' password for host '%s' (leave empty to delete entry): ", loginUserName, endpointName)
+	hostPassword, err := promptUserForSecret("Enter %s password for host '%s' (leave empty to delete entry): ", loginUserName, endpointName)
 	if err != nil {
 		return
 	}

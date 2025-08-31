@@ -3,20 +3,153 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 )
 
+type DeploymentList struct {
+	files             []string            // Ordered list of everything to deploy
+	reloadIDtoFile    map[string][]string // Lookup of file list by reload ID
+	fileToReloadID    map[string]string   // Lookup of a files reload ID
+	reloadIDfileCount map[string]int      // Total files in reload group
+	reloadIDcommands  map[string][]string // Ordered list of reload commands
+}
+
+// Struct for metadata json in config files
+type MetaHeader struct {
+	TargetFileOwnerGroup    string   `json:"FileOwnerGroup"`
+	TargetFilePermissions   int      `json:"FilePermissions"`
+	ExternalContentLocation string   `json:"ExternalContentLocation,omitempty"`
+	SymbolicLinkTarget      string   `json:"SymbolicLinkTarget,omitempty"`
+	Dependencies            []string `json:"Dependencies,omitempty"`
+	InstallCommands         []string `json:"Install,omitempty"`
+	CheckCommands           []string `json:"Checks,omitempty"`
+	ReloadCommands          []string `json:"Reload,omitempty"`
+	ReloadGroup             string   `json:"ReloadGroup,omitempty"`
+}
+
+// Struct for deployment file metadata
+type FileInfo struct {
+	hash            string
+	targetFilePath  string
+	action          string
+	ownerGroup      string
+	permissions     int
+	fileSize        int
+	linkTarget      string
+	dependencies    []string
+	installOptional bool
+	install         []string
+	checksRequired  bool
+	checks          []string
+	reloadRequired  bool
+	reload          []string
+	reloadGroup     string
+}
+
+// Struct for remote file metadata
+type RemoteFileInfo struct {
+	hash        string
+	name        string
+	fsType      string
+	permissions int
+	owner       string
+	group       string
+	size        int
+	linkTarget  string
+	exists      bool
+}
+
+// Deployment host metadata to easily pass between SSH functions
+type HostMeta struct {
+	name              string
+	osFamily          string
+	password          string
+	sshClient         *ssh.Client
+	transferBufferDir string
+	backupPath        string
+}
+
+func entryDeploy(commandname string, args []string) {
+	availCommands := map[string]func(string, string, string, string){
+		"all":      deploy,
+		"diff":     deploy,
+		"failures": deploy,
+	}
+	var commandList []string
+	for cmd := range availCommands {
+		commandList = append(commandList, cmd)
+	}
+
+	var commitID string
+	var hostOverride string
+	var localFileOverride string
+	var testConfig bool
+
+	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	setDeployConfArguments(commandFlags)
+	commandFlags.StringVar(&hostOverride, "r", "", "Override hosts for deployment")
+	commandFlags.StringVar(&hostOverride, "remote-hosts", "", "Override hosts for deployment")
+	commandFlags.StringVar(&localFileOverride, "l", "", "Override file(s) for deployment")
+	commandFlags.StringVar(&localFileOverride, "local-files", "", "Override file(s) for deployment")
+	commandFlags.StringVar(&commitID, "C", "", "Commit ID (hash) to deploy from")
+	commandFlags.StringVar(&commitID, "commitid", "", "Commit ID (hash) to deploy from")
+	commandFlags.BoolVar(&config.options.runInstallCommands, "install", false, "Run installation commands during deployment")
+	commandFlags.BoolVar(&config.options.disableReloads, "disable-reloads", false, "Disables running any reload commands")
+	commandFlags.BoolVar(&config.options.ignoreDeploymentState, "ignore-deployment-state", false, "Ignores deployment state in configuration file")
+	commandFlags.BoolVar(&testConfig, "t", false, "Test configuration syntax and option validity")
+	commandFlags.BoolVar(&testConfig, "test-config", false, "Test configuration syntax and option validity")
+	commandFlags.BoolVar(&config.options.regexEnabled, "regex", false, "Enables regular expression parsing for file/host overrides")
+	setGlobalArguments(commandFlags)
+	setSSHArguments(commandFlags)
+
+	commandFlags.Usage = func() {
+		printHelpMenu(commandFlags, commandname, commandList, "", false)
+	}
+	if len(args) < 1 {
+		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		os.Exit(1)
+	}
+	commandFlags.Parse(args[1:])
+
+	err := config.extractOptions(config.filePath)
+	logError("Error in controller configuration", err, true)
+
+	if testConfig {
+		printMessage(verbosityStandard, "controller: configuration file %s test is successful\n", config.filePath)
+		return
+	}
+
+	subcommand := args[0]
+
+	entryFunc, validCommand := availCommands[subcommand]
+	if validCommand {
+		entryFunc(subcommand, commitID, hostOverride, localFileOverride)
+	} else {
+		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		os.Exit(1)
+	}
+}
+
 // Parses and prepares deployment information
-func preDeployment(deployMode string, commitID string, hostOverride string, fileOverride string) {
-	err := retrieveGitRepoPath()
+func deploy(deployMode string, commitID string, hostOverride string, fileOverride string) {
+	// Pull contents of out file URIs
+	hostOverride, err := retrieveURIFile(hostOverride)
+	logError("Failed to parse remove-hosts URI", err, true)
+	fileOverride, err = retrieveURIFile(fileOverride)
+	logError("Failed to parse local-files URI", err, true)
+
+	err = retrieveGitRepoPath()
 	logError("Repository Error", err, false)
 
 	// Override commitID with one from failtracker if redeploy requested
 	var lastDeploymentSummary DeploymentSummary
-	if deployMode == "deployFailures" {
+	if deployMode == "failures" {
 		commitID, lastDeploymentSummary, err = getFailTrackerCommit()
 		logError("Failed to extract commitID/failures from failtracker file", err, false)
 	}
@@ -29,17 +162,17 @@ func preDeployment(deployMode string, commitID string, hostOverride string, file
 	var commitFiles map[string]string
 
 	switch deployMode {
-	case "deployChanges":
+	case "diff":
 		changedFiles, lerr := getChangedFiles(commit)
 		logError("Failed to retrieve changed files", lerr, true)
 
 		commitFiles = parseChangedFiles(changedFiles, fileOverride)
-	case "deployAll":
+	case "all":
 		commitFiles, err = getRepoFiles(tree, fileOverride)
-	case "deployFailures":
+	case "failures":
 		commitFiles, hostOverride, err = lastDeploymentSummary.getFailures(fileOverride)
 	default:
-		logError("Unknown deployment mode", fmt.Errorf("mode must be deployChanges, deployAll, or deployFailures"), false)
+		logError("Unknown deployment mode", fmt.Errorf("mode must be diff, all, or failures"), false)
 	}
 
 	logError("Failed to retrieve files", err, false)

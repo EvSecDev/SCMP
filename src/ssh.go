@@ -337,9 +337,15 @@ func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSu
 				return
 			}
 
-			// Return commands error
-			err = fmt.Errorf("error with command '%s': %v: %s", command.string, err, commandstderr)
-			return
+			if strings.Contains(string(commandstderr), "sudo: a terminal is required to read the password") {
+				// Remove ambiguous sudo errors about missing required password - error is on our side
+				err = fmt.Errorf("internal failure: command '%s' attempted to run with sudo with no given password but password was required", command.string)
+				return
+			} else {
+				// Return commands error
+				err = fmt.Errorf("error with command '%s': %v: %s", command.string, err, commandstderr)
+				return
+			}
 		} else {
 			// nil from session.Wait() means exit status zero from the command
 			exitStatusZero = true

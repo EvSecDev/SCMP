@@ -11,11 +11,19 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
+
+// Type for commands run remotely
+type RemoteCommand struct {
+	string            // Command string
+	timeout      int  // In seconds
+	streamStdout bool // Progressively stream output of command to stdout of this program (almost always false)
+}
 
 // ###########################################
 //      SSH/Connection HANDLING
@@ -176,6 +184,10 @@ func parseEndpointAddress(endpointIP string, Port string) (endpointSocket string
 
 	return
 }
+
+// Global for checking remote hosts keys
+var addAllUnknownHosts bool
+var knownHostMutex sync.Mutex
 
 // Custom HostKeyCallback for validating remote public key against known pub keys
 // If unknown, will ask user if it should trust the remote host

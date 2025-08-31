@@ -2,6 +2,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -14,6 +15,51 @@ import (
 // Global for script execution concurrency
 var executionErrors string
 var executionErrorsMutex sync.Mutex
+
+func entryExec(commandname string, args []string) {
+	var hostOverride string
+	var remoteFileOverride string
+
+	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	setDeployConfArguments(commandFlags)
+	commandFlags.StringVar(&hostOverride, "r", "", "Override remote hosts")
+	commandFlags.StringVar(&hostOverride, "remote-hosts", "", "Override remote hosts")
+	commandFlags.StringVar(&remoteFileOverride, "R", "", "Override remote file(s)")
+	commandFlags.StringVar(&remoteFileOverride, "remote-files", "", "Override remote file(s)")
+	commandFlags.BoolVar(&config.options.regexEnabled, "regex", false, "Enables regular expression parsing for file/host overrides")
+	setSSHArguments(commandFlags)
+	setGlobalArguments(commandFlags)
+
+	commandFlags.Usage = func() {
+		printHelpMenu(commandFlags, commandname, nil, "<remote command>", false)
+	}
+	if len(args) < 1 {
+		printHelpMenu(commandFlags, commandname, nil, "<remote command>", false)
+		os.Exit(1)
+	}
+	commandFlags.Parse(args[0:])
+
+	executeCommands := strings.Join(commandFlags.Args(), " ")
+	if executeCommands == "" {
+		printHelpMenu(commandFlags, commandname, nil, "<remote command>", false)
+		os.Exit(1)
+	}
+
+	err := config.extractOptions(config.filePath)
+	logError("Error in controller configuration", err, true)
+
+	// Pull contents of out file URIs
+	hostOverride, err = retrieveURIFile(hostOverride)
+	logError("Failed to parse remove-hosts URI", err, true)
+	remoteFileOverride, err = retrieveURIFile(remoteFileOverride)
+	logError("Failed to parse local-files URI", err, true)
+
+	if strings.HasPrefix(executeCommands, "file:") {
+		runScript(executeCommands, hostOverride, remoteFileOverride)
+	} else if executeCommands != "" {
+		runCmd(executeCommands, hostOverride)
+	}
+}
 
 // Run a single adhoc command on requested hosts
 func runCmd(command string, hosts string) {

@@ -20,8 +20,8 @@ The vault is protected by an AEAD cipher (chacha20poly1305) and derives the key 
 Using the Go x/crypto/ssh package, this program will SSH into the hosts defined in the configuration file and write the relevant configurations as well as handle the reloading of the associated service/program if required.
   The deployment method is currently only SSH by key authentication using password sudo for remote commands (password login authentication is currently not supported).
 
-- In deploy changes mode, you can choose a specific commit ID (or specify none and use the latest commit) from your repository and deploy the changed files in that specific commit to their designated remote hosts.
-- In deploy failure mode, the program will read the last failure json (if present) and extract the commitid, hosts, and files that failed and attempt to redeploy.
+- In deploy diff mode, you can choose a specific commit ID (or specify none and use the latest commit) from your repository and deploy the changed files in that specific commit to their designated remote hosts.
+- In deploy failures mode, the program will read the last failure json (if present) and extract the commitid, hosts, and files that failed and attempt to redeploy.
 - In deploy all mode, with a comma separated list of hosts, you can deploy every relevant file in the repo to the chosen hosts for a given commit (usually, the head commit).
 
 Although this program does need permissions on remote systems for writing system-wide configuration files and potentially restarting services, it does NOT need to SSH as root.
@@ -29,9 +29,9 @@ In general, it is recommended to use some or all of these below security precaut
 
 - Sudo access that requires a password.
 - Only allowing your user sudo access for the standard commands (listed below in dependencies section) and your reload commands.
-- Using network level host IP authentication (such as IPsec AH)
+- Using network level host IP authentication (such as IPsec AH).
 - Using the supplied apparmor profile for the controller.
-- Regular encrypted backups of git repository
+- Regular encrypted backups of the git repository to a different machine.
 
 Below you can find the recommended setup for the remote servers, and how to configure the remote host to have the least privileges possible to fulfill the functions of this program.
 
@@ -42,23 +42,23 @@ If you like what this program can do or want to expand functionality yourself, f
 ### What it can do
 
 - Deployments
-  - Deploy changed configurations automatically via git post-commit hook or manually via specifying a commit hash
+  - Deploy changed configurations based on commit difference or manually via specifying a commit hash
   - Deploy all (or a subset of) tracked files
   - Deploy individual/lists/groups of files to individual/lists/groups of hosts
   - Deployment test run using single host (use `--max-conns 1 -r HOST`)
-  - Exclude hosts from deployments (use config option `DeploymentState offline`)
+  - Exclude hosts from deployments (use config option `DeploymentState offline` under a host)
   - Ad-hoc override host exclusion from deployments (use `--ignore-deployment-state`)
-  - Run a linear series of commands prior to any deployment actions per file/directory (part of JSON metadata header)
-  - Run a linear series of commands to enable/reload/start services associated with files/directories (part of JSON metadata header)
+  - Run a linear series of commands prior to any deployment actions per file/directory (part of file JSON metadata header)
+  - Run a linear series of commands to enable/reload/start services associated with files/directories (part of file JSON metadata header)
     - Option to temporarily disable globally for a deployment
-  - Run a linear series of commands to install services associated with files/directories (part of JSON metadata header)
-  - Easy retry of deployment failures with a single argument
+  - Run a linear series of commands to install services associated with files/directories (part of file JSON metadata header)
+  - Easy retry of deployment failures
   - Fail-safe file deployment - automatic restore of previous file version and service reload if any remote failure is encountered during initial reload
 - File/Directory Management
   - Create/modify files/file content and directories
   - Modify permissions, owner, and group of files and directories
   - Removing 'managed' files and directories
-  - Creating symbolic links
+  - Creating/modifying symbolic links
   - Group files together to apply to multiple hosts
   - Options to ignore specific directories in the repository
   - Track binary/artifact files (executables, images, videos, documents)
@@ -93,87 +93,42 @@ If you like what this program can do or want to expand functionality yourself, f
 
 - Remote Host Requirements:
   - OpenSSH Server
-  - Commands: `ls, stat, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum`
+  - Commands: `ls, stat, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum, uname`
 - Local Host Requirements:
   - Unix file paths
 
 ### Controller Help Menu
 
 ```bash
+Usage: ./controller [subcommand] [arguments]...
+
 Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
   Deploy ad-hoc commands and scripts to Linux servers via SSH
 
-  Options:
-    -c, --config </path/to/ssh/config>             Path to the configuration file
-                                                   [default: ~/.ssh/config]
-    -d, --deploy-changes                           Deploy changed files in the specified commit
-                                                   [default: HEAD]
-    -a, --deploy-all                               Deploy all files in specified commit
-                                                   [default: HEAD]
-    -f, --deploy-failures                          Deploy failed files/hosts using
-                                                   cached deployment summary file
-    -e, --execute <"command"|file:///>             Run adhoc single command or upload and
-                                                   execute the script on remote hosts
-    -S, --scp                                      Transfer files only
-                                                   Use -r, -l, -R - one-to-one mapping between -l/-R
-    -u, --run-as-user <username>                   User name to run sudo commands as
-                                                   [default: root]
-    -r, --remote-hosts <host1,host2,...|file://>   Override hosts to connect to for deployment
-                                                   or adhoc command/script execution
-    -R, --remote-files <file1,file2,...|file://>   Override file(s) to retrieve using seed-repository
-                                                   Also override default remote path for script execution
-    -l, --local-files <file1,file2,...|file://>    Override file(s) for deployment
-                                                   Must be relative file paths from inside the repository
-    -C, --commitid <hash>                          Commit ID (hash) to deploy from
-                                                   Effective with both '-a' and '-d'
-    -T, --dry-run                                  Does everything except start SSH connections
-                                                   Prints out deployment information
-    -w, --wet-run                                  Connects to remotes and tests deployment without mutating actions
-                                                   [default: false]
-    -m, --max-conns <15>                           Maximum simultaneous outbound SSH connections
-                                                   [default: 10] (1 disables concurrency)
-    -p, --modify-vault-password <host>             Create/Change/Delete a hosts password in the
-                                                   vault (will create the vault if it doesn't exist)
-    -n, --new-repo </path/to/repo>:<branch>        Create a new repository with given path/branch
-                                                   [branch default: main]
-    -s, --seed-repo                                Retrieve existing files from remote hosts to
-                                                   seed the local repository (Requires '--remote-hosts')
-        --git-add <dir|file>                       Add files/directories/globs to git worktree
-                                                   Required for artifact tracking feature
-        --git-status                               Check current worktree status
-                                                   Prints out file paths that differ from clean worktree
-        --git-commit <'message'|file://>           Commit changes to git repository with message
-                                                   File contents will be read and used as message
-        --allow-deletions                          Allows deletions (remote files or vault entires)
-                                                   [default: false]
-        --install                                  Runs installation commands in files metadata JSON header
-                                                   [default: false]
-        --force                                    Ignores checks and forces writes and reloads
-                                                   [default: false]
-        --disable-reloads                          Disables execution of reload commands for this deployment
-                                                   [default: false]
-        --disable-privilege-escalation             Disables use of sudo when executing commands remotely
-                                                   [default: false]
-        --ignore-deployment-state                  Treats all applicable hosts as 'Online'
-                                                   [default: false]
-        --regex                                    Enables regular expression parsing for specific arguments
-                                                   Supported arguments: '-r', '-R', '-l'
-        --log-file                                 Write out events to log file
-                                                   Output verbosity follows program-wide '--verbose'
-        --with-summary                             Generate detailed summary report of the deployment
-                                                   Output is JSON
-    -t, --test-config                              Test controller configuration syntax
-                                                   and configuration option validity
-    -v, --verbose <0...5>                          Increase details and frequency of progress messages
-                                                   (Higher is more verbose) [default: 1]
-    -h, --help                                     Show this help menu
-    -V, --version                                  Show version and packages
-        --versionid                                Show only version number
+  Subcommands:
+    deploy
+    exec
+    git
+    install
+    scp
+    secrets
+    seed
+    version
 
-  Report bugs to: dev@evsec.net
-  SCMP home page: <https://github.com/EvSecDev/SCMP>
-  General help using GNU software: <https://www.gnu.org/gethelp/>
+  Options:
+      --allow-deletions  Permits deletions of files/entries
+      --force            Do not exit/abort on failures
+      --log-file         Write events to log file (using --verbose level)
+      --with-summary     Generate JSON summary of actions
+  -c, --config           Path to the configuration file [default: ~/.ssh/config]
+  -T, --dry-run          Conducts non-mutating actions (no remote actions)
+  -v, --verbosity        Increase detailed progress messages (Higher is more verbose) <0...5> [default: 1]
+  -w, --wet-run          Conducts non-mutating actions (including remote actions)
+
+Report bugs to: dev@evsec.net
+SCMP home page: <https://github.com/EvSecDev/SCMP>
+General help using GNU software: <https://www.gnu.org/gethelp/>
 ```
 
 ## Setup and Configuration
@@ -183,11 +138,11 @@ Secure Configuration Management Program (SCMP)
 2. Move the controller executable to your desired location within your path. Example:
     - `mv controller_v* /usr/local/bin/controller`
 3. To generate a new git repository, run this command:
-    - `controller --new-repo /path/to/you/new/repo:main`
+    - `controller install --repository-path /path/to/you/new/repo --repository-branch-name main`
     - 3a) **Optional**: If you want a sample configuration file, run this command
-      - `controller --install-default-config`
+      - `controller install --default-config`
     - 3b) **Optional**: If you want to install the AppArmor profile, run this command
-      - `sudo controller --install-apparmor-profile`
+      - `sudo controller install --apparmor-profile`
     - 3c) **Optional**: If you want bash auto-completion for the controller arguments, see the snippet in the Notes section to add to your `~/.bashrc`
 4. Configure the SSH configuration file for all the remote Linux hosts you wish to manage (see comments in config for what the fields mean)
 5. Done! Proceed to remote preparation
@@ -210,6 +165,8 @@ Secure Configuration Management Program (SCMP)
 So, what if you already have servers with potentially hundreds of configuration files spread throughout the system?
 Well, fear not, for there is a SSH client built into the controller as an easier method of transferring and formatting new files.
 The client will permit you to select files on a remote system and automatically format and add them in the correct location to the local repository.
+
+`controller seed --remote-host <host>`
 
 If you already know which files you want from a remote host/hosts, then you can use `--remote-files file:///path/to/textfile` to give the controller a list of files to download from the remote host.
 
@@ -306,7 +263,7 @@ To this end, there are two features that make this possible: UniversalConfs and 
 UniversalConfs is a directory in the root of your repository that will contain a filesystem-like directory structure underneath it.
 Configuration files in this directory will be applicable for deployment to all hosts.
 If a particular host should need a slightly different version of the UniversalConf config, then a file with an identical path and name should be put under the host directory to stop that host from using the universal config.
-If a particular host should not ever use the UniversalConf configs, then the config option `ignoreUniversalConfs` should be set to true under that particular host in the main config.
+If a particular host should never use the UniversalConf configs, then the config option `ignoreUniversalConfs` should be set to true under that particular host in the main config.
 
 UniversalGroups is a set of directories that will only apply to a subset of hosts.
 The functionality is identical to the UniversalConfs directory, but will only apply to hosts that are apart of the group.
@@ -323,7 +280,7 @@ Removal of managed directories in the repository will only remove the remote dir
 Metadata of directories is handled through a special JSON file that lives directly under the directory it applies to.
 The file name is static and will always need to be `.directory_metadata_information.json`
 
-The JSON is the same as the metadata header in files with no reload section:
+The JSON is the same as the metadata header in files:
 
 ```json
 {
@@ -332,8 +289,8 @@ The JSON is the same as the metadata header in files with no reload section:
 }
 ```
 
-This metadata file is not seeded and is manually created.
-This feature is not meant to be used everywhere. The default is the remote hosts default (usually `root:root` `rwxr-xr-x`).
+This metadata file is automatically created during seeding if the directory permissions differ from the default (`root:root` `rwxr-xr-x`)
+This feature is not meant to be used everywhere. When new directories are created, the default will be used.
 This metadata file should only be used where custom permissions are absolutely required.
 
 ### File transfers
@@ -341,21 +298,21 @@ This metadata file should only be used where custom permissions are absolutely r
 File transfers for this program are done using SCP and are limited to 90 seconds per file.
 Something to keep in mind, your end to end bandwidth for a deployment will determine how large of a file can be transferred in that time.
 
-To do bulk file transfers there is the `scp` argument.
-It utilizes the same local and remote file name selection as deployments (`--local-files`, `--remote-files`) as well as `--remote-hosts` for host selection.
+To do bulk file transfers there is the `scp` subcommand.
+It utilizes similar options as the OpenSSH SCP program.
 
 File uploads for this argument are limited to one-to-many or one-to-one.
 
 #### Examples one-to-one
 
-`controller --scp --remote-hosts host1,host2 --local-files Local/path/to/file1 --remote-files /path/to/file1`
+`controller scp Local/path/to/file1 host1,host2:/path/to/file1`
 
 ```text
 Local/path/to/file1
   -> host1,host2 /path/to/file1
 ```
 
-`controller --scp --remote-hosts host1,host2 --local-files Local/path/to/file1,Local/path/to/file2 --remote-files /path/to/file1,/path/to/file2`
+`controller scp Local/path/to/file1,Local/path/to/file2 host1,host2:/path/to/file1,/path/to/file2`
 
 ```text
 Local/path/to/file1
@@ -367,7 +324,7 @@ Local/path/to/file2
 
 #### Examples one-to-many
 
-`controller --scp --remote-hosts host1,host2 --local-files Local/path/to/file1 --remote-files /path/to/file1,/path/to/file2`
+`controller scp Local/path/to/file1 host1,host2:/path/to/file1,/path/to/file2`
 
 ```text
 Local/path/to/file1
@@ -408,14 +365,14 @@ This feature requires three things:
   - Example: `"ExternalContentLocation":"file:///absolute/path/to/actual/binary/file"`
 - The file in the SCMP git repository can be named whatever it needs to be, but requires `.remote-artifact` file extension.
   - The extension is just for local identification, the extension is removed prior to deployment.
-- Use the built-in controller git add argument `--git-add`
+- Use the built-in controller git add argument `controller git add <glob>`
   - This is how the artifact files are tracked by git.
 
 Any content past the metadata header in the `.remote-artifact` file is used to store the hash of the artifact file content.
 This hash is updated before every commit to ensure updates remotely are tracked in git without tracking the binary's actual content
 
 You might be asking, how does the git repository know when your binary file has changed?
-Since the binary file is not tracked directly in git, any `.remote-artifact` files will be flagged for inspection when using controller's `--git-add` argument.
+Since the binary file is not tracked directly in git, any `.remote-artifact` files will be flagged for inspection when using controller's `git add` argument.
 The controller will follow the file path you give in the `ExternalContentLocation` and hash the current artifact file.
 Once the artifact pointer file is flagged as changed by git, the normal deployment process takes place (with the caveat that content loading is done using the `ExternalContentLocation`)
 
@@ -426,7 +383,7 @@ Only `file://` (local) URIs are supported for the `ExternalContentLocation` fiel
 ### Command Macros (Internal Variables)
 
 Certain macros are supported in the install/check/reload command strings.
-These macros are replaced with known values during predeployment file processing.
+These macros are replaced with known values during pre-deployment file processing.
 
 Notes:
 
@@ -478,7 +435,7 @@ The use of installation/checks/reload/dependency fields are still valid.
 
 ### Install commands
 
-Commands in this metadata JSON array are run only by using the controller argument `--install`.
+Commands in this metadata JSON array are run only by using the controller deploy argument `--install`.
 This feature is meant to provide a mechanism to initialize a service prior to deploying the file.
 
 An example of its usage would be install a package.
@@ -510,7 +467,7 @@ You can easily group files together so that reloads are run only after all relev
 Using the `ReloadGroup` JSON key, you can specify any arbitrary string and the controller will ensure files with the identical group string are deployed and reloaded together.
 In order to ensure the correct sequence of reloads, utilize the Inter-File dependency feature listed above.
 
-In addition, the program will automatically attempt to group any files that have an identical set of commands into named groups even if that file did not explictly include a named group.
+In addition, the program will automatically attempt to group any files that have an identical set of commands into named groups even if that file did not explicitly include a named group.
 
 Example metadata JSON:
 
@@ -535,109 +492,118 @@ If your controller binary is named something else, rename both `_controller` and
 ```bash
 # Auto completion for SCMP Controller arguments
 _controller() {
-    local cur prev opts
-
-    # Define all available options
-    opts="--config --deploy-changes --deploy-all --deploy-failures --execute --scp --run-as-user --remote-hosts --remote-files --local-files --commitid --dry-run --wet-run --max-conns --modify-vault-password --new-repo --seed-repo --install --allow-deletions --disable-privilege-escalation --ignore-deployment-state --regex --log-file --disable-reloads --force --test-config --with-summary --verbose --help --version --versionid"
-
-    # Get the current word the user is typing
-    cur="${COMP_WORDS[COMP_CWORD]}"
-    prev="${COMP_WORDS[COMP_CWORD-1]}"
-
-    # Autocompletion for options
-    if [[ ${cur} == -* ]]
-    then
-        COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
+  local cur prev words cword
+  _init_completion || return
+  # Top-level subcommands
+  local subcommands="deploy exec git install scp secrets seed version"
+  # Global options
+  local global_opts="
+    --allow-deletions
+    --force
+    --log-file
+    --with-summary
+    -c --config
+    -T --dry-run
+    -v --verbosity
+    -w --wet-run
+"
+  # Subcommand-specific options
+  local deploy_subcommands="all diff failures"
+  local deploy_opts="
+    --disable-privilege-escalation
+    --disable-reloads
+    --ignore-deployment-state
+    --install
+    --regex
+    -C --commitid
+    -l --local-files
+    -m --max-conns
+    -r --remote-hosts
+    -t --test-config
+    -u --run-as-user
+"
+  local exec_opts="--regex -r --remote-hosts -R --remote-file --disable-privilege-escalation -m --max-conns -u --run-as-user"
+  local git_subcommands="add commit status"
+  local git_opts="-m --message"
+  local install_opts="--apparmor-profile --default-config --repository-branch-name --repository-path"
+  local scp_opts="-c --config"
+  local secrets_opts="-p --modify-vault-password"
+  local seed_opts="--regex -r --remote-hosts -R --remote-files"
+  local version_opts="-v"
+  # Handle custom completions
+  case "${prev}" in
+    --config|-c|--local-files|-l|--remote-files|-R)
+        compopt -o filenames
+        COMPREPLY=( $(compgen -f -- "$cur") )
         return 0
-    fi
-
-    # Autocomplete for file URI - Bash strips out 'file:' for some reason
-    if [[ "$cur" == "//"* ]]
-    then
-        # Expand the ~ to the full home directory path
-        cur="${cur/#\~/$HOME}"
-
-        # Remove leading '//' from the current word to autocomplete the file path
-        local file_path="${cur#//}"
-
-        # Attempt to complete the path without '//'
-        completions=($(compgen -f -- "$file_path"))
-
-        # Add '//' to the beginning of each completion result
-        for i in "${!completions[@]}"; do
-            # Add '//' to the beginning
-            completions[$i]="//${completions[$i]}"
-
-            # Check if the completion is a directory and add trailing slash - doesn't work if leading with ~/
-            if [[ -d "${completions[$i]#//}" ]]
-            then
-                completions[$i]="${completions[$i]}/"  # Append trailing slash for directories
-            fi
-        done
-
-        # Set the completion results (prevent addition of spaces after)
-        COMPREPLY=("${completions[@]}")
-        compopt -o nospace
+        ;;
+    --remote-hosts|-r|--modify-vault-password|-p)
+        local ssh_config="${HOME}/.ssh/config"
+        if [[ -f "$ssh_config" ]]
+        then
+            COMPREPLY=( $(awk '/^Host / {print $2}' "$ssh_config" | grep -i "^$cur") )
+        fi
         return 0
-    fi
-
-    # Autocomplete arguments for specific information
-    case ${prev} in
-        --config | --local-files | -c | -l)
-            # Expand the ~ to the full home directory path
-            cur="${cur/#\~/$HOME}"
-
-            # Generate completions for both files and directories
-            local completions
-            completions=( $(compgen -o dirnames -f -- "$cur") )
-
-            # Check if completions are directories or files
-            COMPREPLY=()
-            for item in "${completions[@]}"; do
-                if [[ -d "$item" ]]; then
-                    # Append a trailing slash for directories
-                    COMPREPLY+=( "${item}/" )
-                    compopt -o nospace
-                elif [[ -f "$item" ]]; then
-                    COMPREPLY+=( "${item}" )
-                fi
-            done
-            return 0
-            ;;
-        --remote-hosts | --modify-vault-password | -r | -p)
-            # Autocomplete hostnames from SSH config file (default: ~/.ssh/config)
-            local ssh_config="${HOME}/.ssh/config"
-            if [[ -f "${ssh_config}" ]]
-            then
-                # Extract hostnames from the SSH config file
-                COMPREPLY=( $(awk '/^Host / {print $2}' "${ssh_config}" | grep -i "^${cur}") )
-            fi
-            return 0
-            ;;
-        --commitid)
-            # Autocomplete commit ids from git log if in a repository
-            if [[ -d ".git" ]]
-            then
-                # Extract commit hash from log
-                local commit_hashes
-                commit_hashes=$(git log --pretty=format:"%H" -n 10)
-                COMPREPLY=( $(compgen -W "${commit_hashes}" -- ${cur}) )
-            fi
-            return 0
-            ;;
-        --max-conns)
-            COMPREPLY=( $(compgen -W "1 5 10 15" -- ${cur}) )
-            return 0
-            ;;
-        --verbose)
-            COMPREPLY=( $(compgen -W "0 1 2 3 4 5" -- ${cur}) )
-            return 0
-            ;;
-    esac
-
-    # No specific completion, show the general options
-    COMPREPLY=( $(compgen -W "${opts}" -- ${cur}) )
-    return 0
+        ;;
+    --commitid|-C)
+        if [[ -d ".git" ]]
+        then
+            COMPREPLY=( $(git log --pretty=format:"%H" -n 20 | grep -i "^$cur") )
+        fi
+        return 0
+        ;;
+    --max-conns|-m)
+        COMPREPLY=( $(compgen -W "1 5 10 15 20 50" -- "$cur") )
+        return 0
+        ;;
+    --verbosity|-v|--verbose)
+        COMPREPLY=( $(compgen -W "0 1 2 3 4 5" -- "$cur") )
+        return 0
+        ;;
+  esac
+  # Determine subcommand context
+  case "${COMP_WORDS[1]}" in
+    ""|-* )
+        COMPREPLY=( $(compgen -W "${subcommands} ${global_opts}" -- "$cur") )
+        ;;
+    deploy )
+        if [[ "${COMP_WORDS[2]}" =~ ^(-|$) ]]
+        then
+            COMPREPLY=( $(compgen -W "${deploy_subcommands} ${global_opts} ${deploy_opts}" -- "$cur") )
+        else
+            COMPREPLY=( $(compgen -W "${deploy_opts} ${global_opts}" -- "$cur") )
+        fi
+        ;;
+    exec )
+        COMPREPLY=( $(compgen -W "${exec_opts} ${global_opts}" -- "$cur") )
+        ;;
+    git )
+        if [[ "${COMP_WORDS[2]}" =~ ^(-|$) ]]
+        then
+            COMPREPLY=( $(compgen -W "${git_subcommands} ${global_opts} ${git_opts}" -- "$cur") )
+        else
+            COMPREPLY=( $(compgen -W "${git_opts} ${global_opts}" -- "$cur") )
+        fi
+        ;;
+    install )
+        COMPREPLY=( $(compgen -W "${install_opts} ${global_opts}" -- "$cur") )
+        ;;
+    scp )
+        COMPREPLY=( $(compgen -W "${scp_opts} ${global_opts}" -- "$cur") )
+        ;;
+    secrets )
+        COMPREPLY=( $(compgen -W "${secrets_opts} ${global_opts}" -- "$cur") )
+        ;;
+    seed )
+        COMPREPLY=( $(compgen -W "${seed_opts} ${global_opts}" -- "$cur") )
+        ;;
+    version )
+        COMPREPLY=( $(compgen -W "${version_opts} ${global_opts}" -- "$cur") )
+        ;;
+    * )
+        COMPREPLY=( $(compgen -W "${subcommands} ${global_opts}" -- "$cur") )
+        ;;
+  esac
 }
 # Register completion for SCMP Controller
 complete -F _controller controller
@@ -658,4 +624,4 @@ git reflog expire --expire-unreachable=now --all
 git gc --prune=now
 ```
 
-OR if the repository was created using the controllers option `--new-repo`, then the garbage collection options should be set in the local repository config (As of controller v1.6.0).
+OR if the repository was created using the controllers option `install --repository-path`, then the garbage collection options should be set in the local repository config (As of controller v1.6.0).

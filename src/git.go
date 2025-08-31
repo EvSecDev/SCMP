@@ -2,6 +2,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,59 @@ import (
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
+
+func entryGit(commandname string, args []string) {
+	commandList := []string{"add", "status", "commit"}
+
+	var commitMessage string
+
+	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	commandFlags.StringVar(&commitMessage, "m", "", "Commit message")
+	commandFlags.StringVar(&commitMessage, "message", "", "Commit message")
+	setGlobalArguments(commandFlags)
+
+	commandFlags.Usage = func() {
+		printHelpMenu(commandFlags, commandname, commandList, "", false)
+	}
+	if len(args) < 1 {
+		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		os.Exit(1)
+	}
+	commandFlags.Parse(args[1:])
+
+	switch args[0] {
+	case "add":
+		if len(args) < 2 {
+			printHelpMenu(commandFlags, commandname, []string{commandList[0]}, "<path|glob>", false)
+			os.Exit(1)
+		}
+
+		files := args[1]
+		err := gitAdd(files)
+		logError("Failed to add changes to working tree", err, false)
+	case "status":
+		_, status, err := gitOpenCWD()
+		logError("Failed to retrieve worktree status", err, false)
+
+		if status.IsClean() {
+			printMessage(verbosityStandard, "no changes, working tree clean\n")
+		} else if !status.IsClean() {
+			printMessage(verbosityStandard, "%s", status.String())
+		}
+	case "commit":
+		if commitMessage == "" {
+			printHelpMenu(commandFlags, commandname, []string{commandList[2]}, "", false)
+			os.Exit(1)
+		}
+
+		// Proceed with the commit
+		err := gitCommit(commitMessage)
+		logError("Failed to commit changes", err, false)
+	default:
+		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		os.Exit(1)
+	}
+}
 
 // Gets absolute path to the root of the git repository using the current working directory
 // Value is saved to global config structure

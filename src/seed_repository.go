@@ -2,16 +2,54 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	"golang.org/x/crypto/ssh"
 )
 
-// ###################################
-//  SEED REPO FILES FUNCTIONS
-// ###################################
+// Keeping track of directories in menu
+type DirectoryState struct {
+	current string
+	stack   []string
+}
+
+type SeedRepoUserChoiceCache struct {
+	reloadCmd      map[string][]string
+	reloadCnt      map[string]int
+	artifactExtDir map[string]int
+}
+
+func entrySeed(commandname string, args []string) {
+	var hostOverride string
+	var remoteFileOverride string
+
+	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	setDeployConfArguments(commandFlags)
+	commandFlags.StringVar(&hostOverride, "r", "", "Override remote hosts")
+	commandFlags.StringVar(&hostOverride, "remote-hosts", "", "Override remote hosts")
+	commandFlags.StringVar(&remoteFileOverride, "R", "", "Override remote file(s)")
+	commandFlags.StringVar(&remoteFileOverride, "remote-files", "", "Override remote file(s)")
+	commandFlags.BoolVar(&config.options.regexEnabled, "regex", false, "Enables regular expression parsing for file/host overrides")
+	setGlobalArguments(commandFlags)
+
+	commandFlags.Usage = func() {
+		printHelpMenu(commandFlags, commandname, nil, "", false)
+	}
+	if len(args) < 1 {
+		printHelpMenu(commandFlags, commandname, nil, "", false)
+		os.Exit(1)
+	}
+	commandFlags.Parse(args[0:])
+
+	err := config.extractOptions(config.filePath)
+	logError("Error in controller configuration", err, true)
+
+	seedRepositoryFiles(hostOverride, remoteFileOverride)
+}
 
 // Entry point for user to select remote files to download and format into local repository
 func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
@@ -21,7 +59,13 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		}
 	}()
 
-	err := localSystemChecks()
+	// Pull contents of out file URIs
+	hostOverride, err := retrieveURIFile(hostOverride)
+	logError("Failed to parse remove-hosts URI", err, true)
+	remoteFileOverride, err = retrieveURIFile(remoteFileOverride)
+	logError("Failed to parse local-files URI", err, true)
+
+	err = localSystemChecks()
 	logError("Error in system checks", err, false)
 
 	err = retrieveGitRepoPath()

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"strings"
@@ -9,14 +10,65 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func bulkFileTransfer(requestedHosts string, localFiles string, remoteFiles string) (err error) {
-	if localFiles == "" || remoteFiles == "" {
-		err = fmt.Errorf("must specific local and remote file(s)")
+func entrySCP(commandname string, args []string) {
+	var sourceHost string
+	var sourcePath string
+	var destHost string
+	var destPath string
+
+	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	setDeployConfArguments(commandFlags)
+	setGlobalArguments(commandFlags)
+
+	commandFlags.Usage = func() {
+		printHelpMenu(commandFlags, commandname, nil, "[srchost:]<srcpath> [dsthost:]<dstpath>", false)
+	}
+	if len(args) < 1 {
+		printHelpMenu(commandFlags, commandname, nil, "[srchost:]<srcpath> [dsthost:]<dstpath>", false)
+		os.Exit(1)
+	}
+	commandFlags.Parse(args[0:])
+
+	remainingArgs := commandFlags.Args()
+
+	source := remainingArgs[0]
+	if strings.Contains(source, ":") {
+		parts := strings.SplitN(source, ":", 2)
+		sourceHost = parts[0]
+		sourcePath = parts[1]
+	} else {
+		sourcePath = source
+	}
+
+	destination := remainingArgs[len(remainingArgs)-1]
+	if strings.Contains(destination, ":") {
+		parts := strings.SplitN(destination, ":", 2)
+		destHost = parts[0]
+		destPath = parts[1]
+	} else {
+		destPath = destination
+	}
+
+	err := config.extractOptions(config.filePath)
+	logError("Error in controller configuration", err, true)
+
+	err = bulkFileTransfer(sourceHost, sourcePath, destHost, destPath)
+	logError("Failed to transfer files", err, false)
+}
+
+func bulkFileTransfer(sourceHost string, sourcePath string, destHost string, destPath string) (err error) {
+	if sourcePath == "" || destPath == "" {
+		err = fmt.Errorf("must specific source and destination path(s)")
 		return
 	}
 
-	localFilePaths := strings.Split(localFiles, ",")
-	remoteFilePaths := strings.Split(remoteFiles, ",")
+	if sourceHost != "" {
+		err = fmt.Errorf("remote to local scp is currently not supported")
+		return
+	}
+
+	localFilePaths := strings.Split(sourcePath, ",")
+	remoteFilePaths := strings.Split(destPath, ",")
 
 	if len(localFilePaths) != len(remoteFilePaths) {
 		err = fmt.Errorf("invalid length of local/remote files: lists must be equal length")
@@ -49,10 +101,10 @@ func bulkFileTransfer(requestedHosts string, localFiles string, remoteFiles stri
 		localToRemote = append(localToRemote, oneToOne)
 	}
 
-	for hostName, hostInfo := range config.hostInfo {
-		printMessage(verbosityData, "  Host %s: Transferring files...\n", hostInfo.endpointName)
+	for hostName := range config.hostInfo {
+		printMessage(verbosityData, "  Host %s: Transferring files...\n", hostName)
 
-		skipHost := checkForOverride(requestedHosts, hostName)
+		skipHost := checkForOverride(destHost, hostName)
 		if skipHost {
 			printMessage(verbosityFullData, "    Host not desired\n")
 			continue
@@ -70,10 +122,10 @@ func bulkFileTransfer(requestedHosts string, localFiles string, remoteFiles stri
 
 		// Connect
 		var host HostMeta
-		host.name = hostInfo.endpointName
-		host.password = hostInfo.password
-		host.transferBufferDir = hostInfo.remoteBufferDir
-		host.backupPath = hostInfo.remoteBackupDir
+		host.name = config.hostInfo[hostName].endpointName
+		host.password = config.hostInfo[hostName].password
+		host.transferBufferDir = config.hostInfo[hostName].remoteBufferDir
+		host.backupPath = config.hostInfo[hostName].remoteBackupDir
 
 		var proxyClient *ssh.Client
 		host.sshClient, proxyClient, err = connectToSSH(config.hostInfo[hostName], config.hostInfo[proxyName])
@@ -88,7 +140,7 @@ func bulkFileTransfer(requestedHosts string, localFiles string, remoteFiles stri
 
 		err = remoteDeploymentPreparation(&host)
 		if err != nil {
-			err = fmt.Errorf("Remote system preparation failed: %v", err)
+			err = fmt.Errorf("Host %s: Remote system preparation failed: %v", hostName, err)
 			return
 		}
 

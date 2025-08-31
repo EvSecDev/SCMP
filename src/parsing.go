@@ -15,6 +15,16 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+// For abstracting file information away from git for testing
+type GitChangedFileMetadata struct {
+	fromNotOnFS bool
+	fromPath    string
+	fromMode    string
+	toNotOnFS   bool
+	toPath      string
+	toMode      string
+}
+
 // Retrieves file paths and file mode for a given commit
 func getChangedFiles(commit *object.Commit) (changedFiles []GitChangedFileMetadata, err error) {
 	printMessage(verbosityProgress, "Retrieving changed files from commit... \n")
