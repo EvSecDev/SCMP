@@ -295,7 +295,7 @@ This metadata file should only be used where custom permissions are absolutely r
 
 ### File transfers
 
-File transfers for this program are done using SCP and are limited to 90 seconds per file.
+File transfers for this program are done using SCP.
 Something to keep in mind, your end to end bandwidth for a deployment will determine how large of a file can be transferred in that time.
 
 To do bulk file transfers there is the `scp` subcommand.
@@ -512,6 +512,7 @@ _controller() {
   local deploy_opts="
     --disable-privilege-escalation
     --disable-reloads
+    --execution-timeout
     --ignore-deployment-state
     --install
     --regex
@@ -522,7 +523,7 @@ _controller() {
     -t --test-config
     -u --run-as-user
 "
-  local exec_opts="--regex -r --remote-hosts -R --remote-file --disable-privilege-escalation -m --max-conns -u --run-as-user"
+  local exec_opts="--regex -r --remote-hosts -R --remote-file --disable-privilege-escalation -m --max-conns -u --run-as-user --execution-timeout"
   local git_subcommands="add commit status"
   local git_opts="-m --message"
   local install_opts="--apparmor-profile --default-config --repository-branch-name --repository-path"

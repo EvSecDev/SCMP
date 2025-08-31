@@ -41,6 +41,7 @@ func setSSHArguments(fs *flag.FlagSet) {
 	fs.StringVar(&config.options.runAsUser, "u", "root", "User name to run sudo commands as")
 	fs.StringVar(&config.options.runAsUser, "run-as-user", "root", "User name to run sudo commands as")
 	fs.BoolVar(&config.options.disableSudo, "disable-privilege-escalation", false, "Disables use of sudo when executing commands remotely")
+	fs.IntVar(&config.options.executionTimeout, "execution-timeout", 180, "Timeout in seconds for user-defined commands")
 	fs.IntVar(&config.options.maxSSHConcurrency, "m", 10, "Maximum simultaneous SSH connections (1 disables threading)")
 	fs.IntVar(&config.options.maxSSHConcurrency, "max-conns", 10, "Maximum simultaneous SSH connections (1 disables threading)")
 }

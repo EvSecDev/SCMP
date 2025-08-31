@@ -150,7 +150,7 @@ func executeCommand(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo Endpoi
 
 	// Execute user command
 	var cmdOutput string
-	rawCmd := RemoteCommand{command, 900, streamOutput}
+	rawCmd := RemoteCommand{command, config.options.executionTimeout, streamOutput}
 	if streamOutput {
 		printMessage(verbosityStandard, "  Host '%s':\n", hostInfo.endpointName)
 		_, err = rawCmd.SSHexec(client, config.options.runAsUser, config.options.disableSudo, hostInfo.password)

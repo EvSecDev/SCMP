@@ -354,7 +354,7 @@ func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSu
 	case <-ctx.Done():
 		session.Signal(ssh.SIGTERM)
 		session.Close()
-		err = fmt.Errorf("closed ssh session: exceeded timeout (%d seconds) for command %s", command.timeout, command.string)
+		err = fmt.Errorf("closed ssh session: exceeded timeout (%d seconds) for command '%s'", command.timeout, command.string)
 		return
 	}
 

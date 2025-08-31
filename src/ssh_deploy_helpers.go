@@ -74,7 +74,7 @@ func runCheckCommands(host HostMeta, localMetadata FileInfo) (err error) {
 			done := make(chan struct{})
 			go watchLongCommand(host.name, command, done)
 
-			command := RemoteCommand{command, 90, false}
+			command := RemoteCommand{command, config.options.executionTimeout, false}
 			_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 			close(done)
 			if err != nil {
@@ -98,7 +98,7 @@ func runInstallationCommands(host HostMeta, localMetadata FileInfo) (err error) 
 			done := make(chan struct{})
 			go watchLongCommand(host.name, command, done)
 
-			command := RemoteCommand{command, 180, false}
+			command := RemoteCommand{command, config.options.executionTimeout, false}
 			_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 			close(done)
 			if err != nil {
@@ -124,7 +124,7 @@ func runReloadCommands(host HostMeta, reloadCommands []string) (warning string, 
 		done := make(chan struct{})
 		go watchLongCommand(host.name, command, done)
 
-		rawCmd := RemoteCommand{command, 90, false}
+		rawCmd := RemoteCommand{command, config.options.executionTimeout, false}
 		_, err = rawCmd.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		close(done)
 		if err != nil {

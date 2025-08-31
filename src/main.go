@@ -102,6 +102,7 @@ type Opts struct {
 	regexEnabled             bool   // Globally enable the use of regex for matching hosts/files
 	forceEnabled             bool   // Atomic mode
 	detailedSummaryRequested bool   // Generate a summary report of the deployment
+	executionTimeout         int    // Timeout in seconds for user-defined commands (Reloads,checks,exec,ect.)
 }
 
 // Struct for host-specific Information

@@ -136,7 +136,7 @@ func parseUserSelections(userSelections []string, dirList []string, directorySta
 
 			printMessage(verbosityData, "  Recursing into directory '%s' for all files\n", absolutePath)
 
-			command := RemoteCommand{"find '" + absolutePath + "' -type f", 120, false}
+			command := RemoteCommand{"find '" + absolutePath + "' -type f", config.options.executionTimeout, false}
 			findOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 			if err != nil {
 				return

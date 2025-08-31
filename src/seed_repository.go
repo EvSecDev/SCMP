@@ -264,6 +264,7 @@ func handleSelectedFile(remoteFilePath string, host HostMeta, optCache *SeedRepo
 
 	printMessage(verbosityProgress, "  File '%s': Downloading file\n", remoteFilePath)
 
+	// Custom cp, no need to use -p 
 	command = RemoteCommand{"cp '" + remoteFilePath + "' '" + host.transferBufferDir + "'", 20, false}
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {

@@ -393,7 +393,7 @@ func executeScript(host HostMeta, scriptInterpreter string, remoteFilePath strin
 	}
 
 	if !config.options.wetRunEnabled {
-		command = RemoteCommand{scriptInterpreter + " '" + remoteFilePath + "'", 900, streamOutput}
+		command = RemoteCommand{scriptInterpreter + " '" + remoteFilePath + "'", config.options.executionTimeout, streamOutput}
 		out, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		if err != nil {
 			return
