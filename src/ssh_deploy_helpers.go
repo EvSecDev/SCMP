@@ -2,13 +2,19 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
+// Adds dynamic values for the input HostMeta
+// - OS type
+// - Creates randomly named temporary transfer and backup directories
+// - Sets strict permissions of login/runAs user for temp dirs
 func remoteDeploymentPreparation(host *HostMeta) (err error) {
 	printMessage(verbosityProgress, "Host %s: Determining remote OS\n", host.name)
 
@@ -30,29 +36,39 @@ func remoteDeploymentPreparation(host *HostMeta) (err error) {
 		return
 	}
 
-	printMessage(verbosityProgress, "Host %s: Preparing remote config backup directory\n", host.name)
+	printMessage(verbosityProgress, "Host %s: Preparing remote temporary directories\n", host.name)
 
-	command = buildMkdir(host.transferBufferDir)
+	// Random suffix
+	buf := make([]byte, 16)
+	_, err = rand.Read(buf)
+	if err != nil {
+		err = fmt.Errorf("failed to create random directory name: %v", err)
+		return
+	}
+	mid := len(buf) / 2
+
+	transferDirSuffix := hex.EncodeToString(buf[:mid])
+	backupDirSuffix := hex.EncodeToString(buf[mid:])
+
+	host.transferBufferDir = remoteTmpDir + "/scmp." + transferDirSuffix
+	host.backupPath = remoteTmpDir + "/scmp." + backupDirSuffix
+
+	// Create transfer and backup directory
+	command = buildMkdir(host.transferBufferDir, host.backupPath)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, host.password)
 	if err != nil {
-		if !strings.Contains(strings.ToLower(err.Error()), "file exists") {
-			err = fmt.Errorf("failed to setup remote transfer directory: %v", err)
-			return
-		}
-		err = nil // reset err so caller doesn't think function failed
+		err = fmt.Errorf("failed to setup remote temporary directories: %v", err)
+		return
 	}
 
-	// Create backup directory
-	command = buildMkdir(host.backupPath)
+	// Set stricter permissions
+	command = buildChmod(700, host.transferBufferDir, host.backupPath)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, host.password)
 	if err != nil {
-		err = fmt.Errorf("failed to setup remote temporary backup directory: %v", err)
-		// Since we blindly try to create the directory, ignore errors about it already existing
-		if strings.Contains(strings.ToLower(err.Error()), "file exists") {
-			err = nil // reset err so caller doesn't think function failed
-			return
-		}
+		err = fmt.Errorf("failed to change temporary directory permissions: %v", err)
+		return
 	}
+
 	return
 }
 
@@ -157,14 +173,14 @@ func restoreOldFile(host HostMeta, targetFilePath string, remoteMetadata RemoteF
 		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
 		return
 	}
-	command = buildChmod(targetFilePath, remoteMetadata.permissions)
+	command = buildChmod(remoteMetadata.permissions, targetFilePath)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)
 		return
 	}
 	targetRemoteOwnerGroup := remoteMetadata.owner + ":" + remoteMetadata.group
-	command = buildChown(targetFilePath, targetRemoteOwnerGroup)
+	command = buildChown(targetRemoteOwnerGroup, targetFilePath)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during restoration of old config file: %v", err)

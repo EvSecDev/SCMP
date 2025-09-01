@@ -431,21 +431,6 @@ func (config *Config) extractOptions(configFilePath string) (err error) {
 			hostInfo.requiresVault = false
 		}
 
-		// Save remote transfer buffer and backup dir into host info map
-		hostInfo.remoteBackupDir, _ = sshConfig.Get(hostPattern, "RemoteBackupDir")
-		if hostInfo.remoteBackupDir == "" {
-			err = fmt.Errorf("missing configuration option RemoteBackupDir")
-			return
-		}
-		hostInfo.remoteBufferDir, _ = sshConfig.Get(hostPattern, "RemoteBufferDir")
-		if hostInfo.remoteBufferDir == "" {
-			err = fmt.Errorf("missing configuration option RemoteBufferDir")
-			return
-		}
-
-		// Ensure trailing slashes don't make their way into the path
-		hostInfo.remoteBufferDir = strings.TrimSuffix(hostInfo.remoteBufferDir, "/")
-
 		// Save deployment state of this host
 		hostInfo.deploymentState, _ = sshConfig.Get(hostPattern, "DeploymentState")
 

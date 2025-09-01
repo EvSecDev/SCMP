@@ -35,6 +35,7 @@ const (
 	defaultRemoteCommandTimeout  int    = 10                                     // Time in seconds for remote command to be considered dead
 	defaultConnectTimeout        int    = 30                                     // Time in seconds for SSH connection timeout
 	sshVersionString             string = "SSH-2.0-OpenSSH_10.0p2"               // Some IPS rules flag on GO's ssh client string
+	remoteTmpDir                 string = "/tmp"                                 // Temporary directory to use on remote systems
 
 	// Descriptive Names for stats fs types
 	dirType       string = "directory"
@@ -121,8 +122,6 @@ type EndpointInfo struct {
 	keyAlgo         string              // Algorithm of the private key
 	password        string              // Password for the EndpointUser
 	connectTimeout  int                 // Timeout in seconds for connection to this host
-	remoteBufferDir string              // Temporary Buffer directory that will be used to transfer local config to remote host prior to moving into place
-	remoteBackupDir string              // Temporary directory to store backups of existing remote configs while reloads are performed
 }
 
 // Integer for printing increasingly detailed information as program progresses

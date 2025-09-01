@@ -299,8 +299,6 @@ func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo E
 	var host HostMeta
 	host.name = hostInfo.endpointName
 	host.password = hostInfo.password
-	host.transferBufferDir = hostInfo.remoteBufferDir
-	host.backupPath = hostInfo.remoteBackupDir
 
 	// Connect to the SSH server
 	var err error
@@ -317,41 +315,17 @@ func executeScriptOnHost(wg *sync.WaitGroup, semaphore chan struct{}, hostInfo E
 	}
 	defer host.sshClient.Close()
 
-	printMessage(verbosityProgress, "Host %s: Determining remote OS\n", host.name)
-	command := buildUnameKernel()
-	unameOutput, err := command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
-	if err != nil {
-		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("failed to determine OS, cannot deploy: %v", err)
-		executionErrorsMutex.Unlock()
-		return
-	}
-
-	osName := strings.ToLower(unameOutput)
-	if strings.Contains(osName, "bsd") {
-		host.osFamily = "bsd"
-	} else if strings.Contains(osName, "linux") {
-		host.osFamily = "linux"
-	} else {
-		executionErrorsMutex.Lock()
-		executionErrors += fmt.Sprintf("received unknown os type: %s", unameOutput)
-		executionErrorsMutex.Unlock()
-		host.osFamily = "unknown"
-		return
-	}
-
-	printMessage(verbosityProgress, "Host %s: Preparing remote transfer directory\n", hostInfo.endpointName)
-	command = buildMkdir(hostInfo.remoteBufferDir)
-	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, hostInfo.password)
+	err = remoteDeploymentPreparation(&host)
 	if err != nil {
 		if !strings.Contains(strings.ToLower(err.Error()), "file exists") {
 			executionErrorsMutex.Lock()
-			executionErrors += fmt.Sprintf("  Host '%s': failed to setup remote transfer directory: %v\n", hostInfo.endpointName, err)
+			executionErrors += fmt.Sprintf("remote system preparation failed: %v", err)
 			executionErrorsMutex.Unlock()
 			return
 		}
 		err = nil
 	}
+	defer cleanupRemote(host)
 
 	// Run the script remotely
 	var scriptOutput string

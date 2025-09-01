@@ -124,8 +124,6 @@ func bulkFileTransfer(sourceHost string, sourcePath string, destHost string, des
 		var host HostMeta
 		host.name = config.hostInfo[hostName].endpointName
 		host.password = config.hostInfo[hostName].password
-		host.transferBufferDir = config.hostInfo[hostName].remoteBufferDir
-		host.backupPath = config.hostInfo[hostName].remoteBackupDir
 
 		var proxyClient *ssh.Client
 		host.sshClient, proxyClient, err = connectToSSH(config.hostInfo[hostName], config.hostInfo[proxyName])
@@ -157,6 +155,8 @@ func bulkFileTransfer(sourceHost string, sourcePath string, destHost string, des
 		}
 
 		printMessage(verbosityStandard, "  Host %s: transfer complete.\n", hostName)
+
+		cleanupRemote(host)
 	}
 
 	printMessage(verbosityStandard, "All file transfers completed successfully\n")

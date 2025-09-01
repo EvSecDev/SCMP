@@ -110,8 +110,6 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 		var host HostMeta
 		host.name = hostInfo.endpointName
 		host.password = hostInfo.password
-		host.transferBufferDir = hostInfo.remoteBufferDir
-		host.backupPath = hostInfo.remoteBackupDir
 
 		var proxyClient *ssh.Client
 		host.sshClient, proxyClient, err = connectToSSH(hostInfo, proxyInfo)
@@ -130,17 +128,16 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 			selectedFiles = strings.Split(remoteFileOverride, ",")
 		}
 
-		// Initialize buffer  (with random byte) - ensures ownership of buffer stays correct when retrieving remote files
-		command := buildMkdir(hostInfo.remoteBufferDir)
-		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, true, hostInfo.password)
+		err = remoteDeploymentPreparation(&host)
 		if err != nil {
 			if !strings.Contains(strings.ToLower(err.Error()), "file exists") {
-				logError("Error creating remote transfer directory", err, false)
+				logError("Failed to conduct remote system preparations", err, false)
 			}
 			err = nil
 		}
 
-		host.transferBufferDir = hostInfo.remoteBufferDir + "/transfer"
+		// File for transfers
+		host.transferBufferDir = host.transferBufferDir + "/transfer"
 
 		err = SCPUpload(host.sshClient, []byte{12}, host.transferBufferDir)
 		logError(fmt.Sprintf("Failed to initialize buffer file on remote host %s", endpointName), err, false)
@@ -153,6 +150,10 @@ func seedRepositoryFiles(hostOverride string, remoteFileOverride string) {
 			err = handleSelectedFile(targetFilePath, host, optCache)
 			logError("Error seeding repository", err, false)
 		}
+
+		// Do any remote cleanups are required (non-fatal)
+		host.transferBufferDir = filepath.Dir(host.transferBufferDir) // remove transfer file from path for cleanup
+		cleanupRemote(host)
 	}
 }
 
@@ -264,7 +265,7 @@ func handleSelectedFile(remoteFilePath string, host HostMeta, optCache *SeedRepo
 
 	printMessage(verbosityProgress, "  File '%s': Downloading file\n", remoteFilePath)
 
-	// Custom cp, no need to use -p 
+	// Custom cp, no need to use -p
 	command = RemoteCommand{"cp '" + remoteFilePath + "' '" + host.transferBufferDir + "'", 20, false}
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
@@ -272,7 +273,7 @@ func handleSelectedFile(remoteFilePath string, host HostMeta, optCache *SeedRepo
 		return
 	}
 
-	command = buildChmod(host.transferBufferDir, 666)
+	command = buildChmod(666, host.transferBufferDir)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("ssh command failure: %v", err)

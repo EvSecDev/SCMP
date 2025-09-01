@@ -37,7 +37,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 	}
 
 	// Ensure owner/group are correct
-	command := buildChown(bufferFilePath, fileOwnerGroup)
+	command := buildChown(fileOwnerGroup, bufferFilePath)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)
@@ -45,7 +45,7 @@ func createRemoteFile(host HostMeta, targetFilePath string, fileContents []byte,
 	}
 
 	// Ensure permissions are correct
-	command = buildChmod(bufferFilePath, filePermissions)
+	command = buildChmod(filePermissions, bufferFilePath)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
@@ -227,7 +227,7 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 	if remoteMetadata.permissions != localMetadata.permissions {
 		printMessage(verbosityFullData, "Host %s:    File '%s': changing permissions\n", host.name, localMetadata.targetFilePath)
 
-		command := buildChmod(localMetadata.targetFilePath, localMetadata.permissions)
+		command := buildChmod(localMetadata.permissions, localMetadata.targetFilePath)
 		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during permissions change: %v", err)
@@ -240,7 +240,7 @@ func modifyMetadata(host HostMeta, remoteMetadata RemoteFileInfo, localMetadata 
 	if remoteOwnerGroup != localMetadata.ownerGroup {
 		printMessage(verbosityFullData, "Host %s:    File '%s': changing ownership\n", host.name, localMetadata.targetFilePath)
 
-		command := buildChown(localMetadata.targetFilePath, localMetadata.ownerGroup)
+		command := buildChown(localMetadata.ownerGroup, localMetadata.targetFilePath)
 		_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 		if err != nil {
 			err = fmt.Errorf("failed SSH Command on host during owner/group change: %v", err)

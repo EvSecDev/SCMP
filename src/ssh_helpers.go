@@ -386,7 +386,7 @@ func executeScript(host HostMeta, scriptInterpreter string, remoteFilePath strin
 		return
 	}
 
-	command = buildChmod(remoteFilePath, 700)
+	command = buildChmod(700, remoteFilePath)
 	_, err = command.SSHexec(host.sshClient, config.options.runAsUser, config.options.disableSudo, host.password)
 	if err != nil {
 		return
@@ -497,24 +497,45 @@ func buildCp(srcRemotePath string, dstRemotePath string) (remoteCommand RemoteCo
 	return
 }
 
-func buildMkdir(remotePath string) (remoteCommand RemoteCommand) {
+func buildMkdir(remotePaths ...string) (remoteCommand RemoteCommand) {
 	const mkdirCmd string = "mkdir -p "
-	remoteCommand.string = mkdirCmd + "'" + remotePath + "'"
+
+	var requestedPaths []string
+	for _, remotePath := range remotePaths {
+		requestedPaths = append(requestedPaths, "'"+remotePath+"'")
+	}
+	dirsToCreate := strings.Join(requestedPaths, " ")
+
+	remoteCommand.string = mkdirCmd + dirsToCreate
 	remoteCommand.timeout = 30
 	return
 }
 
-func buildChown(remotePath string, ownerGroup string) (remoteCommand RemoteCommand) {
+func buildChown(ownerGroup string, remotePaths ...string) (remoteCommand RemoteCommand) {
 	const chownCmd string = "chown "
-	remoteCommand.string = chownCmd + "'" + ownerGroup + "' '" + remotePath + "'"
+
+	var requestedPaths []string
+	for _, remotePath := range remotePaths {
+		requestedPaths = append(requestedPaths, "'"+remotePath+"'")
+	}
+	itemsToChown := strings.Join(requestedPaths, " ")
+
+	remoteCommand.string = chownCmd + "'" + ownerGroup + "' " + itemsToChown
 	remoteCommand.timeout = 20
 	return
 }
 
-func buildChmod(remotePath string, permissionBits int) (remoteCommand RemoteCommand) {
+func buildChmod(permissionBits int, remotePaths ...string) (remoteCommand RemoteCommand) {
 	const chmodCmd string = "chmod "
 	permissionString := strconv.Itoa(permissionBits)
-	remoteCommand.string = chmodCmd + "'" + permissionString + "' '" + remotePath + "'"
+
+	var requestedPaths []string
+	for _, remotePath := range remotePaths {
+		requestedPaths = append(requestedPaths, "'"+remotePath+"'")
+	}
+	itemsToChmod := strings.Join(requestedPaths, " ")
+
+	remoteCommand.string = chmodCmd + "'" + permissionString + "' " + itemsToChmod
 	remoteCommand.timeout = 20
 	return
 }

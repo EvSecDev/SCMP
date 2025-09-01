@@ -34,8 +34,6 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	var host HostMeta
 	host.name = endpointInfo.endpointName
 	host.password = endpointInfo.password
-	host.transferBufferDir = endpointInfo.remoteBufferDir
-	host.backupPath = endpointInfo.remoteBackupDir
 
 	// Connect to the SSH server
 	var err error
@@ -52,7 +50,7 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	}
 	defer host.sshClient.Close()
 
-	// Predeployment checks
+	// Pre-deployment checks
 	err = remoteDeploymentPreparation(&host)
 	if err != nil {
 		err = fmt.Errorf("Remote system preparation failed: %v", err)
@@ -60,12 +58,10 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 		deployMetrics.addHostFailure(host.name, err)
 		return
 	}
+	defer cleanupRemote(host)
 
 	// Deploy files
 	deployFiles(host, endpointInfo.deploymentList, allFileMeta, allFileData, deployMetrics)
-
-	// Do any remote cleanups are required (non-fatal)
-	cleanupRemote(host)
 }
 
 // #####################################
