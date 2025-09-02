@@ -27,6 +27,7 @@ type MetaHeader struct {
 	ExternalContentLocation string   `json:"ExternalContentLocation,omitempty"`
 	SymbolicLinkTarget      string   `json:"SymbolicLinkTarget,omitempty"`
 	Dependencies            []string `json:"Dependencies,omitempty"`
+	PreDeployCommands       []string `json:"PreDeploy,omitempty"`
 	InstallCommands         []string `json:"Install,omitempty"`
 	CheckCommands           []string `json:"Checks,omitempty"`
 	ReloadCommands          []string `json:"Reload,omitempty"`
@@ -35,21 +36,23 @@ type MetaHeader struct {
 
 // Struct for deployment file metadata
 type FileInfo struct {
-	hash            string
-	targetFilePath  string
-	action          string
-	ownerGroup      string
-	permissions     int
-	fileSize        int
-	linkTarget      string
-	dependencies    []string
-	installOptional bool
-	install         []string
-	checksRequired  bool
-	checks          []string
-	reloadRequired  bool
-	reload          []string
-	reloadGroup     string
+	hash              string
+	targetFilePath    string
+	action            string
+	ownerGroup        string
+	permissions       int
+	fileSize          int
+	linkTarget        string
+	dependencies      []string
+	predeployRequired bool
+	predeploy         []string
+	installOptional   bool
+	install           []string
+	checksRequired    bool
+	checks            []string
+	reloadRequired    bool
+	reload            []string
+	reloadGroup       string
 }
 
 // Struct for remote file metadata

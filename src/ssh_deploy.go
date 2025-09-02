@@ -35,12 +35,19 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	host.name = endpointInfo.endpointName
 	host.password = endpointInfo.password
 
+	err := runPreDeploymentCommands(deployMetrics, host.name, endpointInfo.deploymentList, allFileMeta, allFileData)
+	if err != nil {
+		err = fmt.Errorf("failed to run predeployment commands: %v", err)
+		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentList.files...)
+		deployMetrics.addHostFailure(host.name, err)
+		return
+	}
+
 	// Connect to the SSH server
-	var err error
 	var proxyClient *ssh.Client
 	host.sshClient, proxyClient, err = connectToSSH(endpointInfo, proxyInfo)
 	if err != nil {
-		err = fmt.Errorf("failed connect to SSH server %v", err)
+		err = fmt.Errorf("failed connect to SSH server: %v", err)
 		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentList.files...)
 		deployMetrics.addHostFailure(host.name, err)
 		return
@@ -53,7 +60,7 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	// Pre-deployment checks
 	err = remoteDeploymentPreparation(&host)
 	if err != nil {
-		err = fmt.Errorf("Remote system preparation failed: %v", err)
+		err = fmt.Errorf("remote system preparation failed: %v", err)
 		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentList.files...)
 		deployMetrics.addHostFailure(host.name, err)
 		return
@@ -78,16 +85,12 @@ func deployFiles(host HostMeta, deploymentList DeploymentList, allFileMeta map[s
 		}
 	}()
 
-	// Count of successfully deployed files by their reloadID
-	totalDeployedReloadFiles := make(map[string]int)
+	// Reload trackers
+	totalDeployedReloadFiles := make(map[string]int)       // Count of successfully deployed files by their reloadID
+	reloadIDreadyToReload := make(map[string]bool)         // Signal when a reload group is cleared to reload
+	remoteFileMetadatas := make(map[string]RemoteFileInfo) // Track remote file metadata (mainly for reload failure restoration)
 
-	// Signal when a reload group is cleared to reload
-	reloadIDreadyToReload := make(map[string]bool)
-
-	// Track remote file metadata (mainly for reload failure restoration)
-	remoteFileMetadatas := make(map[string]RemoteFileInfo)
-
-	// Loop through target files and deploy (non-reload required configs)
+	// Loop through target files and deploy
 	for _, repoFilePath := range deploymentList.files {
 		printMessage(verbosityData, "Host %s: Starting deployment for '%s'\n", host.name, repoFilePath)
 
@@ -110,6 +113,13 @@ func deployFiles(host HostMeta, deploymentList DeploymentList, allFileMeta map[s
 				continue
 			}
 		}
+
+		// Skip this file if it failed pre-deploy commands
+		deployMetrics.fileErrMutex.RLock()
+		if deployMetrics.fileErr[repoFilePath] != "" {
+			continue
+		}
+		deployMetrics.fileErrMutex.RUnlock()
 
 		err := runCheckCommands(host, allFileMeta[repoFilePath])
 		if err != nil {

@@ -399,6 +399,27 @@ Example of expansion given input of `Server01/etc/nginx/nginx.conf`:
 {@REPOBASEDIR}   -> Server01
 ```
 
+### Pre-Deployment Commands
+
+In some cases it may be desired to run commands locally for a given config prior to deployment.
+
+Commands are run immediately prior to connecting to the remote host.
+Any actual local failures (missing command binary/permission issues) will result in the entire host being marked as failed.
+
+The metadata header field looks like:
+
+```json
+  "PreDeploy": [
+    "/path/to/local_check_Script.sh"
+    "writefileinto:/path/to/syntax_checker.sh {@REPOBASEDIR} {@FILEPATH}"
+  ]
+```
+
+If the script exits with anything other than exit code 0, the file (and associated files) will not be deployed.
+
+The entire contents of the configuration file is written to stdin of any command string prefixed by `writefileinto:`
+Command Macros are supported here.
+
 ### Inter-file Dependency
 
 Frequently, there is a need to deploy files in a certain order.

@@ -671,6 +671,14 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 		info.fileSize = fileSize
 	}
 
+	info.predeploy = json.PreDeployCommands
+	if len(info.predeploy) > 0 {
+		info.predeployRequired = true
+		macroToValue(repoFilePath, &info.predeploy)
+	} else {
+		info.predeployRequired = false
+	}
+
 	info.reload = json.ReloadCommands
 	if len(info.reload) > 0 {
 		info.reloadRequired = true
