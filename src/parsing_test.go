@@ -630,7 +630,7 @@ func TestHandleFileDependencies(t *testing.T) {
 		name                string
 		hostDeploymentFiles []string
 		allFileMeta         map[string]FileInfo
-		expected            []string
+		expected            [][]string
 		expectErr           bool
 		expectedNoOutput    bool
 	}{
@@ -657,7 +657,11 @@ func TestHandleFileDependencies(t *testing.T) {
 					dependencies: []string{},
 				},
 			},
-			expected:  []string{"001bbbb", "002eeee", "043cccc", "452dddd", "010ffff", "aaaa"},
+			expected: [][]string{
+				{"001bbbb"},
+				{"002eeee"},
+				{"043cccc", "452dddd", "010ffff", "aaaa"},
+			},
 			expectErr: false,
 		},
 		{
@@ -683,7 +687,11 @@ func TestHandleFileDependencies(t *testing.T) {
 					dependencies: []string{"043cccc", "452dddd"},
 				},
 			},
-			expected:  []string{"001bbbb", "002eeee", "043cccc", "452dddd", "010ffff", "aaaa"},
+			expected: [][]string{
+				{"001bbbb"},
+				{"002eeee"},
+				{"043cccc", "452dddd", "010ffff", "aaaa"},
+			},
 			expectErr: false,
 		},
 		{
@@ -706,7 +714,10 @@ func TestHandleFileDependencies(t *testing.T) {
 					dependencies: []string{},
 				},
 			},
-			expected:  []string{"file3", "file5", "file2", "file1", "file4"},
+			expected: [][]string{
+				{"file3", "file2", "file1", "file4"},
+				{"file5"},
+			},
 			expectErr: false,
 		},
 		{
@@ -729,7 +740,10 @@ func TestHandleFileDependencies(t *testing.T) {
 					dependencies: []string{},
 				},
 			},
-			expected:  []string{"file3", "file5", "file2", "file1", "file4"},
+			expected: [][]string{
+				{"file3", "file2", "file1", "file4"},
+				{"file5"},
+			},
 			expectErr: false,
 		},
 		{
@@ -758,7 +772,10 @@ func TestHandleFileDependencies(t *testing.T) {
 					dependencies: []string{"host1/etc/network/interfaces"},
 				},
 			},
-			expected:  []string{"host1/etc/hosts", "host1/etc/network/interfaces", "host1/etc/apt/apt.conf.d/00aptproxy", "host1/etc/resolv.conf", "host1/etc/apt/sources.list", "host1/etc/nginx/nginx.conf", "host1/etc/rsyslog.conf"},
+			expected: [][]string{
+				{"host1/etc/hosts"},
+				{"host1/etc/network/interfaces", "host1/etc/apt/apt.conf.d/00aptproxy", "host1/etc/resolv.conf", "host1/etc/apt/sources.list", "host1/etc/nginx/nginx.conf", "host1/etc/rsyslog.conf"},
+			},
 			expectErr: false,
 		},
 		{
@@ -775,7 +792,9 @@ func TestHandleFileDependencies(t *testing.T) {
 					dependencies: []string{"/etc/apt/sources.list"},
 				},
 			},
-			expected:  []string{"/etc/apt/sources.list", "/etc/nginx/nginx.conf", "/etc/rsyslog.conf"},
+			expected: [][]string{
+				{"/etc/apt/sources.list", "/etc/nginx/nginx.conf", "/etc/rsyslog.conf"},
+			},
 			expectErr: false,
 		},
 		{
@@ -840,7 +859,11 @@ func TestHandleFileDependencies(t *testing.T) {
 					dependencies: []string{},
 				},
 			},
-			expected:  []string{"file1", "file2", "file3"},
+			expected: [][]string{
+				{"file1"},
+				{"file2"},
+				{"file3"},
+			},
 			expectErr: false,
 		},
 		{
@@ -854,16 +877,18 @@ func TestHandleFileDependencies(t *testing.T) {
 					dependencies: []string{},
 				},
 			},
-			expected:  []string{"file2", "file1"},
+			expected: [][]string{
+				{"file2", "file1"},
+			},
 			expectErr: false,
 		},
 		{
 			name:                "No input",
 			hostDeploymentFiles: []string{},
 			allFileMeta:         map[string]FileInfo{},
-			expected:            []string{},
+			expected:            [][]string{},
 			expectErr:           false,
-			expectedNoOutput:    false,
+			expectedNoOutput:    true,
 		},
 	}
 
@@ -881,8 +906,15 @@ func TestHandleFileDependencies(t *testing.T) {
 				t.Fatalf("expected error, got nil")
 			} else if !test.expectErr && err != nil {
 				t.Fatalf("expected no error, got '%v'", err)
-			} else if !compareArrays(result, test.expected) {
-				t.Errorf("expected '%v', got '%v'", test.expected, result)
+			} else if len(test.expected) != len(result) {
+				t.Errorf("expected %d independent trees, got %d trees", len(test.expected), len(result))
+				t.Errorf("values: expected '%v', got '%v'", test.expected, result)
+			} else if len(test.expected) == len(result) {
+				for resultTreeIndex, resultTree := range result {
+					if !compareArrays(test.expected[resultTreeIndex], resultTree) {
+						t.Errorf("expected '%v', got '%v'", test.expected, result)
+					}
+				}
 			}
 		})
 	}

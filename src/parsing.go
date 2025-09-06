@@ -7,10 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strings"
-
-	"slices"
 
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
@@ -519,11 +518,19 @@ func sortFiles(hostInfo map[string]EndpointInfo, hostDeploymentFiles map[string]
 	sortedHostInfo = make(map[string]EndpointInfo)
 
 	for host, info := range hostInfo {
-		// Reorder deployment list by dependencies
+		// Reorder deployment list into independent trees and by dependencies
 		printMessage(verbosityProgress, "Host: %s: Reordering files based on inter-file dependencies\n", host)
-		info.deploymentList.files, err = handleFileDependencies(hostDeploymentFiles[host], allFileMeta)
+		var depTrees [][]string
+		depTrees, err = handleFileDependencies(hostDeploymentFiles[host], allFileMeta)
 		if err != nil {
 			return
+		}
+
+		// Temporary patch - combine back into single list for serial deployment
+		for _, depTree := range depTrees {
+			for _, file := range depTree {
+				info.deploymentList.files = append(info.deploymentList.files, file)
+			}
 		}
 
 		// Sort reloads into groups sharing identical commands or user specified group names
@@ -536,76 +543,119 @@ func sortFiles(hostInfo map[string]EndpointInfo, hostDeploymentFiles map[string]
 }
 
 // Correct the order of deployment based on any present dependencies
-func handleFileDependencies(rawDeploymentFiles []string, allFileMeta map[string]FileInfo) (orderedDeploymentFiles []string, err error) {
-	depCount := make(map[string]int)
+// Returns independent trees of sorted file lists (each outer array has no dependency on any other outer array)
+func handleFileDependencies(rawDeploymentFiles []string, allFileMeta map[string]FileInfo) (orderedDeploymentFiles [][]string, err error) {
+	// Tracking maps
 	graph := make(map[string][]string)
+	reverseGraph := make(map[string][]string)
 	fileSet := make(map[string]bool)
 
 	// Make map of files for this host for easy lookups of file existence
+	rawFileSet := make(map[string]struct{})
 	for _, file := range rawDeploymentFiles {
-		fileSet[file] = true
+		rawFileSet[file] = struct{}{}
 	}
 
 	// Create dependency graph
-	for file, info := range allFileMeta {
-		for _, dep := range info.dependencies {
-			// If dependency is not part of this deployment, skip adding to graph
-			if !fileSet[dep] {
-				continue
-			}
-			graph[dep] = append(graph[dep], file)
-			depCount[file]++
-		}
-	}
-
-	// Separate list of files with no dependencies
-	noDeps := []string{}
 	for _, file := range rawDeploymentFiles {
-		if depCount[file] == 0 {
-			noDeps = append(noDeps, file)
-		}
-	}
-	sort.Strings(noDeps) // Ensure no_dependency files are in lexicographical order
+		info := allFileMeta[file]
+		fileSet[file] = true
 
-	queue := noDeps // Start queue from files with no dependents
-	result := []string{}
-	count := 0
+		for _, dep := range info.dependencies {
+			// Avoid including dependency file names in deployment that are not a part of this deployment
+			_, depInDeployment := rawFileSet[dep]
 
-	for len(queue) > 0 {
-		file := queue[0]              // Get lead item in queue
-		queue = queue[1:]             // Remove lead item in queue
-		result = append(result, file) // Add lead item to result
-		count++                       // Count of processed files for circular dep detection
-
-		// Add dependents to result when immediately "attached" to parent
-		for _, neighbor := range graph[file] {
-			depCount[neighbor]-- // Decrease dependent count for processed dependent
-
-			// When file has no more parents, add to queue to get added to result
-			if depCount[neighbor] == 0 {
-				queue = append(queue, neighbor)
+			if depInDeployment {
+				// Forward and reverse dep lookups
+				graph[file] = append(graph[file], dep)
+				reverseGraph[dep] = append(reverseGraph[dep], file)
+				fileSet[dep] = true
 			}
 		}
 	}
 
-	// Return immediately if circular dependency was encountered
-	if count != len(rawDeploymentFiles) {
-		err = fmt.Errorf("circular dependency detected, unable to continue: deployment files: '%v'", rawDeploymentFiles)
-		return
-	}
+	// Find connected trees - undirected DFS
+	visited := make(map[string]bool)
+	var trees [][]string
 
-	// Retrieve solo slice of dependents
-	depFiles := []string{}
-	for _, file := range result {
-		found := slices.Contains(noDeps, file)
+	var dfs func(string, *[]string)
+	dfs = func(file string, tree *[]string) {
+		if visited[file] {
+			return
+		}
 
-		if !found {
-			depFiles = append(depFiles, file)
+		visited[file] = true
+		*tree = append(*tree, file)
+
+		for _, neighbor := range graph[file] {
+			dfs(neighbor, tree)
+		}
+		for _, neighbor := range reverseGraph[file] {
+			dfs(neighbor, tree)
 		}
 	}
 
-	// Always append dependencies after files with no dependencies
-	orderedDeploymentFiles = append(noDeps, depFiles...)
+	for file := range fileSet {
+		if !visited[file] {
+			tree := []string{}
+			dfs(file, &tree)
+			trees = append(trees, tree)
+		}
+	}
+
+	// Sort each independent tree
+	for _, tree := range trees {
+		depCount := make(map[string]int)
+		subGraph := make(map[string][]string)
+
+		for _, file := range tree {
+			for _, dep := range graph[file] {
+				if slices.Contains(tree, dep) {
+					subGraph[dep] = append(subGraph[dep], file)
+					depCount[file]++
+				}
+			}
+		}
+
+		// Start with zero in-degree files
+		var queue []string
+		for _, file := range tree {
+			if depCount[file] == 0 {
+				queue = append(queue, file)
+			}
+		}
+
+		var sorted []string
+		for len(queue) > 0 {
+			file := queue[0]              // Get lead item in queue
+			queue = queue[1:]             // Remove lead item in queue
+			sorted = append(sorted, file) // Add lead item to result
+
+			// Add dependents to result when immediately "attached" to parent
+			for _, neighbor := range subGraph[file] {
+				depCount[neighbor]-- // Decrease dependent count for processed dependent
+
+				// When file has no more parents, add to queue to get added to result
+				if depCount[neighbor] == 0 {
+					queue = append(queue, neighbor)
+				}
+			}
+		}
+
+		// Return immediately if circular dependency was encountered
+		if len(sorted) != len(tree) {
+			err = fmt.Errorf("circular dependency detected, unable to continue: offending files: '%v'", tree)
+			return
+		}
+
+		orderedDeploymentFiles = append(orderedDeploymentFiles, sorted)
+	}
+
+	// Create stable ordering of trees based on first file in each
+	sort.Slice(orderedDeploymentFiles, func(i, j int) bool {
+		return orderedDeploymentFiles[i][0] < orderedDeploymentFiles[j][0]
+	})
+
 	return
 }
 
