@@ -104,7 +104,10 @@ func printHostInformation(hostInfo EndpointInfo) {
 // If err is present on return, deployment should fail
 // deploy metrics used to track any other failures
 func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string, deploymentList DeploymentList, allFileMeta map[string]FileInfo, allFileData map[string][]byte) (err error) {
-	const userReqStdinPrefix string = "writefileinto:" // User decides which command gets file content written to stdin (optional)
+	// Optional user markers for stdin/stdout append/overwrite
+	const reqStdinMacro string = "<<<{@LOCALFILEDATA}"
+	const reqStdoutApSuffix string = ">>{@REMOTEFILEDATA}"
+	const reqStdoutOwSuffix string = ">{@REMOTEFILEDATA}"
 
 	for _, repoFilePath := range deploymentList.files {
 		if !allFileMeta[repoFilePath].predeployRequired {
@@ -114,19 +117,38 @@ func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string,
 		printMessage(verbosityProgress, "Host %s: Running pre-deployment commands for file '%s'\n", hostname, repoFilePath)
 
 		for _, predeployCommand := range allFileMeta[repoFilePath].predeploy {
+			// Avoid stdin/stdout markers from being ignored due to lingering spaces
+			predeployCommand = strings.TrimSpace(predeployCommand)
+
+			oldHashIndex := allFileMeta[repoFilePath].hash
+
 			var writeConfToStdin bool
-			if strings.HasPrefix(predeployCommand, userReqStdinPrefix) {
+			if strings.Contains(predeployCommand, reqStdinMacro) {
 				writeConfToStdin = true
-				predeployCommand = strings.TrimPrefix(predeployCommand, userReqStdinPrefix)
+				predeployCommand = strings.ReplaceAll(predeployCommand, reqStdinMacro, "")
+			}
+
+			var writeStdoutToFile bool
+			var appendStdoutToFile bool
+			if strings.HasSuffix(predeployCommand, reqStdoutOwSuffix) {
+				writeStdoutToFile = true
+				predeployCommand = strings.TrimSuffix(predeployCommand, reqStdoutOwSuffix)
+			} else if strings.HasSuffix(predeployCommand, reqStdoutApSuffix) {
+				appendStdoutToFile = true
+				predeployCommand = strings.TrimSuffix(predeployCommand, reqStdoutApSuffix)
 			}
 
 			printMessage(verbosityData, "Host %s:   Running pre-deployment command '%s'\n", hostname, predeployCommand)
 
-			// Separate binary from arguments
 			commandArgs := strings.Fields(predeployCommand)
 			commandExe := commandArgs[0]
 
 			cmd := exec.Command(commandExe, commandArgs[1:]...)
+
+			var stdoutBuf bytes.Buffer
+			if writeStdoutToFile || appendStdoutToFile {
+				cmd.Stdout = &stdoutBuf
+			}
 
 			var stderrBuf bytes.Buffer
 			cmd.Stderr = &stderrBuf
@@ -149,8 +171,7 @@ func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string,
 
 			if writeConfToStdin {
 				// Write files contents to stdin if requested
-				hashIndex := allFileMeta[repoFilePath].hash
-				_, err = stdin.Write(allFileData[hashIndex])
+				_, err = stdin.Write(allFileData[oldHashIndex])
 				if err != nil {
 					err = fmt.Errorf("failed to write stdin to command: %v", err)
 					return
@@ -165,27 +186,55 @@ func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string,
 
 			// Wait for command to exit
 			err = cmd.Wait()
-			if err == nil {
-				// Exit code 0 - next cmd
-				continue
-			}
+			if err != nil {
+				if exitErr, ok := err.(*exec.ExitError); ok {
+					if _, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+						// Parsable exit status - command failed externally (non-zero)
+						err = fmt.Errorf("predeploy command '%s': %v: %s", cmd.String(), err, stderrBuf.String())
 
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				if _, ok := exitErr.Sys().(syscall.WaitStatus); ok {
-					// Parsable exit status - command failed externally (non-zero)
-					err = fmt.Errorf("predeploy command '%s': %v: %s", cmd.String(), err, stderrBuf.String())
-
-					// Add to fail metrics - will trigger skip deployment of it and any related
-					deployMetrics.addFileFailure(repoFilePath, err)
+						// Add to fail metrics - will trigger skip deployment of it and any related
+						deployMetrics.addFileFailure(repoFilePath, err)
+					} else {
+						// Unparsable exit status (maybe Windows) - fail host deployment
+						err = fmt.Errorf("failed to evaluate exit status of command '%s': %v", cmd.String(), err)
+						return
+					}
 				} else {
-					// Unparsable exit status (maybe Windows) - fail host deployment
-					err = fmt.Errorf("failed to evaluate exit status of command '%s': %v", cmd.String(), err)
+					// Failed due to local issue, fail host deployment
+					err = fmt.Errorf("error running command '%s': %v", cmd.String(), err)
 					return
 				}
-			} else {
-				// Failed due to local issue, fail host deployment
-				err = fmt.Errorf("error running command '%s': %v", cmd.String(), err)
-				return
+			}
+
+			// Handle content modifications if requested
+			if writeStdoutToFile {
+				// Have to rehash contents to prevent clobbering identical input files for other hosts
+				newHashIndex := SHA256Sum(stdoutBuf.Bytes())
+				allFileData[newHashIndex] = stderrBuf.Bytes()
+
+				// Change hash pointer to new contents
+				fileMeta := allFileMeta[repoFilePath]
+				fileMeta.hash = newHashIndex
+				allFileMeta[repoFilePath] = fileMeta
+			} else if appendStdoutToFile {
+				existingFileContent := allFileData[oldHashIndex]
+
+				// If content doesn't end with newline, add one for proper append behavior
+				if !strings.HasSuffix(string(existingFileContent), "\n") {
+					existingFileContent = append(existingFileContent, '\n')
+				}
+
+				// Add script output to contents
+				newFileContent := append(existingFileContent, stderrBuf.Bytes()...)
+
+				// Rehash and add to content map
+				newHashIndex := SHA256Sum(newFileContent)
+				allFileData[newHashIndex] = newFileContent
+
+				// Change hash pointer to new contents
+				fileMeta := allFileMeta[repoFilePath]
+				fileMeta.hash = newHashIndex
+				allFileMeta[repoFilePath] = fileMeta
 			}
 		}
 	}

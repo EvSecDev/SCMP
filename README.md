@@ -380,15 +380,19 @@ Due to this system, binary files do take up extra processing power and memory sp
 
 Only `file://` (local) URIs are supported for the `ExternalContentLocation` field currently.
 
-### Command Macros (Internal Variables)
+### Command Macros (Internal Variables/Actions)
 
-Certain macros are supported in the install/check/reload command strings.
-These macros are replaced with known values during pre-deployment file processing.
+Certain macros are supported in the JSON metadata header command strings.
+These macros are replaced with known values or trigger special actions during pre-deployment file processing.
+
+Special actions can be used inspect or modify file content before files are transferred remotely.
+This allows dynamic file generation/modification without hard coding values in the repository.
 
 Notes:
 
 - Macro names are case-sensitive.
 - Macros inside of double quotes will throw a JSON formatting error
+- Special actions for stdout must be at the end of the command string
 
 Example of expansion given input of `Server01/etc/nginx/nginx.conf`:
 
@@ -397,6 +401,40 @@ Example of expansion given input of `Server01/etc/nginx/nginx.conf`:
 {@FILEDIR}       -> /etc/nginx
 {@FILENAME}      -> nginx.conf
 {@REPOBASEDIR}   -> Server01
+```
+
+Example of special actions:
+
+Checking contents on the fly (file contents are written to standard in for the command):
+
+```json
+  "PreDeploy": [
+    "/path/to/custom_script.sh <<<{@LOCALFILEDATA}"
+  ]
+```
+
+Appending result of the command to the file contents:
+
+```json
+  "PreDeploy": [
+    "/path/to/custom_script.sh >>{@REMOTEFILEDATA}"
+  ]
+```
+
+Overwriting file contents with the command result:
+
+```json
+  "PreDeploy": [
+    "/path/to/custom_script.sh >{@REMOTEFILEDATA}"
+  ]
+```
+
+Reading tge file contents and then overwriting them:
+
+```json
+  "PreDeploy": [
+    "/path/to/custom_script.sh <<<{@LOCALFILEDATA} >{@REMOTEFILEDATA}"
+  ]
 ```
 
 ### Pre-Deployment Commands
@@ -411,14 +449,13 @@ The metadata header field looks like:
 ```json
   "PreDeploy": [
     "/path/to/local_check_Script.sh"
-    "writefileinto:/path/to/syntax_checker.sh {@REPOBASEDIR} {@FILEPATH}"
+    "/path/to/syntax_checker.sh {@REPOBASEDIR} {@FILEPATH}"
   ]
 ```
 
 If the script exits with anything other than exit code 0, the file (and associated files) will not be deployed.
 
-The entire contents of the configuration file is written to stdin of any command string prefixed by `writefileinto:`
-Command Macros are supported here.
+For special actions and macros see above section.
 
 ### Inter-file Dependency
 

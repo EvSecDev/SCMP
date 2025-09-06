@@ -63,9 +63,6 @@ done < <(find .build_helpers/ -maxdepth 1 -type f -iname "*.sh" -print0)
 ##################################
 
 function compile_program_prechecks() {
-	# Always ensure we start in the root of the repository
-	cd "$repoRoot"/
-
 	# Check for things not supposed to be in a release
 	if type	-t check_for_dev_artifacts &>/dev/null
 	then
@@ -86,12 +83,9 @@ function compile_program() {
 	buildFull=$3
 	replaceDeployedExe=$4
 
-	# Move into dir
-	cd $SRCdir
-
 	# Run tests
 	echo "[*] Running all tests..."
-	go test
+	go -C "$repoRoot/src" test
 	echo -e "   ${GREEN}[+] DONE${RESET}"
 
 	echo "[*] Compiling program binary..."
@@ -102,8 +96,7 @@ function compile_program() {
 	export GOOS
 
 	# Build binary
-	go build -o "$repoRoot"/"$outputEXE" -a -ldflags '-s -w -buildid= -extldflags "-static"' ./*.go
-	cd "$repoRoot"
+	go build -C "$repoRoot/src" -o "$repoRoot/$outputEXE" -a -ldflags '-s -w -buildid= -extldflags "-static"'
 
 	# Get version
 	buildVersion=$(./$outputEXE version)

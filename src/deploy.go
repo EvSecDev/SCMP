@@ -36,8 +36,8 @@ type MetaHeader struct {
 
 // Struct for deployment file metadata
 type FileInfo struct {
-	hash              string
-	targetFilePath    string
+	hash              string // Pointer (key) to file data map (for deduplication)
+	targetFilePath    string // Expected remote file path
 	action            string
 	ownerGroup        string
 	permissions       int
