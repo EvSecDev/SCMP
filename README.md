@@ -43,7 +43,7 @@ If you like what this program can do or want to expand functionality yourself, f
 
 - Deployments
   - Deploy changed configurations based on commit difference or manually via specifying a commit hash
-  - Deploy all (or a subset of) tracked files
+  - Deploy all (or a subset of) tracked files by commit (default is most recent)
   - Deploy individual/lists/groups of files to individual/lists/groups of hosts
   - Deployment test run using single host (use `--max-conns 1 -r HOST`)
   - Exclude hosts from deployments (use config option `DeploymentState offline` under a host)
@@ -54,6 +54,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Run a linear series of commands to install services associated with files/directories (part of file JSON metadata header)
   - Easy retry of deployment failures
   - Fail-safe file deployment - automatic restore of previous file version and service reload if any remote failure is encountered during initial reload
+  - Rollback of bad configurations (succeeded reload but non-functional service) using `deploy all -C <previous commit id>`
 - File/Directory Management
   - Create/modify files/file content and directories
   - Modify permissions, owner, and group of files and directories

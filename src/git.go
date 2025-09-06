@@ -264,7 +264,7 @@ func getCommit(commitID *string) (tree *object.Tree, commit *object.Commit, err 
 	// Get the commit
 	commit, err = repo.CommitObject(commitHash)
 	if err != nil {
-		err = fmt.Errorf("unabke to get commit object: %v", err)
+		err = fmt.Errorf("unable to get commit object: %v", err)
 		return
 	}
 
