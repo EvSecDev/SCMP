@@ -887,7 +887,7 @@ func TestHandleFileDependencies(t *testing.T) {
 			hostDeploymentFiles: []string{},
 			allFileMeta:         map[string]FileInfo{},
 			expected:            [][]string{},
-			expectErr:           false,
+			expectErr:           true,
 			expectedNoOutput:    true,
 		},
 	}
@@ -913,6 +913,286 @@ func TestHandleFileDependencies(t *testing.T) {
 				for resultTreeIndex, resultTree := range result {
 					if !compareArrays(test.expected[resultTreeIndex], resultTree) {
 						t.Errorf("expected '%v', got '%v'", test.expected, result)
+					}
+				}
+			}
+		})
+	}
+}
+
+func TestMergeDepTrees(t *testing.T) {
+	testCases := []struct {
+		name        string
+		depTrees    [][]string
+		allFileMeta map[string]FileInfo
+		expected    [][]string
+	}{
+		{
+			name: "Fully Separate Files - No changes",
+			depTrees: [][]string{
+				{"file1"},
+				{"file2"},
+				{"file3"},
+			},
+			allFileMeta: map[string]FileInfo{
+				"file1": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadGroup:    "group1",
+					reloadRequired: true,
+				},
+				"file2": {
+					reload:         []string{"systemctl restart service2", "systemctl is-active service2"},
+					reloadGroup:    "group2",
+					reloadRequired: true,
+				},
+				"file3": {
+					reload:         []string{"systemctl restart service3", "systemctl is-active service3"},
+					reloadGroup:    "group3",
+					reloadRequired: true,
+				},
+			},
+			expected: [][]string{
+				{"file1"},
+				{"file2"},
+				{"file3"},
+			},
+		},
+		{
+			name: "Files in separate tree with shared group",
+			depTrees: [][]string{
+				{"file1"},
+				{"file2", "file3"},
+				{"file4", "file5"},
+			},
+			allFileMeta: map[string]FileInfo{
+				"file1": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadGroup:    "group1",
+					reloadRequired: true,
+				},
+				"file2": {
+					reload:         []string{"systemctl restart service2", "systemctl is-active service2"},
+					reloadGroup:    "group2",
+					reloadRequired: true,
+				},
+				"file3": {
+					reload:         []string{"systemctl restart service3", "systemctl is-active service3"},
+					reloadGroup:    "sharedgroup",
+					reloadRequired: true,
+				},
+				"file4": {
+					reload:         []string{"systemctl restart service4", "systemctl is-active service4"},
+					reloadGroup:    "sharedgroup",
+					reloadRequired: true,
+				},
+				"file5": {
+					reload:         []string{"systemctl restart service5", "systemctl is-active service5"},
+					reloadGroup:    "group5",
+					reloadRequired: true,
+				},
+			},
+			expected: [][]string{
+				{"file1"},
+				{"file2", "file3", "file4", "file5"},
+			},
+		},
+		{
+			name: "Files in separate tree with same reload commands",
+			depTrees: [][]string{
+				{"file1"},
+				{"file2", "file3"},
+				{"file4", "file5"},
+			},
+			allFileMeta: map[string]FileInfo{
+				"file1": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadGroup:    "group1",
+					reloadRequired: true,
+				},
+				"file2": {
+					reload:         []string{"systemctl restart service2", "systemctl is-active service2"},
+					reloadGroup:    "group2",
+					reloadRequired: true,
+				},
+				"file3": {
+					reload:         []string{"systemctl restart sharedservice", "systemctl is-active sharedservice"},
+					reloadGroup:    "group3",
+					reloadRequired: true,
+				},
+				"file4": {
+					reload:         []string{"systemctl restart sharedservice", "systemctl is-active sharedservice"},
+					reloadGroup:    "group4",
+					reloadRequired: true,
+				},
+				"file5": {
+					reload:         []string{"systemctl restart service5", "systemctl is-active service5"},
+					reloadGroup:    "group5",
+					reloadRequired: true,
+				},
+			},
+			expected: [][]string{
+				{"file1"},
+				{"file2", "file3", "file4", "file5"},
+			},
+		},
+		{
+			name: "Separate Trees but identical reloads/reload groups",
+			depTrees: [][]string{
+				{"file1"},
+				{"file2"},
+				{"file3"},
+			},
+			allFileMeta: map[string]FileInfo{
+				"file1": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadGroup:    "group1",
+					reloadRequired: true,
+				},
+				"file2": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadGroup:    "group1",
+					reloadRequired: true,
+				},
+				"file3": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadGroup:    "group1",
+					reloadRequired: true,
+				},
+			},
+			expected: [][]string{
+				{"file1", "file2", "file3"},
+			},
+		},
+		{
+			name: "No Reloads but single group defined for all files in separate trees",
+			depTrees: [][]string{
+				{"file2", "file3"},
+				{"file4"},
+				{"file5"},
+				{"file6", "file7"},
+			},
+			allFileMeta: map[string]FileInfo{
+				"file2": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file3": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file4": {
+					reloadGroup: "Service1",
+				},
+				"file5": {
+					reloadGroup: "Service1",
+				},
+				"file7": {
+					reload:         []string{"service1 checkconf", "service1 reload file7"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file6": {
+					reload:      []string{"service1 checkconf"},
+					reloadGroup: "Service1",
+				},
+			},
+			expected: [][]string{
+				{"file2", "file3", "file4", "file5", "file6", "file7"},
+			},
+		},
+		{
+			name: "Commands and Custom Two Different Groups",
+			depTrees: [][]string{
+				{"file2"},
+				{"file3"},
+				{"file5", "file4"},
+				{"file6"},
+			},
+			allFileMeta: map[string]FileInfo{
+				"file3": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file2": {
+					reload:         []string{"systemctl restart service1", "systemctl is-active service1"},
+					reloadRequired: true,
+					reloadGroup:    "Service1",
+				},
+				"file4": {
+					reloadGroup: "Service2",
+				},
+				"file6": {
+					reload:         []string{"service2 check-conf", "systemctl restart service2", "systemctl is-active service2"},
+					reloadRequired: true,
+					reloadGroup:    "Service2",
+				},
+				"file5": {
+					reloadGroup: "Service2",
+				},
+			},
+			expected: [][]string{
+				{"file2", "file3"},
+				{"file5", "file4", "file6"},
+			},
+		},
+		{
+			name: "Custom Group No Reloads Pass through",
+			depTrees: [][]string{
+				{"file3", "file2"},
+			},
+			allFileMeta: map[string]FileInfo{
+				"file3": {
+					reloadGroup: "Service1",
+				},
+				"file2": {
+					reloadGroup: "Service1",
+				},
+			},
+			expected: [][]string{
+				{"file3", "file2"},
+			},
+		},
+		{
+			name: "No Groups No Reloads",
+			depTrees: [][]string{
+				{"file1"},
+				{"file2"},
+				{"file3"},
+			},
+			allFileMeta: map[string]FileInfo{
+				"file1": {},
+				"file2": {},
+				"file3": {},
+			},
+			expected: [][]string{
+				{"file1"},
+				{"file2"},
+				{"file3"},
+			},
+		},
+		{
+			name:        "No Input",
+			depTrees:    [][]string{},
+			allFileMeta: map[string]FileInfo{},
+			expected:    [][]string{},
+		},
+	}
+
+	for _, test := range testCases {
+		t.Run(test.name, func(t *testing.T) {
+			result := mergeDepTrees(test.depTrees, test.allFileMeta)
+
+			if len(test.expected) != len(result) {
+				t.Errorf("expected %d independent trees, got %d trees", len(test.expected), len(result))
+				t.Errorf("values: expected '%v', got '%v'", test.expected, result)
+			} else if len(test.expected) == len(result) {
+				for resultTreeIndex, resultTree := range result {
+					if !compareArrays(test.expected[resultTreeIndex], resultTree) {
+						t.Errorf("expected '%v', got '%v'", test.expected, result)
+						return
 					}
 				}
 			}
@@ -947,18 +1227,18 @@ func TestCreateReloadGroups(t *testing.T) {
 			expected: DeploymentList{
 				files: []string{"host1/etc/nginx/nginx.conf", "host1/etc/nginx/conf.d/site1.conf", "host1/etc/nginx/conf.d/site2.conf"},
 				reloadIDtoFile: map[string][]string{
-					"W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd": {"host1/etc/nginx/nginx.conf", "host1/etc/nginx/conf.d/site1.conf", "host1/etc/nginx/conf.d/site2.conf"},
+					"c3lzdGVtY3RsIHJlc3RhcnQgbmdpbnh8c3lzdGVtY3RsIGlzLWFjdGl2ZSBuZ2lueA==": {"host1/etc/nginx/nginx.conf", "host1/etc/nginx/conf.d/site1.conf", "host1/etc/nginx/conf.d/site2.conf"},
 				},
 				fileToReloadID: map[string]string{
-					"host1/etc/nginx/nginx.conf":        "W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd",
-					"host1/etc/nginx/conf.d/site1.conf": "W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd",
-					"host1/etc/nginx/conf.d/site2.conf": "W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd",
+					"host1/etc/nginx/nginx.conf":        "c3lzdGVtY3RsIHJlc3RhcnQgbmdpbnh8c3lzdGVtY3RsIGlzLWFjdGl2ZSBuZ2lueA==",
+					"host1/etc/nginx/conf.d/site1.conf": "c3lzdGVtY3RsIHJlc3RhcnQgbmdpbnh8c3lzdGVtY3RsIGlzLWFjdGl2ZSBuZ2lueA==",
+					"host1/etc/nginx/conf.d/site2.conf": "c3lzdGVtY3RsIHJlc3RhcnQgbmdpbnh8c3lzdGVtY3RsIGlzLWFjdGl2ZSBuZ2lueA==",
 				},
 				reloadIDfileCount: map[string]int{
-					"W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd": 3,
+					"c3lzdGVtY3RsIHJlc3RhcnQgbmdpbnh8c3lzdGVtY3RsIGlzLWFjdGl2ZSBuZ2lueA==": 3,
 				},
 				reloadIDcommands: map[string][]string{
-					"W3N5c3RlbWN0bCByZXN0YXJ0IG5naW54IHN5c3RlbWN0bCBpcy1hY3RpdmUgbmdpbnhd": {"systemctl restart nginx", "systemctl is-active nginx"},
+					"c3lzdGVtY3RsIHJlc3RhcnQgbmdpbnh8c3lzdGVtY3RsIGlzLWFjdGl2ZSBuZ2lueA==": {"systemctl restart nginx", "systemctl is-active nginx"},
 				},
 			},
 		},

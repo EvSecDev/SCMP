@@ -526,6 +526,17 @@ func sortFiles(hostInfo map[string]EndpointInfo, hostDeploymentFiles map[string]
 			return
 		}
 
+		depTrees = mergeDepTrees(depTrees, allFileMeta)
+
+		// Quick guard against any unforeseen consequences
+		if len(hostDeploymentFiles[host]) > 0 && len(depTrees) == 0 {
+			err = fmt.Errorf("something went wrong: dependency tree sorting resulted in no files")
+			return
+		} else if len(hostDeploymentFiles[host]) > 0 && len(depTrees[0]) == 0 {
+			err = fmt.Errorf("something went wrong: dependency tree sorting resulted in an empty tree with no files")
+			return
+		}
+
 		// Temporary patch - combine back into single list for serial deployment
 		for _, depTree := range depTrees {
 			for _, file := range depTree {
@@ -651,10 +662,100 @@ func handleFileDependencies(rawDeploymentFiles []string, allFileMeta map[string]
 		orderedDeploymentFiles = append(orderedDeploymentFiles, sorted)
 	}
 
+	if len(orderedDeploymentFiles) == 0 {
+		err = fmt.Errorf("something went wrong, sorting resulted in no files!")
+		return
+	}
+
 	// Create stable ordering of trees based on first file in each
 	sort.Slice(orderedDeploymentFiles, func(i, j int) bool {
 		return orderedDeploymentFiles[i][0] < orderedDeploymentFiles[j][0]
 	})
+
+	return
+}
+
+// Handles merging dependency trees when they have overlapping reload commands/reload groups
+func mergeDepTrees(depTrees [][]string, allFileMeta map[string]FileInfo) (newDepTrees [][]string) {
+	if len(depTrees) == 0 {
+		return [][]string{}
+	}
+
+	// Tracking maps
+	fileToTreeNum := make(map[string]int)
+	reloadIDToTreeNum := make(map[string]int)
+	reloadGroupToTreeNum := make(map[string]int)
+
+	// Setup file to tree lookups
+	for treeNum, tree := range depTrees {
+		for _, file := range tree {
+			fileToTreeNum[file] = treeNum
+		}
+	}
+
+	// union-find like structure to merge trees
+	parent := make([]int, len(depTrees))
+	for treeIndex := range parent {
+		parent[treeIndex] = treeIndex
+	}
+	// Find the root tree index of a given tree
+	findRoot := func(treeIndex int) int {
+		for parent[treeIndex] != treeIndex {
+			// Path compression: point directly to grandparent
+			parent[treeIndex] = parent[parent[treeIndex]]
+			treeIndex = parent[treeIndex]
+		}
+		return treeIndex
+	}
+	// Merge two trees into the same group
+	unionTrees := func(treeAIndex, treeBIndex int) {
+		rootA, rootB := findRoot(treeAIndex), findRoot(treeBIndex)
+		if rootA != rootB {
+			parent[rootB] = rootA
+		}
+	}
+
+	// Identify overlaps between trees
+	for file, treeNum := range fileToTreeNum {
+		meta := allFileMeta[file]
+
+		// Reload command overlaps
+		if len(meta.reload) > 0 {
+			cmdList := strings.Join(meta.reload, "|")
+			reloadID := base64.StdEncoding.EncodeToString([]byte(cmdList))
+
+			existingTree, reloadIDAlreadyTracked := reloadIDToTreeNum[reloadID]
+			if reloadIDAlreadyTracked {
+				unionTrees(treeNum, existingTree)
+			}
+			reloadIDToTreeNum[reloadID] = treeNum
+		}
+
+		// Reload group overlaps
+		if meta.reloadGroup != "" {
+			if existingTree, ok := reloadGroupToTreeNum[meta.reloadGroup]; ok {
+				unionTrees(treeNum, existingTree)
+			}
+			reloadGroupToTreeNum[meta.reloadGroup] = treeNum
+		}
+	}
+
+	// Merge found overlaps (maintain overall input order)
+	merged := make(map[int][]string)
+	seen := make(map[int]bool)
+
+	for treeNum, tree := range depTrees {
+		root := findRoot(treeNum)
+		merged[root] = append(merged[root], tree...)
+	}
+
+	for treeNum := range depTrees {
+		root := findRoot(treeNum)
+		if !seen[root] {
+			newDepTrees = append(newDepTrees, merged[root])
+			seen[root] = true
+		}
+	}
 
 	return
 }
@@ -681,7 +782,8 @@ func createReloadGroups(fileList []string, allFileMeta map[string]FileInfo) (gro
 
 		var reloadID string
 		if len(allFileMeta[file].reload) > 0 {
-			reloadID = base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "%v", allFileMeta[file].reload))
+			cmdList := strings.Join(allFileMeta[file].reload, "|")
+			reloadID = base64.StdEncoding.EncodeToString([]byte(cmdList))
 		}
 
 		// Group custom names - once encountered, no need to group by identical commands
