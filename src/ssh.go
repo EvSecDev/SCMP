@@ -225,20 +225,57 @@ func SCPDownload(client *ssh.Client, remoteFilePath string) (fileContentBytes []
 	return
 }
 
+// New SSH channel with retry option (exponential backoff timer)
+//
+// This accounts for the delay on SSH servers between the reception
+// of channel close request (packet type 97) and when the server
+// calls 'free: server-session' to decrement nchannel count
+func newSessionWithRetry(client *ssh.Client) (session *ssh.Session, err error) {
+	// Initial sleep should guarantee no server errors on LAN
+	// For deployments crossing the internet, it should help minimize "error: no more sessions" on the server side (key word there is minimize)
+	// Heavily network-latency dependent
+	backoff := 5 * time.Millisecond
+	maxBackoff := 500 * time.Millisecond // Remote server should have gc'd by now
+	retryCount := 1
+
+	// Not a great solution, but multiple channels are basically guaranteed to breach max sessions without a small artificial wait time
+	time.Sleep(backoff)
+
+	for {
+		session, err = client.NewSession()
+		if err == nil {
+			printMessage(verbosityFullData, "Endpoint %s:     New channel request succeeded on attempt %d\n", client.RemoteAddr().String(), retryCount)
+			// No retries on success
+			return
+		}
+
+		// Any other errors during channel creation should immediately bail
+		if !strings.Contains(err.Error(), "rejected: connect failed (open failed)") {
+			err = fmt.Errorf("failed to create session: %v", err)
+			return
+		}
+
+		// Loop limit set at max backoff - just bail with error at that point
+		if backoff > maxBackoff {
+			err = fmt.Errorf("failed to create session: exceeded the remote server's maximum simultaneous channels (reached timeout after %d retries): %v", retryCount, err)
+			return
+		}
+
+		printMessage(verbosityFullData, "Endpoint %s:     New channel request failed on attempt %d: sleeping for %s\n", client.RemoteAddr().String(), retryCount, backoff.String())
+		retryCount++
+		time.Sleep(backoff)
+		backoff *= 2
+	}
+}
+
 // Runs the given remote ssh command optionally with sudo
 // runAs input will change to the user using sudo if not it will use root
 // disableSudo will determine if command runs with sudo or not (default, will always use sudo)
 // Empty sudoPassword will run without assuming the user account doesn't require any passwords
 func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSudo bool, sudoPassword string) (commandOutput string, err error) {
 	// Open new session (exec)
-	session, err := client.NewSession()
+	session, err := newSessionWithRetry(client)
 	if err != nil {
-		// Add some context to errors regarding rejected session opens (most likely a result of too high of max deploy concurrency)
-		if strings.Contains(err.Error(), "rejected: connect failed (open failed)") {
-			err = fmt.Errorf("failed to create session: exceeded the remote server's maximum simultaneous channels: %v", err)
-		} else {
-			err = fmt.Errorf("failed to create session: %v", err)
-		}
 		return
 	}
 	defer session.Close()

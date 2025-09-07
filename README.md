@@ -94,7 +94,7 @@ If you like what this program can do or want to expand functionality yourself, f
 ### Dependencies
 
 - Remote Host Requirements:
-  - OpenSSH Server
+  - OpenSSH Server (other servers are untested)
   - Commands: `ls, stat, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum, uname`
 - Local Host Requirements:
   - Unix file paths
@@ -333,6 +333,26 @@ Local/path/to/file1
   -> host1,host2 /path/to/file1
   -> host1,host2 /path/to/file2
 ```
+
+### Maximum Deployment Threads
+
+This option describes the maximum concurrent deployment of file(s) for a given host, but is not as straight forward as one might assume.
+
+On OpenSSH servers, there is a fairly significant delay (mostly due to network latency) between when a client closes a channel and when the server actually closes it.
+
+For LAN configurations, it is generally safe to have `--max-deploy-threads` set to the same value of the server's `maxsessions`.
+
+For internet hosts, the max threads will vary on the physical distance away from the controller (and thus the network latency).
+Generally, for high latency hosts, error-free deployment (on the server's side) is achieved when `--max-deploy-threads` set to half of the server's `maxsessions`.
+
+The default for this program is currently set to half of OpenSSH default `maxsessions` of 10.
+
+The controller does include an internal retry and backoff timer so in most cases, even when `--max-deploy-threads` is set to `maxsessions`, there should be no server-side errors.
+
+However, it is not unusual to see the following log from the SSH server:
+`sshd-session[pid]: error: no more sessions`
+
+This log should indicate that you should either increase `maxsessions` on the server, or decrease `--max-deploy-threads`.
 
 ### Dry/Wet Test Runs
 
