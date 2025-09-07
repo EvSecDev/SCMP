@@ -98,7 +98,7 @@ func printHelpMenu(fs *flag.FlagSet, commandname string, subcommands []string, u
 
 	if fullMenu {
 		fmt.Println(helpMenuTitle)
-		fmt.Printf(helpMenuSubTitle)
+		fmt.Print(helpMenuSubTitle)
 	}
 
 	if len(subcommands) > 0 {
@@ -120,7 +120,7 @@ func printHelpMenu(fs *flag.FlagSet, commandname string, subcommands []string, u
 	printFlagOptions(fs)
 
 	if fullMenu {
-		fmt.Printf(helpMenuTrailer)
+		fmt.Print(helpMenuTrailer)
 	}
 }
 

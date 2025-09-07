@@ -159,6 +159,16 @@ func checkConnection(err error) (retryAvailable bool, connectionSucceeded bool) 
 	}
 }
 
+func watchLongTransfer(filename string, done chan struct{}) {
+	select {
+	case <-time.After(10 * time.Second):
+		// If task takes more than 10 seconds, print status
+		printMessage(verbosityStandard, "File transfer still running for '%s'\n", filename)
+	case <-done:
+		// If the task finishes before 10 seconds, no feedback message
+	}
+}
+
 // Uploads content to specified remote file path via SCP
 func SCPUpload(client *ssh.Client, localFileContent []byte, remoteFilePath string) (err error) {
 	transferClient, err := scp.NewClientBySSHWithTimeout(client, 900*time.Second)
@@ -173,7 +183,10 @@ func SCPUpload(client *ssh.Client, localFileContent []byte, remoteFilePath strin
 	localContentSize := int64(len(localFileContent))
 
 	// Transfer content to remote file path
+	done := make(chan struct{})
+	go watchLongTransfer(remoteFilePath, done)
 	err = transferClient.Copy(context.Background(), localContentReader, remoteFilePath, "0640", localContentSize)
+	close(done)
 	if err != nil {
 		if strings.Contains(err.Error(), "permission denied") {
 			err = fmt.Errorf("unable to write to %s (is it writable by the user?): %v", remoteFilePath, err)
@@ -198,7 +211,10 @@ func SCPDownload(client *ssh.Client, remoteFilePath string) (fileContentBytes []
 	// Buffer to receive bytes from remote
 	var localTransferBuffer bytes.Buffer
 
+	done := make(chan struct{})
+	go watchLongTransfer(remoteFilePath, done)
 	_, err = transferClient.CopyFromRemoteFileInfos(context.Background(), &localTransferBuffer, remoteFilePath, nil)
+	close(done)
 	if err != nil {
 		err = fmt.Errorf("failed scp transfer: %v", err)
 		return
