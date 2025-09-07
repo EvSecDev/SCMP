@@ -217,7 +217,12 @@ func (command RemoteCommand) SSHexec(client *ssh.Client, runAs string, disableSu
 	// Open new session (exec)
 	session, err := client.NewSession()
 	if err != nil {
-		err = fmt.Errorf("failed to create session: %v", err)
+		// Add some context to errors regarding rejected session opens (most likely a result of too high of max deploy concurrency)
+		if strings.Contains(err.Error(), "rejected: connect failed (open failed)") {
+			err = fmt.Errorf("failed to create session: exceeded the remote server's maximum simultaneous channels: %v", err)
+		} else {
+			err = fmt.Errorf("failed to create session: %v", err)
+		}
 		return
 	}
 	defer session.Close()

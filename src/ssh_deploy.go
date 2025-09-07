@@ -37,8 +37,8 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 
 	err := runPreDeploymentCommands(deployMetrics, host.name, endpointInfo.deploymentList, allFileMeta, allFileData)
 	if err != nil {
-		err = fmt.Errorf("failed to run predeployment commands: %v", err)
-		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentList.files...)
+		err = fmt.Errorf("failed to run pre-deployment commands: %v", err)
+		deployMetrics.addAllDeployFiles(host.name, allFileMeta, endpointInfo.deploymentList)
 		deployMetrics.addHostFailure(host.name, err)
 		return
 	}
@@ -48,7 +48,7 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	host.sshClient, proxyClient, err = connectToSSH(endpointInfo, proxyInfo)
 	if err != nil {
 		err = fmt.Errorf("failed connect to SSH server: %v", err)
-		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentList.files...)
+		deployMetrics.addAllDeployFiles(host.name, allFileMeta, endpointInfo.deploymentList)
 		deployMetrics.addHostFailure(host.name, err)
 		return
 	}
@@ -61,21 +61,41 @@ func sshDeploy(wg *sync.WaitGroup, connLimiter chan struct{}, endpointInfo Endpo
 	err = remoteDeploymentPreparation(&host)
 	if err != nil {
 		err = fmt.Errorf("remote system preparation failed: %v", err)
-		deployMetrics.addFile(host.name, allFileMeta, endpointInfo.deploymentList.files...)
+		deployMetrics.addAllDeployFiles(host.name, allFileMeta, endpointInfo.deploymentList)
 		deployMetrics.addHostFailure(host.name, err)
 		return
 	}
 	defer cleanupRemote(host)
 
-	// Deploy files
-	deployFiles(host, endpointInfo.deploymentList, allFileMeta, allFileData, deployMetrics)
+	// Deploy files concurrently
+	var innerWG sync.WaitGroup
+	maxDeployLimiter := make(chan struct{}, config.options.maxDeployConcurrency)
+	for _, independentDeploymentList := range endpointInfo.deploymentList {
+		innerWG.Add(1)
+
+		if config.options.maxDeployConcurrency > 1 {
+			go deployFiles(&innerWG, maxDeployLimiter, host, independentDeploymentList, allFileMeta, allFileData, deployMetrics)
+		} else {
+			// Max conns of 1 disables using go routine
+			deployFiles(&innerWG, maxDeployLimiter, host, independentDeploymentList, allFileMeta, allFileData, deployMetrics)
+
+			// File groups are considered fully independent, errors do not stop further groups from starting deployment
+			// dependencies/reloads/reload groups are the mechanism to use to halt further file deployments
+		}
+	}
+	innerWG.Wait()
 }
 
 // #####################################
 //     FILE DEPLOYMENT HANDLING
 // #####################################
 
-func deployFiles(host HostMeta, deploymentList DeploymentList, allFileMeta map[string]FileInfo, allFileData map[string][]byte, deployMetrics *DeploymentMetrics) {
+func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta, deploymentList DeploymentList, allFileMeta map[string]FileInfo, allFileData map[string][]byte, deployMetrics *DeploymentMetrics) {
+	defer wg.Done()
+
+	deployLimiter <- struct{}{}
+	defer func() { <-deployLimiter }()
+
 	// Recover from panic
 	defer func() {
 		if fatalError := recover(); fatalError != nil {

@@ -56,18 +56,20 @@ func printDeploymentInformation(commitFileInfo map[string]FileInfo, allDeploymen
 		// Identify maximum indent file name prints will need to be
 		var maxFileNameLength int
 		var maxActionLength int
-		for _, filePath := range hostInfo.deploymentList.files {
-			// Format to remote path type
-			_, targetFile := translateLocalPathtoRemotePath(filePath)
+		for _, independentDeploymentList := range hostInfo.deploymentList {
+			for _, filePath := range independentDeploymentList.files {
+				// Format to remote path type
+				_, targetFile := translateLocalPathtoRemotePath(filePath)
 
-			nameLength := len(targetFile)
-			if nameLength > maxFileNameLength {
-				maxFileNameLength = nameLength
-			}
+				nameLength := len(targetFile)
+				if nameLength > maxFileNameLength {
+					maxFileNameLength = nameLength
+				}
 
-			actionLength := len(commitFileInfo[filePath].action)
-			if actionLength > maxActionLength {
-				maxActionLength = actionLength
+				actionLength := len(commitFileInfo[filePath].action)
+				if actionLength > maxActionLength {
+					maxActionLength = actionLength
+				}
 			}
 		}
 		// Increment indent so longest name has at least some space after it
@@ -75,18 +77,20 @@ func printDeploymentInformation(commitFileInfo map[string]FileInfo, allDeploymen
 		maxActionLength += 9
 
 		// Print out files for this specific host
-		for _, file := range hostInfo.deploymentList.files {
-			// Format to remote path type
-			_, targetFile := translateLocalPathtoRemotePath(file)
+		for _, independentDeploymentList := range hostInfo.deploymentList {
+			for _, file := range independentDeploymentList.files {
+				// Format to remote path type
+				_, targetFile := translateLocalPathtoRemotePath(file)
 
-			// Determine how many spaces to add after file name
-			fileIndentSpaces := maxFileNameLength - len(targetFile)
+				// Determine how many spaces to add after file name
+				fileIndentSpaces := maxFileNameLength - len(targetFile)
 
-			// Determine how many spaces to add after action name
-			actionIndentSpaces := maxActionLength - len(commitFileInfo[file].action)
+				// Determine how many spaces to add after action name
+				actionIndentSpaces := maxActionLength - len(commitFileInfo[file].action)
 
-			// Print what we are going to do, the local file path, and remote file path
-			printMessage(verbosityStandard, "       %s:%s%s%s# %s\n", commitFileInfo[file].action, strings.Repeat(" ", actionIndentSpaces), targetFile, strings.Repeat(" ", fileIndentSpaces), file)
+				// Print what we are going to do, the local file path, and remote file path
+				printMessage(verbosityStandard, "       %s:%s%s%s# %s\n", commitFileInfo[file].action, strings.Repeat(" ", actionIndentSpaces), targetFile, strings.Repeat(" ", fileIndentSpaces), file)
+			}
 		}
 	}
 }
@@ -103,138 +107,140 @@ func printHostInformation(hostInfo EndpointInfo) {
 // Runs user defined commands locally
 // If err is present on return, deployment should fail
 // deploy metrics used to track any other failures
-func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string, deploymentList DeploymentList, allFileMeta map[string]FileInfo, allFileData map[string][]byte) (err error) {
+func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string, deploymentList []DeploymentList, allFileMeta map[string]FileInfo, allFileData map[string][]byte) (err error) {
 	// Optional user markers for stdin/stdout append/overwrite
 	const reqStdinMacro string = "<<<{@LOCALFILEDATA}"
 	const reqStdoutApSuffix string = ">>{@REMOTEFILEDATA}"
 	const reqStdoutOwSuffix string = ">{@REMOTEFILEDATA}"
 
-	for _, repoFilePath := range deploymentList.files {
-		if !allFileMeta[repoFilePath].predeployRequired {
-			continue
-		}
-
-		printMessage(verbosityProgress, "Host %s: Running pre-deployment commands for file '%s'\n", hostname, repoFilePath)
-
-		for _, predeployCommand := range allFileMeta[repoFilePath].predeploy {
-			// Avoid stdin/stdout markers from being ignored due to lingering spaces
-			predeployCommand = strings.TrimSpace(predeployCommand)
-
-			oldHashIndex := allFileMeta[repoFilePath].hash
-
-			var writeConfToStdin bool
-			if strings.Contains(predeployCommand, reqStdinMacro) {
-				writeConfToStdin = true
-				predeployCommand = strings.ReplaceAll(predeployCommand, reqStdinMacro, "")
+	for _, independentDeploymentList := range deploymentList {
+		for _, repoFilePath := range independentDeploymentList.files {
+			if !allFileMeta[repoFilePath].predeployRequired {
+				continue
 			}
 
-			var writeStdoutToFile bool
-			var appendStdoutToFile bool
-			if strings.HasSuffix(predeployCommand, reqStdoutOwSuffix) {
-				writeStdoutToFile = true
-				predeployCommand = strings.TrimSuffix(predeployCommand, reqStdoutOwSuffix)
-			} else if strings.HasSuffix(predeployCommand, reqStdoutApSuffix) {
-				appendStdoutToFile = true
-				predeployCommand = strings.TrimSuffix(predeployCommand, reqStdoutApSuffix)
-			}
+			printMessage(verbosityProgress, "Host %s: Running pre-deployment commands for file '%s'\n", hostname, repoFilePath)
 
-			printMessage(verbosityData, "Host %s:   Running pre-deployment command '%s'\n", hostname, predeployCommand)
+			for _, predeployCommand := range allFileMeta[repoFilePath].predeploy {
+				// Avoid stdin/stdout markers from being ignored due to lingering spaces
+				predeployCommand = strings.TrimSpace(predeployCommand)
 
-			commandArgs := strings.Fields(predeployCommand)
-			commandExe := commandArgs[0]
+				oldHashIndex := allFileMeta[repoFilePath].hash
 
-			cmd := exec.Command(commandExe, commandArgs[1:]...)
-
-			var stdoutBuf bytes.Buffer
-			if writeStdoutToFile || appendStdoutToFile {
-				cmd.Stdout = &stdoutBuf
-			}
-
-			var stderrBuf bytes.Buffer
-			cmd.Stderr = &stderrBuf
-
-			var stdin io.WriteCloser
-			if writeConfToStdin {
-				stdin, err = cmd.StdinPipe()
-				if err != nil {
-					err = fmt.Errorf("error creating stdin writer: %v", err)
-					return
-				}
-			}
-
-			// Run the command
-			err = cmd.Start()
-			if err != nil {
-				err = fmt.Errorf("error starting command: %v", err)
-				return
-			}
-
-			if writeConfToStdin {
-				// Write files contents to stdin if requested
-				_, err = stdin.Write(allFileData[oldHashIndex])
-				if err != nil {
-					err = fmt.Errorf("failed to write stdin to command: %v", err)
-					return
+				var writeConfToStdin bool
+				if strings.Contains(predeployCommand, reqStdinMacro) {
+					writeConfToStdin = true
+					predeployCommand = strings.ReplaceAll(predeployCommand, reqStdinMacro, "")
 				}
 
-				err = stdin.Close()
-				if err != nil {
-					err = fmt.Errorf("failed to close stdin: %v", err)
-					return
+				var writeStdoutToFile bool
+				var appendStdoutToFile bool
+				if strings.HasSuffix(predeployCommand, reqStdoutOwSuffix) {
+					writeStdoutToFile = true
+					predeployCommand = strings.TrimSuffix(predeployCommand, reqStdoutOwSuffix)
+				} else if strings.HasSuffix(predeployCommand, reqStdoutApSuffix) {
+					appendStdoutToFile = true
+					predeployCommand = strings.TrimSuffix(predeployCommand, reqStdoutApSuffix)
 				}
-			}
 
-			// Wait for command to exit
-			err = cmd.Wait()
-			if err != nil {
-				if exitErr, ok := err.(*exec.ExitError); ok {
-					if _, ok := exitErr.Sys().(syscall.WaitStatus); ok {
-						// Parsable exit status - command failed externally (non-zero)
-						err = fmt.Errorf("predeploy command '%s': %v: %s", cmd.String(), err, stderrBuf.String())
+				printMessage(verbosityData, "Host %s:   Running pre-deployment command '%s'\n", hostname, predeployCommand)
 
-						// Add to fail metrics - will trigger skip deployment of it and any related
-						deployMetrics.addFileFailure(repoFilePath, err)
-					} else {
-						// Unparsable exit status (maybe Windows) - fail host deployment
-						err = fmt.Errorf("failed to evaluate exit status of command '%s': %v", cmd.String(), err)
+				commandArgs := strings.Fields(predeployCommand)
+				commandExe := commandArgs[0]
+
+				cmd := exec.Command(commandExe, commandArgs[1:]...)
+
+				var stdoutBuf bytes.Buffer
+				if writeStdoutToFile || appendStdoutToFile {
+					cmd.Stdout = &stdoutBuf
+				}
+
+				var stderrBuf bytes.Buffer
+				cmd.Stderr = &stderrBuf
+
+				var stdin io.WriteCloser
+				if writeConfToStdin {
+					stdin, err = cmd.StdinPipe()
+					if err != nil {
+						err = fmt.Errorf("error creating stdin writer: %v", err)
 						return
 					}
-				} else {
-					// Failed due to local issue, fail host deployment
-					err = fmt.Errorf("error running command '%s': %v", cmd.String(), err)
+				}
+
+				// Run the command
+				err = cmd.Start()
+				if err != nil {
+					err = fmt.Errorf("error starting command: %v", err)
 					return
 				}
-			}
 
-			// Handle content modifications if requested
-			if writeStdoutToFile {
-				// Have to rehash contents to prevent clobbering identical input files for other hosts
-				newHashIndex := SHA256Sum(stdoutBuf.Bytes())
-				allFileData[newHashIndex] = stderrBuf.Bytes()
+				if writeConfToStdin {
+					// Write files contents to stdin if requested
+					_, err = stdin.Write(allFileData[oldHashIndex])
+					if err != nil {
+						err = fmt.Errorf("failed to write stdin to command: %v", err)
+						return
+					}
 
-				// Change hash pointer to new contents
-				fileMeta := allFileMeta[repoFilePath]
-				fileMeta.hash = newHashIndex
-				allFileMeta[repoFilePath] = fileMeta
-			} else if appendStdoutToFile {
-				existingFileContent := allFileData[oldHashIndex]
-
-				// If content doesn't end with newline, add one for proper append behavior
-				if !strings.HasSuffix(string(existingFileContent), "\n") {
-					existingFileContent = append(existingFileContent, '\n')
+					err = stdin.Close()
+					if err != nil {
+						err = fmt.Errorf("failed to close stdin: %v", err)
+						return
+					}
 				}
 
-				// Add script output to contents
-				newFileContent := append(existingFileContent, stderrBuf.Bytes()...)
+				// Wait for command to exit
+				err = cmd.Wait()
+				if err != nil {
+					if exitErr, ok := err.(*exec.ExitError); ok {
+						if _, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+							// Parsable exit status - command failed externally (non-zero)
+							err = fmt.Errorf("pre-deploy command '%s': %v: %s", cmd.String(), err, stderrBuf.String())
 
-				// Rehash and add to content map
-				newHashIndex := SHA256Sum(newFileContent)
-				allFileData[newHashIndex] = newFileContent
+							// Add to fail metrics - will trigger skip deployment of it and any related
+							deployMetrics.addFileFailure(repoFilePath, err)
+						} else {
+							// Unparsable exit status (maybe Windows) - fail host deployment
+							err = fmt.Errorf("failed to evaluate exit status of command '%s': %v", cmd.String(), err)
+							return
+						}
+					} else {
+						// Failed due to local issue, fail host deployment
+						err = fmt.Errorf("error running command '%s': %v", cmd.String(), err)
+						return
+					}
+				}
 
-				// Change hash pointer to new contents
-				fileMeta := allFileMeta[repoFilePath]
-				fileMeta.hash = newHashIndex
-				allFileMeta[repoFilePath] = fileMeta
+				// Handle content modifications if requested
+				if writeStdoutToFile {
+					// Have to rehash contents to prevent clobbering identical input files for other hosts
+					newHashIndex := SHA256Sum(stdoutBuf.Bytes())
+					allFileData[newHashIndex] = stderrBuf.Bytes()
+
+					// Change hash pointer to new contents
+					fileMeta := allFileMeta[repoFilePath]
+					fileMeta.hash = newHashIndex
+					allFileMeta[repoFilePath] = fileMeta
+				} else if appendStdoutToFile {
+					existingFileContent := allFileData[oldHashIndex]
+
+					// If content doesn't end with newline, add one for proper append behavior
+					if !strings.HasSuffix(string(existingFileContent), "\n") {
+						existingFileContent = append(existingFileContent, '\n')
+					}
+
+					// Add script output to contents
+					newFileContent := append(existingFileContent, stderrBuf.Bytes()...)
+
+					// Rehash and add to content map
+					newHashIndex := SHA256Sum(newFileContent)
+					allFileData[newHashIndex] = newFileContent
+
+					// Change hash pointer to new contents
+					fileMeta := allFileMeta[repoFilePath]
+					fileMeta.hash = newHashIndex
+					allFileMeta[repoFilePath] = fileMeta
+				}
 			}
 		}
 	}

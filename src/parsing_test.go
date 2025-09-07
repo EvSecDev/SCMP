@@ -887,7 +887,7 @@ func TestHandleFileDependencies(t *testing.T) {
 			hostDeploymentFiles: []string{},
 			allFileMeta:         map[string]FileInfo{},
 			expected:            [][]string{},
-			expectErr:           true,
+			expectErr:           false,
 			expectedNoOutput:    true,
 		},
 	}

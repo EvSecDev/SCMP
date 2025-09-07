@@ -91,6 +91,7 @@ type Config struct {
 
 type Opts struct {
 	maxSSHConcurrency        int    // Maximum threads for ssh sessions
+	maxDeployConcurrency     int    // Maximum threads for file deployments per host
 	calledByGitHook          bool   // Signal to err handling that rollback is available
 	dryRunEnabled            bool   // Tests deployment setup without connecting to remotes
 	wetRunEnabled            bool   // Tests deployment on remotes without mutating anything
@@ -112,7 +113,7 @@ type EndpointInfo struct {
 	ignoreUniversal bool                // Prevents deployments for this host to use anything from the primary Universal configs directory
 	requiresVault   bool                // Direct match to the config option "PasswordRequired"
 	universalGroups map[string]struct{} // Map to store the CSV for config option "GroupTags"
-	deploymentList  DeploymentList      // Ordered list of files and their groupings
+	deploymentList  []DeploymentList    // Ordered list of files and their groupings (separated by fully-independent groups)
 	endpointName    string              // Name of host as it appears in config and in git repo top-level directory names
 	proxy           string              // Name of the proxy host to use (if any)
 	endpoint        string              // Address:port of the host

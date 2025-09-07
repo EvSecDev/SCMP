@@ -69,6 +69,22 @@ func (metric *DeploymentMetrics) addHostBytes(host string, deployedBytes int) {
 	}
 }
 
+func (metric *DeploymentMetrics) addAllDeployFiles(host string, allFileMeta map[string]FileInfo, deployInfos []DeploymentList) {
+	metric.hostFilesMutex.Lock()
+	for _, deployInfo := range deployInfos {
+		metric.hostFiles[host] = append(metric.hostFiles[host], deployInfo.files...)
+	}
+	metric.hostFilesMutex.Unlock()
+
+	metric.fileActionMutex.Lock()
+	for _, deployInfo := range deployInfos {
+		for _, file := range deployInfo.files {
+			metric.fileAction[file] = allFileMeta[file].action
+		}
+	}
+	metric.fileActionMutex.Unlock()
+}
+
 func (metric *DeploymentMetrics) addFile(host string, allFileMeta map[string]FileInfo, files ...string) {
 	metric.hostFilesMutex.Lock()
 	metric.hostFiles[host] = append(metric.hostFiles[host], files...)

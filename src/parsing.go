@@ -526,27 +526,26 @@ func sortFiles(hostInfo map[string]EndpointInfo, hostDeploymentFiles map[string]
 			return
 		}
 
+		// Merge dependency trees to ensure similar reloads/reload groups get deployed in the same thread
+		printMessage(verbosityProgress, "Host: %s: Merging dependency trees based on reload groups/commands\n", host)
 		depTrees = mergeDepTrees(depTrees, allFileMeta)
 
+		// Identify reload groups by command and similar commands - used to coordinate when to reload during deployment
+		for _, depTree := range depTrees {
+			printMessage(verbosityProgress, "Host: %s: Grouping config files by reload commands\n", host)
+			independentDeploymentList := createReloadGroups(depTree, allFileMeta)
+
+			info.deploymentList = append(info.deploymentList, independentDeploymentList)
+		}
+
 		// Quick guard against any unforeseen consequences
-		if len(hostDeploymentFiles[host]) > 0 && len(depTrees) == 0 {
+		if len(hostDeploymentFiles[host]) > 0 && len(info.deploymentList) == 0 {
 			err = fmt.Errorf("something went wrong: dependency tree sorting resulted in no files")
 			return
-		} else if len(hostDeploymentFiles[host]) > 0 && len(depTrees[0]) == 0 {
+		} else if len(hostDeploymentFiles[host]) > 0 && len(info.deploymentList[0].files) == 0 {
 			err = fmt.Errorf("something went wrong: dependency tree sorting resulted in an empty tree with no files")
 			return
 		}
-
-		// Temporary patch - combine back into single list for serial deployment
-		for _, depTree := range depTrees {
-			for _, file := range depTree {
-				info.deploymentList.files = append(info.deploymentList.files, file)
-			}
-		}
-
-		// Sort reloads into groups sharing identical commands or user specified group names
-		printMessage(verbosityProgress, "Host: %s: Grouping config files by reload commands\n", host)
-		info.deploymentList = createReloadGroups(info.deploymentList.files, allFileMeta)
 
 		sortedHostInfo[host] = info
 	}
@@ -660,11 +659,6 @@ func handleFileDependencies(rawDeploymentFiles []string, allFileMeta map[string]
 		}
 
 		orderedDeploymentFiles = append(orderedDeploymentFiles, sorted)
-	}
-
-	if len(orderedDeploymentFiles) == 0 {
-		err = fmt.Errorf("something went wrong, sorting resulted in no files!")
-		return
 	}
 
 	// Create stable ordering of trees based on first file in each

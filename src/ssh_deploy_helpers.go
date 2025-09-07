@@ -458,7 +458,7 @@ func deployDirectory(host HostMeta, dirInfo FileInfo) (dirModified bool, remoteM
 	}
 
 	// Correct metadata of directory
-	printMessage(verbosityData, "Host %s:   Updating metdata for directory %s\n", host.name, targetDirPath)
+	printMessage(verbosityData, "Host %s:   Updating metadata for directory %s\n", host.name, targetDirPath)
 
 	if config.options.wetRunEnabled {
 		dirModified = true // would have been modified

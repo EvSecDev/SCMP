@@ -13,7 +13,7 @@ import (
 )
 
 type DeploymentList struct {
-	files             []string            // Ordered list of everything to deploy
+	files             []string            // Ordered list of files to deploy together
 	reloadIDtoFile    map[string][]string // Lookup of file list by reload ID
 	fileToReloadID    map[string]string   // Lookup of a files reload ID
 	reloadIDfileCount map[string]int      // Total files in reload group
@@ -43,16 +43,16 @@ type FileInfo struct {
 	permissions       int
 	fileSize          int
 	linkTarget        string
-	dependencies      []string
+	dependencies      []string // List of files required by this file
 	predeployRequired bool
-	predeploy         []string
+	predeploy         []string // Command list
 	installOptional   bool
-	install           []string
+	install           []string // Command list
 	checksRequired    bool
-	checks            []string
+	checks            []string // Command list
 	reloadRequired    bool
-	reload            []string
-	reloadGroup       string
+	reload            []string // Command list
+	reloadGroup       string   // Named string defined by user to manually group files together
 }
 
 // Struct for remote file metadata
@@ -102,6 +102,8 @@ func entryDeploy(commandname string, args []string) {
 	commandFlags.StringVar(&localFileOverride, "local-files", "", "Override file(s) for deployment")
 	commandFlags.StringVar(&commitID, "C", "", "Commit ID (hash) to deploy from")
 	commandFlags.StringVar(&commitID, "commitid", "", "Commit ID (hash) to deploy from")
+	commandFlags.IntVar(&config.options.maxDeployConcurrency, "M", 5, "Maximum simultaneous file deployments per host (1 disables threading)")
+	commandFlags.IntVar(&config.options.maxDeployConcurrency, "max-deploy-threads", 5, "Maximum simultaneous file deployments per host (1 disables threading)")
 	commandFlags.BoolVar(&config.options.runInstallCommands, "install", false, "Run installation commands during deployment")
 	commandFlags.BoolVar(&config.options.disableReloads, "disable-reloads", false, "Disables running any reload commands")
 	commandFlags.BoolVar(&config.options.ignoreDeploymentState, "ignore-deployment-state", false, "Ignores deployment state in configuration file")

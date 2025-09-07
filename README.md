@@ -46,6 +46,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Deploy all (or a subset of) tracked files by commit (default is most recent)
   - Deploy individual/lists/groups of files to individual/lists/groups of hosts
   - Deployment test run using single host (use `--max-conns 1 -r HOST`)
+  - Concurrent file deployment per host (use `--max-deploy-threads`) (note: requires server support for high numbers)
   - Exclude hosts from deployments (use config option `DeploymentState offline` under a host)
   - Ad-hoc override host exclusion from deployments (use `--ignore-deployment-state`)
   - Run a linear series of commands prior to any deployment actions per file/directory (part of file JSON metadata header)
