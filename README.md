@@ -587,3 +587,58 @@ OR if the repository was created using the controllers option `install --reposit
 In order to get auto-completion of the controller's arguments, SSH hosts, and git commit hashes, run `controller install --bash-autocomplete`
 
 This will attempt to install to the system's BASH autocompletion directory, or if not present your home directory autocompletion directory (which requires you source it manually in bashrc)
+
+### CLI Shortcuts
+
+If you want to take advantage of both artifact tracking and move faster for deployments, you can use this bash function in your bashrc.
+
+The usual workflow with this is to make some changes to the repository files, type `scmfast`, type your commit message, and everything else is taken care of.
+Note: this assumes your executable is named `controller` and is in your path.
+
+This function also takes any controller deployment specific arguments as well.
+
+Warning: This does commit and attempt to deploy all changes (not specific files).
+
+```bash
+function scmfast() {
+  if ! [[ $(ls .git) ]]
+  then
+    echo "Not in the root of a git repository."
+    return
+  fi
+
+  # Add changes to tree
+  controller git add .
+  if [[ $? != 0 ]]
+  then
+    echo "Controller git add failed" >&2
+    return 1
+  fi
+
+  # Show changed files
+  git status
+  msgPrefix=$(controller git status | awk '{split($2, a, "/"); print a[1]}' | sort | uniq -c | awk '{print $2"("$1")"}' | paste -sd, -)
+
+  # Get commit message from user
+  read -p "Commit Message: " commitMessage
+  if [[ -z $commitMessage ]]
+  then
+    echo "Must provide commit message" >&2
+    return 1
+  fi
+
+  # Add prefix of hosts and file count to commit message
+  fullCommitMessage="'${msgPrefix}: ${commitMessage}'"
+
+  # Commit changes
+  controller git commit -m "'$fullCommitMessage'"
+  if [[ $? != 0 ]]
+  then
+    echo "Failed commit" >&2
+    return 1
+  fi
+
+  # Run diff deployment with any extra provided options
+  controller deploy diff "$@" --enable-commit-auto-rollback --with-summary
+}
+```

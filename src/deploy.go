@@ -115,6 +115,7 @@ func entryDeploy(commandname string, args []string) {
 	commandFlags.BoolVar(&config.options.runInstallCommands, "install", false, "Run installation commands during deployment")
 	commandFlags.BoolVar(&config.options.disableReloads, "disable-reloads", false, "Disables running any reload commands")
 	commandFlags.BoolVar(&config.options.ignoreDeploymentState, "ignore-deployment-state", false, "Ignores deployment state in configuration file")
+	commandFlags.BoolVar(&config.options.calledByGitHook, "enable-commit-auto-rollback", false, "Enable git commit rollback on local processing errors")
 	commandFlags.BoolVar(&testConfig, "t", false, "Test configuration syntax and option validity")
 	commandFlags.BoolVar(&testConfig, "test-config", false, "Test configuration syntax and option validity")
 	commandFlags.BoolVar(&config.options.regexEnabled, "regex", false, "Enables regular expression parsing for file/host overrides")
