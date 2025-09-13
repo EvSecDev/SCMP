@@ -109,14 +109,16 @@ Secure Configuration Management Program (SCMP)
   Deploy ad-hoc commands and scripts to Linux servers via SSH
 
   Subcommands:
-    deploy
-    exec
-    git
-    install
-    scp
-    secrets
-    seed
-    version
+    deploy    - Deploy configurations
+    exec      - Execute Remote Commands
+    file      - Modify Local Data
+    git       - Repository Actions
+    header    - Modify File Headers
+    install   - Initial Setups
+    scp       - Transfer Files
+    secrets   - Modify Vault
+    seed      - Download Remote Configurations
+    version   - Show Version Information
 
   Options:
       --allow-deletions  Permits deletions of files/entries
@@ -563,136 +565,9 @@ Example metadata JSON:
   "ReloadGroup": "Service 1 Config Files"
 ```
 
-### BASH Auto-Completion
-
-In order to get auto-completion of the controller's arguments, SSH hosts, and git commit hashes, add this function to your `~/.bashrc`
-
-If your controller binary is named something else, rename both `_controller` and `controller` to your name (keeping the underscore prefix)
-
-```bash
-# Auto completion for SCMP Controller arguments
-_controller() {
-  local cur prev words cword
-  _init_completion || return
-  # Top-level subcommands
-  local subcommands="deploy exec git install scp secrets seed version"
-  # Global options
-  local global_opts="
-    --allow-deletions
-    --force
-    --log-file
-    --with-summary
-    -c --config
-    -T --dry-run
-    -v --verbosity
-    -w --wet-run
-"
-  # Subcommand-specific options
-  local deploy_subcommands="all diff failures"
-  local deploy_opts="
-    --disable-privilege-escalation
-    --disable-reloads
-    --execution-timeout
-    --ignore-deployment-state
-    --install
-    --regex
-    -C --commitid
-    -l --local-files
-    -m --max-conns
-    -r --remote-hosts
-    -t --test-config
-    -u --run-as-user
-"
-  local exec_opts="--regex -r --remote-hosts -R --remote-file --disable-privilege-escalation -m --max-conns -u --run-as-user --execution-timeout"
-  local git_subcommands="add commit status"
-  local git_opts="-m --message"
-  local install_opts="--apparmor-profile --default-config --repository-branch-name --repository-path"
-  local scp_opts="-c --config"
-  local secrets_opts="-p --modify-vault-password"
-  local seed_opts="--regex -r --remote-hosts -R --remote-files"
-  local version_opts="-v"
-  # Handle custom completions
-  case "${prev}" in
-    --config|-c|--local-files|-l|--remote-files|-R)
-        compopt -o filenames
-        COMPREPLY=( $(compgen -f -- "$cur") )
-        return 0
-        ;;
-    --remote-hosts|-r|--modify-vault-password|-p)
-        local ssh_config="${HOME}/.ssh/config"
-        if [[ -f "$ssh_config" ]]
-        then
-            COMPREPLY=( $(awk '/^Host / {print $2}' "$ssh_config" | grep -i "^$cur") )
-        fi
-        return 0
-        ;;
-    --commitid|-C)
-        if [[ -d ".git" ]]
-        then
-            COMPREPLY=( $(git log --pretty=format:"%H" -n 20 | grep -i "^$cur") )
-        fi
-        return 0
-        ;;
-    --max-conns|-m)
-        COMPREPLY=( $(compgen -W "1 5 10 15 20 50" -- "$cur") )
-        return 0
-        ;;
-    --verbosity|-v|--verbose)
-        COMPREPLY=( $(compgen -W "0 1 2 3 4 5" -- "$cur") )
-        return 0
-        ;;
-  esac
-  # Determine subcommand context
-  case "${COMP_WORDS[1]}" in
-    ""|-* )
-        COMPREPLY=( $(compgen -W "${subcommands} ${global_opts}" -- "$cur") )
-        ;;
-    deploy )
-        if [[ "${COMP_WORDS[2]}" =~ ^(-|$) ]]
-        then
-            COMPREPLY=( $(compgen -W "${deploy_subcommands} ${global_opts} ${deploy_opts}" -- "$cur") )
-        else
-            COMPREPLY=( $(compgen -W "${deploy_opts} ${global_opts}" -- "$cur") )
-        fi
-        ;;
-    exec )
-        COMPREPLY=( $(compgen -W "${exec_opts} ${global_opts}" -- "$cur") )
-        ;;
-    git )
-        if [[ "${COMP_WORDS[2]}" =~ ^(-|$) ]]
-        then
-            COMPREPLY=( $(compgen -W "${git_subcommands} ${global_opts} ${git_opts}" -- "$cur") )
-        else
-            COMPREPLY=( $(compgen -W "${git_opts} ${global_opts}" -- "$cur") )
-        fi
-        ;;
-    install )
-        COMPREPLY=( $(compgen -W "${install_opts} ${global_opts}" -- "$cur") )
-        ;;
-    scp )
-        COMPREPLY=( $(compgen -W "${scp_opts} ${global_opts}" -- "$cur") )
-        ;;
-    secrets )
-        COMPREPLY=( $(compgen -W "${secrets_opts} ${global_opts}" -- "$cur") )
-        ;;
-    seed )
-        COMPREPLY=( $(compgen -W "${seed_opts} ${global_opts}" -- "$cur") )
-        ;;
-    version )
-        COMPREPLY=( $(compgen -W "${version_opts} ${global_opts}" -- "$cur") )
-        ;;
-    * )
-        COMPREPLY=( $(compgen -W "${subcommands} ${global_opts}" -- "$cur") )
-        ;;
-  esac
-}
-# Register completion for SCMP Controller
-complete -F _controller controller
-```
-
 ### Commit Automatic Rollback
 
-When the controller is called with its `--git-commit` argument, there is a feature that will automatically roll back the commit when encountering an error.
+If the environment variable `SCMP_GIT_DEPLOY` is present when deploying a commit diff, then it will automatically roll back the commit when encountering an error.
 During the processing of a commit, any error before the controller connects to remote hosts will result the HEAD being moved to the previous commit.
 
 This is intentional to ensure that the HEAD commit is the most accurate representation of what configurations are currently deployed in the network.
@@ -706,3 +581,147 @@ git gc --prune=now
 ```
 
 OR if the repository was created using the controllers option `install --repository-path`, then the garbage collection options should be set in the local repository config (As of controller v1.6.0).
+
+### BASH Auto-Completion
+
+In order to get auto-completion of the controller's arguments, SSH hosts, and git commit hashes, add this function to your `~/.bashrc`
+
+If your controller binary is named something else, rename both `_controller` and `controller` to your name (keeping the underscore prefix)
+
+```bash
+# Auto completion for SCMP Controller arguments
+_controller() {
+    local cur prev words cword
+    _init_completion || return
+
+    # Reused arguments
+    
+
+    # Main config of options
+    declare -A COMMANDS=(
+        [root_sub]="deploy exec git install scp secrets seed version file header"
+        [root_opts]="--allow-deletions --force --log-file --with-summary -c --config -T --dry-run -v --verbosity -w --wet-run"
+
+        [deploy_sub]="all diff failures"
+        [deploy_opts]="--disable-privilege-escalation --disable-reloads --execution-timeout --ignore-deployment-state --install --regex -C --commitid -l --local-files -m --max-conns -r --remote-hosts -t --test-config -u --run-as-user -M --max-deploy-threads"
+
+        [deploy:all_opts]="__inherit__"
+        [deploy:diff_opts]="__inherit__"
+        [deploy:failures_opts]="__inherit__"
+
+        [exec_opts]="--regex -r --remote-hosts -R --remote-file --disable-privilege-escalation -m --max-conns -u --run-as-user --execution-timeout"
+
+        [git_sub]="add commit status"
+        [git_opts]="-m --message"
+
+        [git:commit_opts]="__inherit__"
+
+        [install_opts]="--apparmor-profile --default-config --repository-branch-name --repository-path"
+
+        [scp_opts]="-c --config"
+        [secrets_opts]="-p --modify-vault-password"
+        [seed_opts]="--regex -r --remote-hosts -R --remote-files"
+        [version_opts]="-v"
+
+        [file_sub]="new replace-data"
+        [file_opts]="-y --yes"
+
+        [file:new_opts]="__inherit__"
+        [file:replace-data_opts]="__inherit__"
+
+        [header_sub]="modify strip add read verify"
+        [header_opts]="-i --in-place -C --compact -j --json-metadata"
+
+        [header:modify_opts]="__inherit__"
+        [header:strip_opts]="__inherit__"
+        [header:add_opts]="__inherit__"
+        [header:read_opts]="__inherit__"
+    )
+
+    # Special completion options
+    case "$prev" in
+        --remote-hosts|-r|--modify-vault-password|-p)
+            local ssh_config="${HOME}/.ssh/config"
+            if [[ -f "$ssh_config" ]]
+            then
+                COMPREPLY=( $(awk '/^Host / {print $2}' "$ssh_config" | grep -i "^$cur") )
+            fi
+            return 0
+            ;;
+        --commitid|-C)
+            if [[ -d ".git" ]]
+            then
+                COMPREPLY=( $(git log --pretty=format:"%H" -n 20 | grep -i "^$cur") )
+            fi
+            return 0
+            ;;
+        --max-conns|-m)
+            COMPREPLY=( $(compgen -W "1 5 10 15 20 50" -- "$cur") )
+            return 0
+            ;;
+        --verbosity|-v|--verbose)
+            COMPREPLY=( $(compgen -W "0 1 2 3 4 5" -- "$cur") )
+            return 0
+            ;;
+    esac
+
+    # Walk commands
+    local path="root"
+    for ((i=1; i < COMP_CWORD; i++))
+    do
+        local word="${COMP_WORDS[i]}"
+        local subs="${COMMANDS[${path}_sub]}"
+
+        if [[ -n "$subs" && " $subs " == *" $word "* ]]
+        then
+            # descend into this subcommand
+            [[ "$path" == "root" ]] && path="$word" || path="$path:$word"
+        else
+            # no deeper subcommand match, stop here
+            break
+        fi
+    done
+
+    # Main suggestions
+    local subs="${COMMANDS[${path}_sub]}"
+    local opts="${COMMANDS[${path}_opts]}"
+
+    # Handle flag to use parent args instead of explicit ones
+    if [[ "$opts" == "__inherit__" ]]
+    then
+      # Only inherit from immediate parent
+      if [[ "$path" == *:* ]]
+      then
+          local parent="${path%:*}"          
+      else
+          local parent="root"                
+      fi
+      opts="${COMMANDS[${parent}_opts]}"
+    fi
+
+    local globals="${COMMANDS[root_opts]}"
+
+    local suggestions="$subs $opts $globals"
+
+    if [[ "$cur" != -* ]]
+    then
+        # Base completions: subcommands + files + directories
+        COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") $(compgen -f -- "$cur") )
+
+        # If current word resolves to a directory then no space after completion
+        for i in "${!COMPREPLY[@]}"
+        do
+            if [[ -d "${COMPREPLY[$i]}" ]]
+            then
+                compopt -o nospace
+                COMPREPLY[$i]="${COMPREPLY[$i]}/"
+            fi
+        done
+    else
+        # Options only
+        COMPREPLY=( $(compgen -W "$suggestions" -- "$cur") )
+    fi
+}
+# Register completion for SCMP Controller
+complete -F _controller controller
+```

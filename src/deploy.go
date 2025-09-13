@@ -12,6 +12,24 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+// Struct for host-specific Information
+type EndpointInfo struct {
+	deploymentState string              // Avoids deploying anything to host - so user can prevent deployments to otherwise up and health hosts
+	ignoreUniversal bool                // Prevents deployments for this host to use anything from the primary Universal configs directory
+	requiresVault   bool                // Direct match to the config option "PasswordRequired"
+	universalGroups map[string]struct{} // Map to store the CSV for config option "GroupTags"
+	deploymentList  []DeploymentList    // Ordered list of files and their groupings (separated by fully-independent groups)
+	endpointName    string              // Name of host as it appears in config and in git repo top-level directory names
+	proxy           string              // Name of the proxy host to use (if any)
+	endpoint        string              // Address:port of the host
+	endpointUser    string              // Login user name of the host
+	identityFile    string              // Key identity file path (private or public)
+	privateKey      ssh.Signer          // Actual private key contents
+	keyAlgo         string              // Algorithm of the private key
+	password        string              // Password for the EndpointUser
+	connectTimeout  int                 // Timeout in seconds for connection to this host
+}
+
 type DeploymentList struct {
 	files             []string            // Ordered list of files to deploy together
 	reloadIDtoFile    map[string][]string // Lookup of file list by reload ID
@@ -79,16 +97,6 @@ type HostMeta struct {
 }
 
 func entryDeploy(commandname string, args []string) {
-	availCommands := map[string]func(string, string, string, string){
-		"all":      deploy,
-		"diff":     deploy,
-		"failures": deploy,
-	}
-	var commandList []string
-	for cmd := range availCommands {
-		commandList = append(commandList, cmd)
-	}
-
 	var commitID string
 	var hostOverride string
 	var localFileOverride string
@@ -114,10 +122,10 @@ func entryDeploy(commandname string, args []string) {
 	setSSHArguments(commandFlags)
 
 	commandFlags.Usage = func() {
-		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 	}
 	if len(args) < 1 {
-		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 		os.Exit(1)
 	}
 	commandFlags.Parse(args[1:])
@@ -132,11 +140,17 @@ func entryDeploy(commandname string, args []string) {
 
 	subcommand := args[0]
 
-	entryFunc, validCommand := availCommands[subcommand]
+	// Environment variable to flag when rollback should be performed on local deploy errors
+	_, gitDeployEnvFlag := os.LookupEnv("SCMP_GIT_DEPLOY")
+	if gitDeployEnvFlag && subcommand == "diff" {
+		config.options.calledByGitHook = true
+	}
+
+	_, validCommand := allCmdOpts[subcommand] // restrict this further
 	if validCommand {
-		entryFunc(subcommand, commitID, hostOverride, localFileOverride)
+		deploy(subcommand, commitID, hostOverride, localFileOverride)
 	} else {
-		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 		os.Exit(1)
 	}
 }
@@ -177,7 +191,7 @@ func deploy(deployMode string, commitID string, hostOverride string, fileOverrid
 	case "failures":
 		commitFiles, hostOverride, err = lastDeploymentSummary.getFailures(fileOverride)
 	default:
-		logError("Unknown deployment mode", fmt.Errorf("mode must be diff, all, or failures"), false)
+		logError("Unknown deployment mode", fmt.Errorf("mode must be one of '%v'", allCmdOpts["deploy"].childCommands), false)
 	}
 
 	logError("Failed to retrieve files", err, false)

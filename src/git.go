@@ -14,8 +14,6 @@ import (
 )
 
 func entryGit(commandname string, args []string) {
-	commandList := []string{"add", "status", "commit"}
-
 	var commitMessage string
 
 	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
@@ -24,18 +22,20 @@ func entryGit(commandname string, args []string) {
 	setGlobalArguments(commandFlags)
 
 	commandFlags.Usage = func() {
-		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 	}
 	if len(args) < 1 {
-		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 		os.Exit(1)
 	}
 	commandFlags.Parse(args[1:])
 
-	switch args[0] {
+	subcommand := args[0]
+
+	switch subcommand {
 	case "add":
 		if len(args) < 2 {
-			printHelpMenu(commandFlags, commandname, []string{commandList[0]}, "<path|glob>", false)
+			printHelpMenu(commandFlags, subcommand, allCmdOpts)
 			os.Exit(1)
 		}
 
@@ -53,7 +53,7 @@ func entryGit(commandname string, args []string) {
 		}
 	case "commit":
 		if commitMessage == "" {
-			printHelpMenu(commandFlags, commandname, []string{commandList[2]}, "", false)
+			printHelpMenu(commandFlags, subcommand, allCmdOpts)
 			os.Exit(1)
 		}
 
@@ -61,7 +61,7 @@ func entryGit(commandname string, args []string) {
 		err := gitCommit(commitMessage)
 		logError("Failed to commit changes", err, false)
 	default:
-		printHelpMenu(commandFlags, commandname, commandList, "", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 		os.Exit(1)
 	}
 }
@@ -219,9 +219,6 @@ func gitCommit(gitCommitAction string) (err error) {
 	if err != nil {
 		return
 	}
-
-	// Set global to true, deployment might occur after this commit
-	config.options.calledByGitHook = true
 
 	return
 }

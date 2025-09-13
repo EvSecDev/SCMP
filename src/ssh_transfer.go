@@ -21,10 +21,10 @@ func entrySCP(commandname string, args []string) {
 	setGlobalArguments(commandFlags)
 
 	commandFlags.Usage = func() {
-		printHelpMenu(commandFlags, commandname, nil, "[srchost:]<srcpath> [dsthost:]<dstpath>", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 	}
 	if len(args) < 1 {
-		printHelpMenu(commandFlags, commandname, nil, "[srchost:]<srcpath> [dsthost:]<dstpath>", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 		os.Exit(1)
 	}
 	commandFlags.Parse(args[0:])

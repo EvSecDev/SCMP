@@ -31,17 +31,17 @@ func entryExec(commandname string, args []string) {
 	setGlobalArguments(commandFlags)
 
 	commandFlags.Usage = func() {
-		printHelpMenu(commandFlags, commandname, nil, "<remote command>", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 	}
 	if len(args) < 1 {
-		printHelpMenu(commandFlags, commandname, nil, "<remote command>", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 		os.Exit(1)
 	}
 	commandFlags.Parse(args[0:])
 
 	executeCommands := strings.Join(commandFlags.Args(), " ")
 	if executeCommands == "" {
-		printHelpMenu(commandFlags, commandname, nil, "<remote command>", false)
+		printHelpMenu(commandFlags, commandname, allCmdOpts)
 		os.Exit(1)
 	}
 

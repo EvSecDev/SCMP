@@ -76,32 +76,287 @@ func printMessage(requiredVerbosityLevel int, message string, vars ...interface{
 	}
 }
 
+// Defines all commands/subcommands and their relationships and descriptions
+func defineOptions() (cmdOpts map[string]commandSet) {
+	cmdOpts = make(map[string]commandSet)
+
+	// Root level
+	rootCmd := commandSet{
+		description:     "Secure Configuration Management Program (SCMP)",
+		fullDescription: "  Deploy configuration files from a git repository to Linux servers via SSH\n  Deploy ad-hoc commands and scripts to Linux servers via SSH",
+		parentCommand:   "",
+		childCommands:   []string{"deploy", "seed", "file", "header", "exec", "scp", "git", "secrets", "install", "version"},
+	}
+	cmdOpts["root"] = rootCmd
+
+	// Deployment
+	deployCmd := commandSet{
+		description:     "Deploy configurations",
+		fullDescription: "Takes configuration files from local repository, transfers them to remote servers, and reloads associated services",
+		parentCommand:   "root",
+		childCommands:   []string{"all", "diff", "failures"},
+	}
+	cmdOpts["deploy"] = deployCmd
+
+	deployAllCmd := commandSet{
+		description:     "Deploy Current Configurations",
+		fullDescription: "Deploy configurations from HEAD commit or specified commit regardless of commit difference",
+		parentCommand:   "deploy",
+		childCommands:   []string{},
+	}
+	cmdOpts["all"] = deployAllCmd
+
+	deployDiffCmd := commandSet{
+		description:     "Deploy Configurations from Commit Diff",
+		fullDescription: "Deploy the difference in configurations from the given commit",
+		parentCommand:   "deploy",
+		childCommands:   []string{},
+	}
+	cmdOpts["diff"] = deployDiffCmd
+
+	deployFailuresCmd := commandSet{
+		description:     "Deploy Configurations from last Complete Deployment Failure",
+		fullDescription: "Deploy failed configurations from last total failed deployment using local cached failure file",
+		parentCommand:   "deploy",
+		childCommands:   []string{},
+	}
+	cmdOpts["failures"] = deployFailuresCmd
+
+	// Repo Seeding
+	seedCmd := commandSet{
+		description:     "Download Remote Configurations",
+		fullDescription: "Retrieve existing remote configurations and associated metadata and store in local repository",
+		parentCommand:   "root",
+		childCommands:   []string{},
+	}
+	cmdOpts["seed"] = seedCmd
+
+	// Local file data handling
+	fileCmd := commandSet{
+		description:     "Modify Local Data",
+		fullDescription: "Manipulate local repository files and their data",
+		parentCommand:   "root",
+		childCommands:   []string{"new", "replace-data"},
+	}
+	cmdOpts["file"] = fileCmd
+
+	fileNewCmd := commandSet{
+		description:     "Create File with Template Metadata",
+		fullDescription: "Makes file at specified path with example metadata and data",
+		parentCommand:   "file",
+		usageOption:     "<file path>",
+		childCommands:   []string{},
+	}
+	cmdOpts["new"] = fileNewCmd
+
+	fileReplCmd := commandSet{
+		description:     "Replace File Data",
+		fullDescription: "Replace Chosen File's Data with Given File's Data",
+		parentCommand:   "file",
+		usageOption:     "<source file> <destination file>",
+		childCommands:   []string{},
+	}
+	cmdOpts["replace-data"] = fileReplCmd
+
+	// Local file metadata handling
+	headerCmd := commandSet{
+		description:     "Modify File Headers",
+		fullDescription: "Manipulate local file JSON metadata headers",
+		parentCommand:   "root",
+		childCommands:   []string{"modify", "strip", "add", "read", "verify"},
+	}
+	cmdOpts["header"] = headerCmd
+
+	headerModCmd := commandSet{
+		description:     "Change Metadata Header Values",
+		fullDescription: "Modify values in the existing JSON header via direct input JSON or via interactive prompts",
+		usageOption:     "<file path>",
+		parentCommand:   "header",
+		childCommands:   []string{},
+	}
+	cmdOpts["modify"] = headerModCmd
+
+	headerStripCmd := commandSet{
+		description:     "Remove Metadata Header",
+		fullDescription: "Deletes the JSON header from the given file",
+		usageOption:     "<file path>",
+		parentCommand:   "header",
+		childCommands:   []string{},
+	}
+	cmdOpts["strip"] = headerStripCmd
+
+	headerAddCmd := commandSet{
+		description:     "Add Metadata Header to Existing File",
+		fullDescription: "Use provided JSON to add metadata header to a file that does not have one",
+		usageOption:     "<file path>",
+		parentCommand:   "header",
+		childCommands:   []string{},
+	}
+	cmdOpts["add"] = headerAddCmd
+
+	headerReadCmd := commandSet{
+		description:     "Print Metadata Header from File",
+		fullDescription: "Extract JSON header from file and format",
+		usageOption:     "<file path>",
+		parentCommand:   "header",
+		childCommands:   []string{},
+	}
+	cmdOpts["read"] = headerReadCmd
+
+	headerVerifyCmd := commandSet{
+		description:     "Test Metadata Header Validity",
+		fullDescription: "Tests the extraction of file header and the syntax validity of the JSON",
+		usageOption:     "<file path>",
+		parentCommand:   "header",
+		childCommands:   []string{},
+	}
+	cmdOpts["verify"] = headerVerifyCmd
+
+	// Executions
+	execCmd := commandSet{
+		description:     "Execute Remote Commands",
+		fullDescription: "Execute remote commands and scripts on remote hosts and universal groups",
+		parentCommand:   "root",
+		usageOption:     "<remote command | file://local-script>",
+		childCommands:   []string{},
+	}
+	cmdOpts["exec"] = execCmd
+
+	// File transfers
+	scpCmd := commandSet{
+		description:     "Transfer Files",
+		fullDescription: "Transfer local files to remote hosts and universal groups",
+		parentCommand:   "root",
+		usageOption:     "[srchost:]<srcpath> [dsthost:]<dstpath>",
+		childCommands:   []string{},
+	}
+	cmdOpts["scp"] = scpCmd
+
+	// Repository
+	gitCmd := commandSet{
+		description:     "Repository Actions",
+		fullDescription: "Standard git repository manipulations and support for artifact file tracking",
+		parentCommand:   "root",
+		childCommands:   []string{"add", "status", "commit"},
+	}
+	cmdOpts["git"] = gitCmd
+
+	gitAddCmd := commandSet{
+		description:     "Add file(s)/dir(s) to the worktree",
+		fullDescription: "Add files and/or directories by exact path or glob matches to the working tree",
+		usageOption:     "<path|glob>",
+		parentCommand:   "git",
+		childCommands:   []string{},
+	}
+	cmdOpts["add"] = gitAddCmd
+
+	gitStatusCmd := commandSet{
+		description:     "Show Current Worktree Status",
+		fullDescription: "Display status of files and/or directories both in the worktree and not tracked",
+		parentCommand:   "git",
+		childCommands:   []string{},
+	}
+	cmdOpts["status"] = gitStatusCmd
+
+	gitCommitCmd := commandSet{
+		description:     "Commit Changes to Repository",
+		fullDescription: "Commit any tracked changes in the worktree to the repository",
+		parentCommand:   "git",
+		childCommands:   []string{},
+	}
+	cmdOpts["commit"] = gitCommitCmd
+
+	// Secrets
+	secretsCmd := commandSet{
+		description:     "Modify Vault",
+		fullDescription: "Add/Modify/Delete entries in the local password vault",
+		parentCommand:   "root",
+		childCommands:   []string{},
+	}
+	cmdOpts["secrets"] = secretsCmd
+
+	// Controller installation
+	installCmd := commandSet{
+		description:     "Initial Setups",
+		fullDescription: "Local bootstrapping configuration",
+		parentCommand:   "root",
+		childCommands:   []string{},
+	}
+	cmdOpts["install"] = installCmd
+
+	// Version Info
+	versionCmd := commandSet{
+		description:     "Show Version Information",
+		fullDescription: "Display meta information about program",
+		parentCommand:   "root",
+		childCommands:   []string{},
+	}
+	cmdOpts["version"] = versionCmd
+
+	return
+}
+
 const baseIndentSpaces int = 2 // like "[  ]-t, --test  Some usage text"
 
 // Full standardized help menu (wraps option printer as well)
-func printHelpMenu(fs *flag.FlagSet, commandname string, subcommands []string, usageTrailer string, fullMenu bool) {
+func printHelpMenu(fs *flag.FlagSet, commandname string, allCmdOpts map[string]commandSet) {
+	curCmdSet := allCmdOpts[commandname]
+
+	// Usage Overview Line
 	usage := os.Args[0]
-	if commandname != "" {
-		usage += " " + commandname
-	}
-	if len(subcommands) == 1 {
-		usage += " " + subcommands[0]
-	} else if len(subcommands) > 1 {
+
+	// Build usage commands
+	func(commandname string) {
+		// Temporary slice to collect the commands in reverse order
+		var commands []string
+
+		// Traverse the command hierarchy and collect commands
+		for commandname != "" && commandname != "root" {
+			commands = append(commands, commandname) // Collect commands
+			// Get the parent command for the next iteration
+			command := allCmdOpts[commandname]
+			commandname = command.parentCommand
+		}
+
+		// Now reverse the slice and append each command to usage
+		for i := len(commands) - 1; i >= 0; i-- {
+			usage += " " + commands[i]
+		}
+	}(commandname)
+
+	if len(curCmdSet.childCommands) == 1 {
+		usage += " " + curCmdSet.childCommands[0]
+	} else if len(curCmdSet.childCommands) > 1 {
 		usage += " [subcommand]"
 	}
 	usage += " [arguments]..."
-	if usageTrailer != "" {
-		usage += " " + usageTrailer
+	if curCmdSet.usageOption != "" {
+		usage += " " + curCmdSet.usageOption
 	}
 
 	fmt.Printf("Usage: %s\n\n", usage)
 
-	if fullMenu {
-		fmt.Println(helpMenuTitle)
-		fmt.Print(helpMenuSubTitle)
+	// Description
+	if curCmdSet.parentCommand == "" {
+		// Full nice title at top level
+		fmt.Println(curCmdSet.description)
+		fmt.Println(curCmdSet.fullDescription)
+		fmt.Println()
+	} else if curCmdSet.fullDescription != "" {
+		fmt.Printf("  Description:\n")
+		fmt.Printf("    %s\n\n", curCmdSet.fullDescription)
 	}
 
-	if len(subcommands) > 0 {
+	// Calculate longest subcommand length for offset to description
+	maxCmdLen := 0
+	for _, subcommand := range curCmdSet.childCommands {
+		if len(subcommand) > maxCmdLen {
+			maxCmdLen = len(subcommand)
+		}
+	}
+
+	// Available Sub-commands
+	if len(curCmdSet.childCommands) > 0 {
 		indent := strings.Repeat(" ", baseIndentSpaces)
 
 		fmt.Printf("%sSubcommands:\n", indent)
@@ -109,17 +364,27 @@ func printHelpMenu(fs *flag.FlagSet, commandname string, subcommands []string, u
 		cmdIndent := strings.Repeat(" ", baseIndentSpaces+2)
 
 		// Fixed ordering (in case a map was source of info)
-		sort.Strings(subcommands)
+		sort.Strings(curCmdSet.childCommands)
 
-		for _, subcommand := range subcommands {
+		cmdToDescSpaces := 2
+		for _, subcommand := range curCmdSet.childCommands {
+			subCmdSet := allCmdOpts[subcommand]
+			if subCmdSet.description != "" {
+				paddingLen := maxCmdLen - len(subcommand) + cmdToDescSpaces
+				padding := strings.Repeat(" ", paddingLen)
+				subcommand = subcommand + padding + " - " + subCmdSet.description
+			}
+
 			fmt.Printf("%s%s\n", cmdIndent, subcommand)
 		}
 		fmt.Println()
 	}
 
+	// Available Arguments
 	printFlagOptions(fs)
 
-	if fullMenu {
+	// Trailer at top level
+	if curCmdSet.parentCommand == "" {
 		fmt.Print(helpMenuTrailer)
 	}
 }

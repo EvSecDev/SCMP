@@ -65,7 +65,7 @@ func dirListMenu(endpointName string, maxNameLenght int, dirList []string, curre
 	printMessage(verbosityStandard, "============================================================\n")
 	fmt.Printf("     Select File     Change Dir ^/v   Recursive   Exit\n")
 	fmt.Printf("     [ # # ## ### ]  [ c0 ]  [ c# ]    [ #r ]     [ ! ]\n")
-	fmt.Printf("%s:%s# Type your selections: ", endpointName, currentDirectory)
+	fmt.Printf("%s:%s # Type your selections: ", endpointName, currentDirectory)
 
 	reader := bufio.NewReader(os.Stdin)
 	userInput, err := reader.ReadString('\n')
@@ -82,7 +82,7 @@ func dirListMenu(endpointName string, maxNameLenght int, dirList []string, curre
 
 	// Clear menu rows - add to row count to account for the prompts (only for standard verbosity)
 	if globalVerbosityLevel < 2 {
-		maxRows += 6
+		maxRows += 5
 		for maxRows > 0 {
 			fmt.Printf("\033[A\033[K")
 			maxRows--

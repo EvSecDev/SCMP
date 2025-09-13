@@ -232,25 +232,25 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 
 				// Record all the files for the reload group and skip to next file deployment
 				deployMetrics.addFile(host.name, allFileMeta, deploymentList.reloadIDtoFile[reloadGroup]...)
-				continue
-			}
 
-			// Re-execute reload commands after rollback
-			warning, err = runReloadCommands(host, deploymentList.reloadIDcommands[reloadGroup])
-			if err != nil {
-				if warning != "" {
-					printMessage(verbosityStandard, "Warning: Host %s:   %s\n", host.name, warning)
+				// Re-execute reload commands after rollback
+				warning, err = runReloadCommands(host, deploymentList.reloadIDcommands[reloadGroup])
+				if err != nil {
+					if warning != "" {
+						printMessage(verbosityStandard, "Warning: Host %s:   %s\n", host.name, warning)
+					}
+
+					failedRollbackFiles := strings.Builder{}
+
+					failedFiles := deploymentList.reloadIDtoFile[reloadGroup]
+					for _, failedFile := range failedFiles {
+						failedRollbackFiles.WriteString(failedFile)
+						failedRollbackFiles.WriteString("\n")
+					}
+
+					printMessage(verbosityData, "Host %s:   Failed reload after rollback for file(s):\n%s", host.name, failedRollbackFiles.String())
+					continue 
 				}
-
-				failedRollbackFiles := strings.Builder{}
-
-				failedFiles := deploymentList.reloadIDtoFile[reloadGroup]
-				for _, failedFile := range failedFiles {
-					failedRollbackFiles.WriteString(failedFile)
-					failedRollbackFiles.WriteString("\n")
-				}
-
-				printMessage(verbosityData, "Host %s:   Failed reload after rollback for file(s):\n%s", host.name, failedRollbackFiles.String())
 			}
 		}
 

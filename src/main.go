@@ -8,8 +8,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-
-	"golang.org/x/crypto/ssh"
 )
 
 // ###################################
@@ -25,7 +23,7 @@ const (
 	verbosityFullData
 	verbosityDebug
 
-	progVersion                  string = "v5.1.0"
+	progVersion                  string = "v5.2.0"
 	metaDelimiter                string = "#|^^^|#"                              // Start and stop delimiter for repository file metadata header
 	defaultConfigPath            string = "~/.ssh/config"                        // Default to users home directory ssh config file
 	artifactPointerFileExtension string = ".remote-artifact"                     // file extension to identify 'pointer' files for artifact files
@@ -48,11 +46,6 @@ const (
 	// portType      string = "port"
 	// fifoType      string = "fifo"
 
-	helpMenuTitle    = "Secure Configuration Management Program (SCMP)"
-	helpMenuSubTitle = `  Deploy configuration files from a git repository to Linux servers via SSH
-  Deploy ad-hoc commands and scripts to Linux servers via SSH
-
-`
 	helpMenuTrailer = `
 Report bugs to: dev@evsec.net
 SCMP home page: <https://github.com/EvSecDev/SCMP>
@@ -107,24 +100,6 @@ type Opts struct {
 	executionTimeout         int    // Timeout in seconds for user-defined commands (Reloads,checks,exec,ect.)
 }
 
-// Struct for host-specific Information
-type EndpointInfo struct {
-	deploymentState string              // Avoids deploying anything to host - so user can prevent deployments to otherwise up and health hosts
-	ignoreUniversal bool                // Prevents deployments for this host to use anything from the primary Universal configs directory
-	requiresVault   bool                // Direct match to the config option "PasswordRequired"
-	universalGroups map[string]struct{} // Map to store the CSV for config option "GroupTags"
-	deploymentList  []DeploymentList    // Ordered list of files and their groupings (separated by fully-independent groups)
-	endpointName    string              // Name of host as it appears in config and in git repo top-level directory names
-	proxy           string              // Name of the proxy host to use (if any)
-	endpoint        string              // Address:port of the host
-	endpointUser    string              // Login user name of the host
-	identityFile    string              // Key identity file path (private or public)
-	privateKey      ssh.Signer          // Actual private key contents
-	keyAlgo         string              // Algorithm of the private key
-	password        string              // Password for the EndpointUser
-	connectTimeout  int                 // Timeout in seconds for connection to this host
-}
-
 // Integer for printing increasingly detailed information as program progresses
 //
 //	0 - None: quiet (prints nothing but errors)
@@ -139,21 +114,19 @@ var globalVerbosityLevel int
 //	MAIN
 // ###################################
 
+// Store all commands, options, arguments and their relevant help menu text
+var allCmdOpts map[string]commandSet
+
+type commandSet struct {
+	description     string   // Short text displayed on parent command
+	fullDescription string   // Long text displayed on current command
+	usageOption     string   // Expected command value in usage top line
+	parentCommand   string   // Parent command (root = top level)
+	childCommands   []string // Available subcommands
+}
+
 func main() {
-	availCommands := map[string]func(string, []string){
-		"deploy":  entryDeploy,
-		"seed":    entrySeed,
-		"exec":    entryExec,
-		"scp":     entrySCP,
-		"git":     entryGit,
-		"secrets": entrySecrets,
-		"install": entryInstall,
-		"version": entryVersion,
-	}
-	var commandList []string
-	for cmd := range availCommands {
-		commandList = append(commandList, cmd)
-	}
+	allCmdOpts = defineOptions()
 
 	args := os.Args
 	commandFlags := flag.NewFlagSet(args[0], flag.ExitOnError)
@@ -161,10 +134,10 @@ func main() {
 	setGlobalArguments(commandFlags)
 
 	commandFlags.Usage = func() {
-		printHelpMenu(commandFlags, "", commandList, "", true)
+		printHelpMenu(commandFlags, "root", allCmdOpts)
 	}
 	if len(args) < 2 {
-		printHelpMenu(commandFlags, "", commandList, "", true)
+		printHelpMenu(commandFlags, "root", allCmdOpts)
 		os.Exit(1)
 	}
 	commandFlags.Parse(args[1:])
@@ -174,11 +147,29 @@ func main() {
 	args = args[2:]
 
 	// Process commands
-	entryFunc, validCommand := availCommands[command]
-	if validCommand {
-		entryFunc(command, args)
-	} else {
-		printHelpMenu(commandFlags, "", commandList, "", true)
+	switch command {
+	case "deploy":
+		entryDeploy(command, args)
+	case "seed":
+		entrySeed(command, args)
+	case "file":
+		entryFile(command, args)
+	case "header":
+		entryMetaHeader(command, args)
+	case "exec":
+		entryExec(command, args)
+	case "scp":
+		entrySCP(command, args)
+	case "git":
+		entryGit(command, args)
+	case "secrets":
+		entrySecrets(command, args)
+	case "install":
+		entryInstall(command, args)
+	case "version":
+		entryVersion(args)
+	default:
+		printHelpMenu(commandFlags, "root", allCmdOpts)
 		os.Exit(1)
 	}
 
@@ -194,7 +185,7 @@ func main() {
 	}
 }
 
-func entryVersion(commandname string, args []string) {
+func entryVersion(args []string) {
 	if len(args) > 0 && (args[0] == "--verbosity" || args[0] == "-v") {
 		fmt.Printf("SCMP Controller %s\n", progVersion)
 		fmt.Printf("Built using %s(%s) for %s on %s\n", runtime.Version(), runtime.Compiler, runtime.GOOS, runtime.GOARCH)
