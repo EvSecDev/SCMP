@@ -2,7 +2,7 @@
 package main
 
 import (
-	"encoding/json"
+	"embed"
 	"flag"
 	"fmt"
 	"os"
@@ -15,16 +15,25 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/object"
 )
 
+// Read in installation static files at compile time
+//
+//go:embed static-files/configurations/apparmor-profile.config
+//go:embed static-files/configurations/default-ssh.config
+//go:embed static-files/configurations/autocomplete.sh
+var installationConfigs embed.FS
+
 func entryInstall(commandname string, args []string) {
 	var installAAProf bool
 	var installDefaultConfig bool
+	var installBashAutoComplete bool
 	var newRepoBranch string
 	var newRepoPath string
 
 	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
-	commandFlags.StringVar(&newRepoPath, "repository-path", "", "Path to new repository")
+	commandFlags.StringVar(&newRepoPath, "repository-path", "", "Path to repository")
 	commandFlags.StringVar(&newRepoBranch, "repository-branch-name", "main", "Initial branch new for new repository")
 	commandFlags.BoolVar(&installDefaultConfig, "default-config", false, "Write default SSH configuration file")
+	commandFlags.BoolVar(&installBashAutoComplete, "bash-autocomplete", false, "Setup BASH autocompletion function")
 	commandFlags.BoolVar(&installAAProf, "apparmor-profile", false, "Enable apparmor profile if supported")
 	setGlobalArguments(commandFlags)
 
@@ -38,16 +47,13 @@ func entryInstall(commandname string, args []string) {
 	commandFlags.Parse(args[0:])
 
 	if installAAProf {
-		installAAProfile()
-		return
-	}
-	if installDefaultConfig {
+		installAAProfile(newRepoPath)
+	} else if installDefaultConfig {
 		installDefaultSSHConfig()
-		return
-	}
-	if newRepoPath != "" {
+	} else if installBashAutoComplete {
+		installBashAutocomplete()
+	} else if newRepoPath != "" {
 		createNewRepository(newRepoPath, newRepoBranch)
-		return
 	} else {
 		printHelpMenu(commandFlags, commandname, allCmdOpts)
 		os.Exit(1)
@@ -162,38 +168,13 @@ func createNewRepository(repoPath string, initialBranchName string) {
 	worktree, err := repo.Worktree()
 	logError("Failed to create new git tree", err, false)
 
-	// Example files
-	exampleFiles := []string{".example-metadata-header.txt", ".example-metadata-header-noreload.txt"}
+	// Example file
+	const exampleFile string = ".example-metadata-header.txt"
+	writeTemplateFile(exampleFile, true)
 
-	// Create and add example files to repository
-	for _, exampleFile := range exampleFiles {
-		var metadataHeader MetaHeader
-
-		// Populate metadata JSON with examples
-		metadataHeader.TargetFileOwnerGroup = "root:root"
-		metadataHeader.TargetFilePermissions = 640
-
-		// Add reloads/checks or don't depending on example file name
-		if !strings.Contains(exampleFile, "noreload") {
-			metadataHeader.ReloadCommands = []string{"ls /var/log/custom.log", "ping -W2 -c1 syslog.example.com"}
-			metadataHeader.CheckCommands = []string{"systemctl restart rsyslog.service", "systemctl is-active rsyslog"}
-		}
-
-		// Create example metadata header files
-		metadata, err := json.MarshalIndent(metadataHeader, "", "  ")
-		logError("Failed to marshal example metadata JSON", err, false)
-
-		// Add full header to string
-		exampleHeader := metaDelimiter + "\n" + string(metadata) + "\n" + metaDelimiter + "\n"
-
-		// Write example file to repo
-		err = os.WriteFile(exampleFile, []byte(exampleHeader), 0640)
-		logError("Failed to write example metadata file", err, false)
-
-		// Stage the universal files
-		_, err = worktree.Add(exampleFile)
-		logError("Failed to add universal file", err, false)
-	}
+	// Stage the universal files
+	_, err = worktree.Add(exampleFile)
+	logError("Failed to add universal file", err, false)
 
 	printMessage(verbosityProgress, "Creating an initial commit in repository\n")
 
@@ -209,85 +190,70 @@ func createNewRepository(repoPath string, initialBranchName string) {
 	printMessage(verbosityStandard, "Successfully created new git repository in %s\n", repoPath)
 }
 
+func installBashAutocomplete() {
+	const sysAutocompleteDir string = "/usr/share/bash-completion/completions"
+	autoCompleteFunc, err := installationConfigs.ReadFile("static-files/configurations/autocomplete.sh")
+	if err != nil {
+		printMessage(verbosityStandard, "Unable to retrieve autocomplete file from embedded filesystem: %v\n", err)
+		return
+	}
+
+	executablePath, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		printMessage(verbosityStandard, "Failed to retrieve absolute executable path for profile installation: %v\n", err)
+		return
+	}
+	executableName := filepath.Base(executablePath)
+
+	// Inject actual executable name into completion script
+	autoCompletion := strings.Replace(string(autoCompleteFunc), "_controller()", "_"+executableName+"()", 1)
+	autoCompletion = strings.Replace(autoCompletion, "complete -F _controller controller", "complete -F _"+executableName+" "+executableName, 1)
+	autoCompleteFunc = []byte(autoCompletion)
+
+	// Write to system, or fallback to users home
+	var autoCompleteFilePath string
+	_, err = os.Stat(sysAutocompleteDir)
+	if err == nil {
+		autoCompleteFilePath = filepath.Join(sysAutocompleteDir, executableName)
+	} else {
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			printMessage(verbosityStandard, "Failed to find user home directory: %v\n", err)
+			return
+		}
+		userDir := filepath.Join(homeDir, ".bash_completion.d")
+		err = os.MkdirAll(userDir, 0750)
+		if err != nil {
+			printMessage(verbosityStandard, "Failed to create user autocomplete dir: %v\n", err)
+			return
+		}
+		err = nil
+
+		autoCompleteFilePath = filepath.Join(userDir, executableName)
+		printMessage(verbosityStandard, "System completion dir missing, installing bash completion at %s\n", autoCompleteFilePath)
+		printMessage(verbosityStandard, "Make sure ~/.bashrc sources ~/.bash_completion and ~/.bash_completion.d/*\n")
+	}
+
+	err = os.WriteFile(autoCompleteFilePath, autoCompleteFunc, 0644)
+	if err != nil {
+		printMessage(verbosityStandard, "Failed to write autocompletion file: %v\n", err)
+		return
+	}
+}
+
 // Install sample SSH config if it doesn't already exist
 func installDefaultSSHConfig() {
 	configPath := expandHomeDirectory(defaultConfigPath)
-	const defaultConfig string = `
-##########################
-# Global Config Settings #
-##########################
-#  Ignore SCMP Host Configuration Options
-IgnoreUnknown           PasswordVault,PasswordRequired,DeploymentState,IgnoreTemplates,UniversalDirectory,GroupDirs,GroupTags,IgnoreDirectories
-#  Store any login/sudo passwords in an encrypted file here
-PasswordVault           ~/.ssh/scmpc.vault
-#  Directory Name that contains files relevant to all hosts
-UniversalDirectory      "UniversalConfs"
-#  Group Directory Names for Universal Configs to be deployed to all hosts tagged with that group
-#GroupDirs              UniversalConfs_NGINX,UniversalConfs_MONAGENT
-#  Directory Names to ignore in deployment git repository
-IgnoreDirectories       Templates,Extras
-#
-################# EXAMPLE HOSTS CONFIGURATION
-#
-#Host Web01
-#        Hostname       192.168.10.2
-#       GroupTags       UniversalConfs_NGINX,UniversalConfs_MONAGENT
-#       DeploymentState offline
-#Host Proxy01
-#       Hostname        192.168.10.3
-#       GroupTags       UniversalConfs_MONAGENT
-#Host DNS01
-#        Hostname       ns1.domain.com
-#        ConnectTimeout 15
-#Host PBX
-#        Hostname       192.168.10.4
-#       User            root
-#       DeploymentState offline
-#Host WWW
-#        Hostname       192.168.20.15
-#       Port            2222
-#       GroupTags       UniversalConfs_MONAGENT
-#Host Mail
-#        Hostname       mx01.domain.com
-#       IdentityFile    ~/.ssh/appservers.key
-#Host Squid
-#        Hostname       192.168.20.22
-#       RemoteBackupDir         /var/tmp/.scmpbackups
-#       RemoteBufferDir		    /var/tmp/.scmpbuffer
-#Host DB01
-#        Hostname       psql01.domain.com
-#       Port            2202
-#       StrictHostKeyChecking no
-#       DeploymentState offline
-#Host SSO
-#        Hostname       sso.domain.com
-#       PasswordRequired yes
-#       IgnoreUniversal yes
-##########################
-# Global Device Settings #
-##########################
-Host * 
-        # Host Settings
-        User                            deployer
-        Port                            22
-        PreferredAuthentications        password,keyboard-interactive,publickey
-        IdentityFile                    "~/.ssh/example.key"
-        IdentitiesOnly                  yes
-        #  General Settings
-        UserKnownHostsFile              ~/.ssh/known_hosts
-        StrictHostKeyChecking           ask
-        ForwardX11                      no
-        ForwardX11Trusted               no
-        Tunnel                          no
-        ForwardAgent                    no
-        GSSAPIAuthentication            no
-        HostbasedAuthentication         no
-`
+	defaultConfig, err := installationConfigs.ReadFile("static-files/configurations/default-ssh-config")
+	if err != nil {
+		printMessage(verbosityStandard, "Unable to retrieve configuration file from embedded filesystem: %v\n", err)
+		return
+	}
 
 	// Check if config already exists
-	_, err := os.Stat(configPath)
+	_, err = os.Stat(configPath)
 	if !os.IsNotExist(err) {
-		printMessage(verbosityStandard, "SSH Config file already exists, not overwritting it. Please configure manually.\n")
+		printMessage(verbosityStandard, "SSH Config file already exists, not overwriting it. Please configure manually.\n")
 		return
 	} else if os.IsNotExist(err) {
 		err = nil // create the file
@@ -296,7 +262,7 @@ Host *
 		return
 	}
 
-	err = os.WriteFile(configPath, []byte(defaultConfig), 0640)
+	err = os.WriteFile(configPath, defaultConfig, 0640)
 	if err != nil {
 		printMessage(verbosityStandard, "Failed to write sample SSH config: %v\n", err)
 		return
@@ -306,47 +272,30 @@ Host *
 }
 
 // If apparmor LSM is available on this system and running as root, auto install the profile - failures are not printed under normal verbosity
-func installAAProfile() {
-	const AppArmorProfilePath string = "/etc/apparmor.d/scmpcontroller"
-	const AppArmorProfile = `### Apparmor Profile for the Secure Configuration Management Controller
-## This is a very locked down profile made for Debian systems
-## Variables - add to if required
-@{profilelocation}=$ApparmorProfilePath
-@{pid}={[1-9],[1-9][0-9],[1-9][0-9][0-9],[1-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9],[1-9][0-9][0-9][0-9][0-9][0-9],[1-4][0-9][0-9][0-9][0-9][0-9][0-9]}
-@{home}={/root,/home}
-@{exelocation}=$executablePath
-@{repolocation}=$RepositoryPath
-@{configdir}=@{home}/.ssh/config
+func installAAProfile(repositoryPath string) {
+	if repositoryPath == "" {
+		printMessage(verbosityStandard, "Unable to install apparmor profile: missing repository-path\n")
+		return
+	}
 
-## Profile Begin
-profile SCMController @{exelocation} flags=(enforce) {
-  # Receive signals
-  signal receive set=(stop term kill quit int urg),
-  # Send signals to self
-  signal send set=(urg int) peer=SCMController,
+	const appArmorProfilePath string = "/etc/apparmor.d/scmp-controller"
+	appArmorProfile, err := installationConfigs.ReadFile("static-files/configurations/apparmor-profile")
+	if err != nil {
+		printMessage(verbosityStandard, "Unable to retrieve configuration file from embedded filesystem: %v\n", err)
+		return
+	}
 
-  # Capabilities
-  network netlink raw,
-  network inet stream,
-  network inet6 stream,
-  unix (create connect send receive getattr) type=stream,
-  unix (create connect bind send getattr) type=dgram,
+	executablePath, err := filepath.Abs(os.Args[0])
+	if err != nil {
+		printMessage(verbosityStandard, "Failed to retrieve absolute executable path for profile installation: %v\n", err)
+		return
+	}
 
-  ## Startup Configurations needed
-  @{configdir}/** rw,
-
-  ## Program Accesses
-  /sys/kernel/mm/transparent_hugepage/hpage_pmd_size r,
-  /usr/share/zoneinfo/** r,
-  owner /proc/*/mountinfo r,
-
-  ## Repository access
-  # allow read/write for files in repository (write is needed for seeding operations)
-  @{repolocation}/{,**} rw,
-  # allow locking in git's directory (for commit rollback on early error)
-  @{repolocation}/.git/** k,
-}
-`
+	// Inject variables into config
+	newaaProf := strings.Replace(string(appArmorProfile), "=$executablePath", "="+executablePath, 1)
+	newaaProf = strings.Replace(newaaProf, "=$repositoryPath", "="+repositoryPath, 1)
+	newaaProf = strings.Replace(newaaProf, "=$aaProfPath", "="+appArmorProfilePath, 1)
+	appArmorProfile = []byte(newaaProf)
 
 	// Can't install apparmor profile without root/sudo
 	if os.Geteuid() > 0 {
@@ -356,7 +305,7 @@ profile SCMController @{exelocation} flags=(enforce) {
 
 	// Check if apparmor /sys path exists
 	systemAAPath := "/sys/kernel/security/apparmor/profiles"
-	_, err := os.Stat(systemAAPath)
+	_, err = os.Stat(systemAAPath)
 	if os.IsNotExist(err) {
 		printMessage(verbosityStandard, "AppArmor not supported by this system\n")
 		return
@@ -366,14 +315,14 @@ profile SCMController @{exelocation} flags=(enforce) {
 	}
 
 	// Write Apparmor Profile to /etc
-	err = os.WriteFile(AppArmorProfilePath, []byte(AppArmorProfile), 0644)
+	err = os.WriteFile(appArmorProfilePath, appArmorProfile, 0644)
 	if err != nil {
 		printMessage(verbosityStandard, "Failed to write apparmor profile: %v\n", err)
 		return
 	}
 
 	// Enact Profile
-	command := exec.Command("apparmor_parser", "-r", AppArmorProfilePath)
+	command := exec.Command("apparmor_parser", "-r", appArmorProfilePath)
 	_, err = command.CombinedOutput()
 	if err != nil {
 		printMessage(verbosityStandard, "Failed to reload apparmor profile: %v\n", err)

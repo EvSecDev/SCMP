@@ -227,7 +227,7 @@ func defineOptions() (cmdOpts map[string]commandSet) {
 		description:     "Transfer Files",
 		fullDescription: "Transfer local files to remote hosts and universal groups",
 		parentCommand:   "root",
-		usageOption:     "[srchost:]<srcpath> [dsthost:]<dstpath>",
+		usageOption:     "[src host:]<src path> [dst host:]<dst path>",
 		childCommands:   []string{},
 	}
 	cmdOpts["scp"] = scpCmd
@@ -278,7 +278,7 @@ func defineOptions() (cmdOpts map[string]commandSet) {
 	// Controller installation
 	installCmd := commandSet{
 		description:     "Initial Setups",
-		fullDescription: "Local bootstrapping configuration",
+		fullDescription: "Install default configurations for apparmor and SSH and setup new repositories",
 		parentCommand:   "root",
 		childCommands:   []string{},
 	}
