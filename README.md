@@ -479,6 +479,10 @@ The metadata header field looks like:
 
 If the script exits with anything other than exit code 0, the file (and associated files) will not be deployed.
 
+If running complex text manipulation programs directly in these fields (sed, awk, ect.) note that they are not being run under a shell.
+Basic single/double quote and escape characters are processed, but anything more complex is likely to fail.
+For this reason, it is recommended to use dedicated external shell scripts and only utilize basic arguments and the allowed stdin/stdout macros.
+
 For special actions and macros see above section.
 
 ### Inter-file Dependency

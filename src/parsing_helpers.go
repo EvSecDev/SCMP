@@ -674,7 +674,7 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 	info.predeploy = json.PreDeployCommands
 	if len(info.predeploy) > 0 {
 		info.predeployRequired = true
-		macroToValue(repoFilePath, &info.predeploy)
+		fileMacroToValue(repoFilePath, &info.predeploy)
 	} else {
 		info.predeployRequired = false
 	}
@@ -682,7 +682,7 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 	info.reload = json.ReloadCommands
 	if len(info.reload) > 0 {
 		info.reloadRequired = true
-		macroToValue(repoFilePath, &info.reload)
+		fileMacroToValue(repoFilePath, &info.reload)
 	} else {
 		info.reloadRequired = false
 	}
@@ -694,7 +694,7 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 	info.checks = json.CheckCommands
 	if len(info.checks) > 0 {
 		info.checksRequired = true
-		macroToValue(repoFilePath, &info.checks)
+		fileMacroToValue(repoFilePath, &info.checks)
 	} else {
 		info.checksRequired = false
 	}
@@ -702,14 +702,14 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 	info.install = json.InstallCommands
 	if len(info.install) > 0 {
 		info.installOptional = true
-		macroToValue(repoFilePath, &info.install)
+		fileMacroToValue(repoFilePath, &info.install)
 	} else {
 		info.installOptional = false
 	}
 
 	info.dependencies = json.Dependencies
 	if len(info.dependencies) > 0 {
-		macroToValue(repoFilePath, &info.dependencies)
+		fileMacroToValue(repoFilePath, &info.dependencies)
 	}
 
 	if len(contentHash) > 0 {
@@ -748,7 +748,7 @@ func jsonToFileInfo(repoFilePath string, json MetaHeader, fileSize int, commitFi
 
 // Convert any macros to their actual values
 // Alters input value to replace all occurrences of supported macros
-func macroToValue(filePath string, inputs *[]string) {
+func fileMacroToValue(filePath string, inputs *[]string) {
 	const fileNameMacro string = "{@FILENAME}"
 	const filePathMacro string = "{@FILEPATH}"
 	const fileDirMacro string = "{@FILEDIR}"

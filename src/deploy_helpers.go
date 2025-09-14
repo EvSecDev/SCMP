@@ -145,10 +145,20 @@ func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string,
 
 				printMessage(verbosityData, "Host %s:   Running pre-deployment command '%s'\n", hostname, predeployCommand)
 
-				commandArgs := strings.Fields(predeployCommand)
-				commandExe := commandArgs[0]
+				// Retrieve executable name
+				fields := strings.Fields(predeployCommand)
+				commandExe := fields[0]
 
-				cmd := exec.Command(commandExe, commandArgs[1:]...)
+				// Evaluate quoting to retrieve distinct arguments
+				var commandArgs []string
+				newArgs := strings.Replace(predeployCommand, commandExe, "", 1)
+				commandArgs, err = handleQuotedArgs(newArgs)
+				if err != nil {
+					err = fmt.Errorf("error evaluating quoting in command: %v", err)
+					return
+				}
+
+				cmd := exec.Command(commandExe, commandArgs...)
 
 				var stdoutBuf bytes.Buffer
 				if writeStdoutToFile || appendStdoutToFile {
@@ -199,6 +209,7 @@ func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string,
 
 							// Add to fail metrics - will trigger skip deployment of it and any related
 							deployMetrics.addFileFailure(repoFilePath, err)
+							continue
 						} else {
 							// Unparsable exit status (maybe Windows) - fail host deployment
 							err = fmt.Errorf("failed to evaluate exit status of command '%s': %v", cmd.String(), err)
@@ -215,7 +226,7 @@ func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string,
 				if writeStdoutToFile {
 					// Have to rehash contents to prevent clobbering identical input files for other hosts
 					newHashIndex := SHA256Sum(stdoutBuf.Bytes())
-					allFileData[newHashIndex] = stderrBuf.Bytes()
+					allFileData[newHashIndex] = stdoutBuf.Bytes()
 
 					// Change hash pointer to new contents
 					fileMeta := allFileMeta[repoFilePath]
@@ -230,7 +241,7 @@ func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string,
 					}
 
 					// Add script output to contents
-					newFileContent := append(existingFileContent, stderrBuf.Bytes()...)
+					newFileContent := append(existingFileContent, stdoutBuf.Bytes()...)
 
 					// Rehash and add to content map
 					newHashIndex := SHA256Sum(newFileContent)
@@ -243,6 +254,70 @@ func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string,
 				}
 			}
 		}
+	}
+
+	return
+}
+
+// Will divide up arguments into separate strings respecting single and double quotes
+func handleQuotedArgs(rawArguments string) (distinctArguments []string, err error) {
+	var current strings.Builder
+	inSingleQuote := false
+	inDoubleQuote := false
+	escapeNext := false
+
+	for pos := 0; pos < len(rawArguments); pos++ {
+		char := rawArguments[pos]
+
+		if escapeNext {
+			current.WriteByte(char)
+			escapeNext = false
+			continue
+		}
+
+		switch char {
+		case '\\':
+			// Only escape next char if outside single quotes
+			if !inSingleQuote {
+				escapeNext = true
+			} else {
+				current.WriteByte(char)
+			}
+		case '\'':
+			if !inDoubleQuote {
+				inSingleQuote = !inSingleQuote
+				continue // don't include quote char
+			}
+			current.WriteByte(char)
+		case '"':
+			if !inSingleQuote {
+				inDoubleQuote = !inDoubleQuote
+				continue // don't include quote char
+			}
+			current.WriteByte(char)
+		case ' ', '\t':
+			if inSingleQuote || inDoubleQuote {
+				current.WriteByte(char)
+			} else if current.Len() > 0 {
+				distinctArguments = append(distinctArguments, current.String())
+				current.Reset()
+			}
+		default:
+			current.WriteByte(char)
+		}
+	}
+
+	if current.Len() > 0 {
+		distinctArguments = append(distinctArguments, current.String())
+	}
+
+	if inSingleQuote || inDoubleQuote {
+		err = fmt.Errorf("unclosed quote in arguments: '%s'", rawArguments)
+		return
+	}
+	if escapeNext {
+		err = fmt.Errorf("unfinished escape in arguments: '%s'", rawArguments)
+		return
 	}
 
 	return

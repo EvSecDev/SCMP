@@ -128,6 +128,7 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 			deployMetrics.fileErrMutex.RUnlock()
 
 			if failedDependentFile != "" {
+				printMessage(verbosityData, "Host %s:  File '%s' had a dependency fail deployment: unable to deploy this file due to dependent file '%s'\n", host.name, repoFilePath, failedDependentFile)
 				deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
 				deployMetrics.addFileFailure(repoFilePath, fmt.Errorf("unable to deploy this file: dependent file (%s) failed deployment", failedDependentFile))
 				continue
@@ -136,10 +137,14 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 
 		// Skip this file if it failed pre-deploy commands
 		deployMetrics.fileErrMutex.RLock()
-		if deployMetrics.fileErr[repoFilePath] != "" {
+		filePrevError := deployMetrics.fileErr[repoFilePath]
+		deployMetrics.fileErrMutex.RUnlock()
+		if filePrevError != "" {
+			printMessage(verbosityData, "Host %s:  File '%s' has a pre-existing error: unable to deploy due to: %v\n", host.name, repoFilePath, deployMetrics.fileErr[repoFilePath])
+			deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
+			// Skipping adding to failure map - should have already been added in pre-deploy command function
 			continue
 		}
-		deployMetrics.fileErrMutex.RUnlock()
 
 		err := runCheckCommands(host, allFileMeta[repoFilePath])
 		if err != nil {
@@ -249,8 +254,10 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 					}
 
 					printMessage(verbosityData, "Host %s:   Failed reload after rollback for file(s):\n%s", host.name, failedRollbackFiles.String())
-					continue 
+					continue
 				}
+
+				printMessage(verbosityData, "Host %s:   Succeeded reload after rollback for file(s):\n%s", host.name, failedFiles)
 			}
 		}
 
