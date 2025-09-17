@@ -252,7 +252,7 @@ func deploy(deployMode string, commitID string, hostOverride string, fileOverrid
 	deployMetrics := &DeploymentMetrics{}
 	deployMetrics.hostFiles = make(map[string][]string)
 	deployMetrics.hostBytes = make(map[string]int)
-	deployMetrics.fileErr = make(map[string]string)
+	deployMetrics.hostsFileErr = make(map[string]map[string]string)
 	deployMetrics.hostErr = make(map[string]string)
 	deployMetrics.fileAction = make(map[string]string)
 	deployMetrics.startTime = time.Now().UnixMilli()
@@ -273,7 +273,7 @@ func deploy(deployMode string, commitID string, hostOverride string, fileOverrid
 			sshDeploy(&wg, connLimiter, hostInfo, proxyInfo, allFileMeta, allFileData, deployMetrics)
 
 			// Don't continue to the next host on errors
-			if len(deployMetrics.fileErr) > 0 {
+			if len(deployMetrics.hostsFileErr[endpointName]) > 0 {
 				break
 			}
 		}
@@ -311,7 +311,7 @@ func deploy(deployMode string, commitID string, hostOverride string, fileOverrid
 	err = deploymentSummary.saveReport()
 	logError("Error in recording deployment failures", err, false)
 
-	if len(deployMetrics.fileErr) > 0 {
+	if len(deployMetrics.hostsFileErr) > 0 {
 		// Remove fail tracker file after successful redeployment - best effort
 		err = os.Remove(config.failTrackerFilePath)
 		if err != nil {

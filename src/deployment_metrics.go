@@ -10,18 +10,18 @@ import (
 
 // Used for metrics - counting post deployment
 type DeploymentMetrics struct {
-	startTime       int64
-	hostFiles       map[string][]string
-	hostFilesMutex  sync.Mutex
-	hostErr         map[string]string
-	hostErrMutex    sync.Mutex
-	fileErr         map[string]string
-	fileErrMutex    sync.RWMutex
-	fileAction      map[string]string
-	fileActionMutex sync.Mutex
-	hostBytes       map[string]int
-	hostBytesMutex  sync.Mutex
-	endTime         int64
+	startTime         int64
+	hostFiles         map[string][]string // Key on hostname, list of files deployed to host
+	hostFilesMutex    sync.Mutex
+	hostErr           map[string]string // Error for host (agnostic of files)
+	hostErrMutex      sync.Mutex
+	hostsFileErr      map[string]map[string]string // Key on hostname, key on repo file path, value of error (ensures file errors are always scoped to host)
+	hostsFileErrMutex sync.RWMutex
+	fileAction        map[string]string
+	fileActionMutex   sync.Mutex
+	hostBytes         map[string]int
+	hostBytesMutex    sync.Mutex
+	endTime           int64
 }
 
 // Summary of actions done and collected metrics
@@ -97,7 +97,7 @@ func (metric *DeploymentMetrics) addFile(host string, allFileMeta map[string]Fil
 	metric.fileActionMutex.Unlock()
 }
 
-func (metric *DeploymentMetrics) addFileFailure(file string, err error) {
+func (metric *DeploymentMetrics) addFileFailure(hostname string, file string, err error) {
 	if err == nil {
 		return
 	}
@@ -107,9 +107,14 @@ func (metric *DeploymentMetrics) addFileFailure(file string, err error) {
 	message = strings.ReplaceAll(message, "\n", " ")
 	message = strings.ReplaceAll(message, "\r", " ")
 
-	metric.fileErrMutex.Lock()
-	metric.fileErr[file] = message
-	metric.fileErrMutex.Unlock()
+	metric.hostsFileErrMutex.Lock()
+	hostFileErr := metric.hostsFileErr[hostname]
+	if hostFileErr == nil {
+		hostFileErr = make(map[string]string)
+	}
+	hostFileErr[file] = message
+	metric.hostsFileErr[hostname] = hostFileErr
+	metric.hostsFileErrMutex.Unlock()
 }
 
 func (metric *DeploymentMetrics) addHostFailure(host string, err error) {
@@ -153,11 +158,13 @@ func (deployMetrics *DeploymentMetrics) createReport(commitID string) (deploymen
 
 		deploymentSummary.Counters.Items += hostSummary.TotalItems
 
+		hostFileErrs := deployMetrics.hostsFileErr[host]
+
 		var hostItemsDeployed int
 		for _, file := range files {
 			var fileSummary ItemSummary
 			fileSummary.Name = file
-			fileSummary.ErrorMsg = deployMetrics.fileErr[file]
+			fileSummary.ErrorMsg = hostFileErrs[file]
 			fileSummary.Action = deployMetrics.fileAction[file]
 
 			if fileSummary.ErrorMsg != "" {

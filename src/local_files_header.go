@@ -38,7 +38,7 @@ func entryMetaHeader(commandname string, args []string) {
 	remainingArgs := commandFlags.Args()
 
 	switch args[0] {
-	case "modify":
+	case "edit":
 		if len(remainingArgs) < 1 {
 			printHelpMenu(commandFlags, args[0], allCmdOpts)
 			os.Exit(1)
@@ -52,7 +52,7 @@ func entryMetaHeader(commandname string, args []string) {
 		}
 
 		stripHeader(remainingArgs[0], editInPlace)
-	case "add":
+	case "insert":
 		if len(remainingArgs) < 1 {
 			printHelpMenu(commandFlags, args[0], allCmdOpts)
 			os.Exit(1)

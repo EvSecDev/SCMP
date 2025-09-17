@@ -118,27 +118,35 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 		if len(allFileMeta[repoFilePath].dependencies) > 0 {
 			var failedDependentFile string
 
-			deployMetrics.fileErrMutex.RLock()
-			for _, dependentFile := range allFileMeta[repoFilePath].dependencies {
-				if deployMetrics.fileErr[dependentFile] != "" {
-					failedDependentFile = dependentFile
-					break
+			deployMetrics.hostsFileErrMutex.RLock()
+			hostFileErr := deployMetrics.hostsFileErr[host.name]
+			if hostFileErr != nil {
+				for _, dependentFile := range allFileMeta[repoFilePath].dependencies {
+					if hostFileErr[dependentFile] != "" {
+						failedDependentFile = dependentFile
+						break
+					}
 				}
 			}
-			deployMetrics.fileErrMutex.RUnlock()
+			deployMetrics.hostsFileErrMutex.RUnlock()
 
 			if failedDependentFile != "" {
 				printMessage(verbosityData, "Host %s:  File '%s' had a dependency fail deployment: unable to deploy this file due to dependent file '%s'\n", host.name, repoFilePath, failedDependentFile)
 				deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
-				deployMetrics.addFileFailure(repoFilePath, fmt.Errorf("unable to deploy this file: dependent file (%s) failed deployment", failedDependentFile))
+				deployMetrics.addFileFailure(host.name, repoFilePath, fmt.Errorf("unable to deploy this file: dependent file (%s) failed deployment", failedDependentFile))
 				continue
 			}
 		}
 
 		// Skip this file if it failed pre-deploy commands
-		deployMetrics.fileErrMutex.RLock()
-		filePrevError := deployMetrics.fileErr[repoFilePath]
-		deployMetrics.fileErrMutex.RUnlock()
+		var filePrevError string
+		deployMetrics.hostsFileErrMutex.RLock()
+		hostFileErr := deployMetrics.hostsFileErr[host.name]
+		if hostFileErr != nil {
+			filePrevError = hostFileErr[repoFilePath]
+		}
+		deployMetrics.hostsFileErrMutex.RUnlock()
+
 		if filePrevError != "" {
 			printMessage(verbosityData, "Host %s:  File '%s' has a pre-existing error: unable to deploy due to: %v\n", host.name, repoFilePath, filePrevError)
 			deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
@@ -151,7 +159,7 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 			printMessage(verbosityData, "Host %s:  File '%s' failed check command: %v\n", host.name, repoFilePath, err)
 			err = fmt.Errorf("failed SSH Command on host during check command: %v", err)
 			deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
-			deployMetrics.addFileFailure(repoFilePath, err)
+			deployMetrics.addFileFailure(host.name, repoFilePath, err)
 			continue
 		}
 
@@ -160,7 +168,7 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 			printMessage(verbosityData, "Host %s:  File '%s' failed installation command: %v\n", host.name, repoFilePath, err)
 			err = fmt.Errorf("failed SSH Command on host during installation command: %v", err)
 			deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
-			deployMetrics.addFileFailure(repoFilePath, err)
+			deployMetrics.addFileFailure(host.name, repoFilePath, err)
 			continue
 		}
 
@@ -177,7 +185,7 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 					// Record errors where removal of the specific file failed
 					printMessage(verbosityData, "Host %s:  File '%s' failed file deletion: %v\n", host.name, repoFilePath, err)
 					deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
-					deployMetrics.addFileFailure(repoFilePath, err)
+					deployMetrics.addFileFailure(host.name, repoFilePath, err)
 				} else {
 					// Show warning to user for other errors (removing empty parent dirs)
 					printMessage(verbosityStandard, "Warning: Host %s: %v\n", host.name, err)
@@ -190,7 +198,7 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 				printMessage(verbosityData, "Host %s:  File '%s' failed link creation: %v\n", host.name, repoFilePath, err)
 				err = fmt.Errorf("failed deployment of symbolic link: %v", err)
 				deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
-				deployMetrics.addFileFailure(repoFilePath, err)
+				deployMetrics.addFileFailure(host.name, repoFilePath, err)
 				continue
 			}
 		case "dirCreate", "dirModify":
@@ -199,7 +207,7 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 				printMessage(verbosityData, "Host %s:  File '%s' failed directory creation: %v\n", host.name, repoFilePath, err)
 				err = fmt.Errorf("failed deployment of directory: %v", err)
 				deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
-				deployMetrics.addFileFailure(repoFilePath, err)
+				deployMetrics.addFileFailure(host.name, repoFilePath, err)
 				continue
 			}
 		case "create":
@@ -208,7 +216,7 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 				printMessage(verbosityData, "Host %s:  File '%s' failed file creation: %v\n", host.name, repoFilePath, err)
 				err = fmt.Errorf("failed deployment of file: %v", err)
 				deployMetrics.addFile(host.name, allFileMeta, repoFilePath)
-				deployMetrics.addFileFailure(repoFilePath, err)
+				deployMetrics.addFileFailure(host.name, repoFilePath, err)
 				continue
 			}
 		}
@@ -238,7 +246,7 @@ func deployFiles(wg *sync.WaitGroup, deployLimiter chan struct{}, host HostMeta,
 						printMessage(verbosityStandard, "Warning: Host %s:   File restoration failed: %v\n", host.name, lerr)
 					}
 
-					deployMetrics.addFileFailure(failedFile, err)
+					deployMetrics.addFileFailure(host.name, failedFile, err)
 				}
 
 				// Record all the files for the reload group and skip to next file deployment

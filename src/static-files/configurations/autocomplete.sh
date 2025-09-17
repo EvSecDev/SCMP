@@ -35,12 +35,12 @@ _controller()
         [file:new_opts]="__inherit__"
         [file:replace-data_opts]="__inherit__"
 
-        [header_sub]="modify strip add read verify"
+        [header_sub]="edit strip insert read verify"
         [header_opts]="-i --in-place -C --compact -j --json-metadata"
 
-        [header:modify_opts]="__inherit__"
+        [header:edit_opts]="__inherit__"
         [header:strip_opts]="__inherit__"
-        [header:add_opts]="__inherit__"
+        [header:insert_opts]="__inherit__"
         [header:read_opts]="__inherit__"
     )
 

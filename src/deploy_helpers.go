@@ -208,7 +208,7 @@ func runPreDeploymentCommands(deployMetrics *DeploymentMetrics, hostname string,
 							err = fmt.Errorf("pre-deploy command '%s': %v: %s", cmd.String(), err, stderrBuf.String())
 
 							// Add to fail metrics - will trigger skip deployment of it and any related
-							deployMetrics.addFileFailure(repoFilePath, err)
+							deployMetrics.addFileFailure(hostname, repoFilePath, err)
 							continue
 						} else {
 							// Unparsable exit status (maybe Windows) - fail host deployment

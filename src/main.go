@@ -23,7 +23,7 @@ const (
 	verbosityFullData
 	verbosityDebug
 
-	progVersion                  string = "v5.2.0"
+	progVersion                  string = "v5.2.1"
 	metaDelimiter                string = "#|^^^|#"                              // Start and stop delimiter for repository file metadata header
 	defaultConfigPath            string = "~/.ssh/config"                        // Default to users home directory ssh config file
 	artifactPointerFileExtension string = ".remote-artifact"                     // file extension to identify 'pointer' files for artifact files

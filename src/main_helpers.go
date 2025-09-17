@@ -163,7 +163,7 @@ func defineOptions() (cmdOpts map[string]commandSet) {
 		description:     "Modify File Headers",
 		fullDescription: "Manipulate local file JSON metadata headers",
 		parentCommand:   "root",
-		childCommands:   []string{"modify", "strip", "add", "read", "verify"},
+		childCommands:   []string{"edit", "strip", "insert", "read", "verify"},
 	}
 	cmdOpts["header"] = headerCmd
 
@@ -174,7 +174,7 @@ func defineOptions() (cmdOpts map[string]commandSet) {
 		parentCommand:   "header",
 		childCommands:   []string{},
 	}
-	cmdOpts["modify"] = headerModCmd
+	cmdOpts["edit"] = headerModCmd
 
 	headerStripCmd := commandSet{
 		description:     "Remove Metadata Header",
@@ -192,7 +192,7 @@ func defineOptions() (cmdOpts map[string]commandSet) {
 		parentCommand:   "header",
 		childCommands:   []string{},
 	}
-	cmdOpts["add"] = headerAddCmd
+	cmdOpts["insert"] = headerAddCmd
 
 	headerReadCmd := commandSet{
 		description:     "Print Metadata Header from File",
