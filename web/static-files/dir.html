@@ -1,0 +1,110 @@
+<!DOCTYPE HTML>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCMP - All Files</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/css/main.css">
+    <link rel="stylesheet" href="/css/dir.css">
+    <link rel="stylesheet" href="/css/table.css">
+</head>
+
+<body>
+
+    <div class="sidebar">
+        <select id="repo-select" class="sidebar-header">
+            <option value="repo1">Loading...</option>
+        </select>
+        <div id="sidebar-content">
+            <ul>
+                <li><a href="/index.html">Home</a></li>
+                <li><a href="/dir.html">Files</a></li>
+                <li><a href="/repository.html">Repository</a></li>
+                <li><a href="/deployments.html">Deployments</a></li>
+                <li><a href="/seed.html">Seeding</a></li>
+                <li><a href="/settings.html">Settings</a></li>
+            </ul>
+            <div class="logout-link">
+                <form action="/login.html" method="GET">
+                    <button type="submit">Logout</button>
+                </form>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <div id="version-info">SCMP Controller v6.0.0-alpha.1</div>
+            <div id="build-info">Build: 27cad56</div>
+            <div id="platform-info">Platform: LINUX AMD64</div>
+            <div id="api-browser">
+                <a href="/apibrowser.html" target="_blank">API Browser</a>
+            </div>
+            <div id="github-link">
+                <a href="https://github.com/EvSecDev/SCMP" target="_blank">GitHub Project Page</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="content">
+        <h1>Files</h1>
+
+        <!-- Table wrapper -->
+        <div class="table-container">
+            <h3 class="table-header">
+                <span id="current-path">Path: /</span>
+
+                <div class="search-group">
+                    <div class="search-input-wrapper">
+                        <input id="search-input" type="text" placeholder="Search..." class="search-input" />
+                        <span id="search-cog" class="search-cog" role="button" tabindex="0"
+                            title="Search options">⚙️</span>
+                    </div>
+                    <button id="search-btn" class="btn">Search</button>
+                    <button id="clear-search-btn" class="btn">Clear</button>
+                </div>
+
+                <!-- Control button/dropdown -->
+                <div class="table-controls">
+                    <button id="create-btn" class="btn">Create</button>
+                    <button id="refresh-btn" class="btn">Refresh</button>
+                    <div class="rows-per-page">
+                        <label for="rows-select">Rows</label>
+                        <select id="rows-select" class="btn">
+                            <option value="10" selected>10</option>
+                            <option value="25">25</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                        </select>
+                    </div>
+                </div>
+            </h3>
+            <br>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Permissions</th>
+                        <th>Owner</th>
+                        <th>Group</th>
+                        <th>Size</th>
+                        <th>Last Modified</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Dynamic content will be inserted here -->
+                </tbody>
+            </table>
+
+            <!-- Pagination controls -->
+            <div class="pagination">
+                <button class="btn" disabled>&laquo; Prev</button>
+                <span class="page-info">Page 1 of 1</span>
+                <button class="btn">Next &raquo;</button>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="/js/dir.js"></script>
+</body>
+
+</html>

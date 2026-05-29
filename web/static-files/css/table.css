@@ -1,0 +1,100 @@
+/* Table container */
+.table-container {
+  background-color: #1e1e1e;
+  padding: 1rem;
+  border-radius: 0.375rem;
+  box-shadow: 0 0.125rem 0.5rem rgba(0, 0, 0, 0.4);
+  overflow-x: auto;
+}
+
+.table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  position: relative;
+}
+
+/* Table */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1rem;
+}
+
+thead {
+  background-color: #2c2c2c;
+}
+
+th,
+td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid #333;
+}
+
+th {
+  font-weight: bold;
+  color: #ddd;
+}
+
+tbody tr:hover {
+  background-color: #2a2a2a;
+}
+
+.actions-cell {
+  white-space: normal;
+}
+
+.actions-cell button {
+  display: inline-block;
+  margin: 0 0.5rem 0.5rem 0;
+}
+
+/* Pagination controls */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+}
+
+.page-info {
+  font-size: 0.875rem;
+  color: #bbb;
+}
+
+/* Table entries */
+.file-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+.file-table th,
+.file-table td {
+  border: 1px solid #333;
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+
+.file-table th {
+  background-color: #2a2a2a;
+}
+
+/* Rows per page dropdown */
+.rows-per-page {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rows-per-page label {
+  color: #bbb;
+  font-size: 0.875rem;
+}
+
+.rows-per-page select {
+  /* Already uses .btn styles */
+  cursor: pointer;
+}

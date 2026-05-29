@@ -1,0 +1,65 @@
+<!DOCTYPE HTML>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCMP</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+
+<body>
+
+    <div class="sidebar">
+        <select id="repo-select" class="sidebar-header">
+            <option value="repo1">Loading...</option>
+        </select>
+        <div id="sidebar-content">
+            <ul>
+                <li><a href="/index.html">Home</a></li>
+                <li><a href="/dir.html">Files</a></li>
+                <li><a href="/repository.html">Repository</a></li>
+                <li><a href="/deployments.html">Deployments</a></li>
+                <li><a href="/seed.html">Seeding</a></li>
+                <li><a href="/settings.html">Settings</a></li>
+            </ul>
+            <div class="logout-link">
+                <form action="/login.html" method="GET">
+                    <button type="submit">Logout</button>
+                </form>
+            </div>
+        </div>
+        <div class="sidebar-footer">
+            <div id="version-info">SCMP Controller v6.0.0-alpha.1</div>
+            <div id="build-info">Build: 27cad56</div>
+            <div id="platform-info">Platform: LINUX AMD64</div>
+            <div id="api-browser">
+                <a href="/apibrowser.html" target="_blank">API Browser</a>
+            </div>
+            <div id="github-link">
+                <a href="https://github.com/EvSecDev/SCMP" target="_blank">GitHub Project Page</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="content">
+        <div class="content">
+            <h1>Welcome, <span id="user-name">User</span>!</h1>
+
+            <div class="dashboard-panels">
+
+                <div class="panel">
+                    <h2>Status</h2>
+                    <ul class="status-list">
+                        <li>Connection: <span id="conn-status">Checking...</span></li>
+                        <li>Git Status: <span id="git-status">Loading...</span></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script type="module" src="/js/home.js"></script>
+</body>
+
+</html>

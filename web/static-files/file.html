@@ -1,0 +1,126 @@
+<!DOCTYPE HTML>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCMP - File</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/file.css">
+</head>
+
+<body>
+
+  <div class="sidebar">
+    <select id="repo-select" class="sidebar-header">
+      <option value="repo1">Loading...</option>
+    </select>
+    <div id="sidebar-content">
+      <ul>
+        <li><a href="/index.html">Home</a></li>
+        <li><a href="/dir.html">Files</a></li>
+        <li><a href="/repository.html">Repository</a></li>
+        <li><a href="/deployments.html">Deployments</a></li>
+        <li><a href="/seed.html">Seeding</a></li>
+        <li><a href="/settings.html">Settings</a></li>
+      </ul>
+      <div class="logout-link">
+        <form action="/login.html" method="GET">
+          <button type="submit">Logout</button>
+        </form>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div id="version-info">SCMP Controller v6.0.0-alpha.1</div>
+      <div id="build-info">Build: 27cad56</div>
+      <div id="platform-info">Platform: LINUX AMD64</div>
+      <div id="api-browser">
+        <a href="/apibrowser.html" target="_blank">API Browser</a>
+      </div>
+      <div id="github-link">
+        <a href="https://github.com/EvSecDev/SCMP" target="_blank">GitHub Project Page</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div id="file-header" class="content-header">
+      <a href="#" class="btn">Back</a>
+      <span id="file-path" class="file-path-inline">Loading path...</span>
+    </div>
+    <div id="file-wrapper">
+      <div class="box content-box">
+        <div class="box-header">
+          <h2>Content</h2>
+          <div class="box-btn-group">
+            <a id="content-edit-btn" class="edit-btn edit-mode">Edit</a>
+            <a id="content-cancel-btn" class="cancel-btn">Cancel</a>
+          </div>
+        </div>
+        <div class="box-body">
+          <div id="file-container">Loading file...</div>
+          <textarea id="file-editor" class="file-editor hidden"></textarea>
+        </div>
+      </div>
+      <div class="box metadata-box">
+        <div class="box-header">
+          <h2>Metadata</h2>
+          <div class="box-btn-group">
+            <a id="metadata-edit-btn" class="edit-btn edit-mode">Edit</a>
+            <a id="metadata-cancel-btn" class="cancel-btn">Cancel</a>
+          </div>
+        </div>
+        <div id="file-metadata" class="box-body">
+          <div id="metaOwner" class="metadata-field hidden">
+            <div class="metadata-field-name">Owner Name</div>
+            <div id="metaOwnerVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaGroup" class="metadata-field hidden">
+            <div class="metadata-field-name">Group Name</div>
+            <div id="metaGroupVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaPermissions" class="metadata-field hidden">
+            <div class="metadata-field-name">Permissions</div>
+            <div id="metaPermsVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaDependencies" class="metadata-field hidden">
+            <div class="metadata-field-name">Dependencies</div>
+            <div id="metaDependenciesVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaPreDeployCmds" class="metadata-field hidden">
+            <div class="metadata-field-name">Pre-Deploy Commands</div>
+            <div id="metaPreDeployCmdsVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaInstallCmds" class="metadata-field hidden">
+            <div class="metadata-field-name">Install Commands</div>
+            <div id="metaInstallCmdsVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaCheckCmds" class="metadata-field hidden">
+            <div class="metadata-field-name">Check Commands</div>
+            <div id="metaCheckCmdsVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaReloadCmds" class="metadata-field hidden">
+            <div class="metadata-field-name">Reload Commands</div>
+            <div id="metaReloadCmdsVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaReloadGroup" class="metadata-field hidden">
+            <div class="metadata-field-name">Reload Group Name</div>
+            <div id="metaReloadGroupVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaExtCntLoc" class="metadata-field hidden">
+            <div class="metadata-field-name">External Content Location</div>
+            <div id="metaExtCntLocVal" class="metadata-field-value"></div>
+          </div>
+          <div id="metaSymLinkTgt" class="metadata-field hidden">
+            <div class="metadata-field-name">Symbolic Link Target</div>
+            <div id="metaSymLinkTgtVal" class="metadata-field-value"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/js/file.js"></script>
+</body>
+
+</html>

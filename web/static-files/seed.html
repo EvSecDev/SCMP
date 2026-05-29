@@ -1,0 +1,101 @@
+<!DOCTYPE HTML>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCMP - Seed</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/seed.css">
+  <link rel="stylesheet" href="/css/dropdown.css">
+</head>
+
+<body>
+
+  <div class="sidebar">
+    <select id="repo-select" class="sidebar-header">
+      <option value="repo1">Loading...</option>
+    </select>
+    <div id="sidebar-content">
+      <ul>
+        <li><a href="/index.html">Home</a></li>
+        <li><a href="/dir.html">Files</a></li>
+        <li><a href="/repository.html">Repository</a></li>
+        <li><a href="/deployments.html">Deployments</a></li>
+        <li><a href="/seed.html">Seeding</a></li>
+        <li><a href="/settings.html">Settings</a></li>
+      </ul>
+      <div class="logout-link">
+        <form action="/login.html" method="GET">
+          <button type="submit">Logout</button>
+        </form>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div id="version-info">SCMP Controller v6.0.0-alpha.1</div>
+      <div id="build-info">Build: 27cad56</div>
+      <div id="platform-info">Platform: LINUX AMD64</div>
+      <div id="api-browser">
+        <a href="/apibrowser.html" target="_blank">API Browser</a>
+      </div>
+      <div id="github-link">
+        <a href="https://github.com/EvSecDev/SCMP" target="_blank">GitHub Project Page</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <h1>Seed Remote Files</h1>
+
+    <!-- Setup Panel -->
+    <div class="panel-box">
+      <h3>Connection Setup</h3>
+      <div class="seed-setup-vertical">
+        <div class="input-group">
+          <label for="host">Host:</label>
+
+          <div class="dropdown-multiselect-container">
+            <input id="overridehosts-input" type="text" placeholder="Select hosts..." readonly>
+            <div id="overridehosts-dropdown" class="dropdown-multiselect hidden">
+              <div class="dropdown-loading">Loading hosts...</div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="input-group">
+          <label for="start-path">Start Path:</label>
+          <input type="text" id="start-path" class="modal-input" placeholder="/">
+        </div>
+
+        <div class="button-group">
+          <button id="start-btn" class="btn btn-lg">Start</button>
+          <button id="cancel-btn" class="btn btn-lg">Cancel</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="seed-panel">
+      <div class="file-browser panel-box">
+        <h3>Directory Browser</h3>
+        <ul id="directory-tree" class="file-list">
+          <li><span>Files</span></li>
+        </ul>
+      </div>
+
+      <div class="file-staging panel-box">
+        <h3>Staged Selections</h3>
+        <ul id="staged-files" class="file-list">
+        </ul>
+        <div class="staging-controls">
+          <button id="clear-btn" class="btn">Clear All</button>
+          <button id="submit-btn" class="btn">Submit</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/js/seed.js"></script>
+</body>
+
+</html>

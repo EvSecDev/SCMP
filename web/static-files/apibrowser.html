@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>API Browser</title>
+  <link rel="stylesheet" href="/css/apibrowser.css">
+</head>
+
+<body>
+  <div class="sidebar">
+    <h3>API Paths</h3>
+    <div class="sidebar-return">
+      <a href="/index.html" target="_self">Return to Main Page</a>
+    </div>
+    <input id="api-search" type="text" placeholder="Search Methods..." class="search">
+    <ul id="api-list"></ul>
+    <div class="sidebar-footer">
+      <div id="version-info">SCMP Controller v6.0.0-alpha.1</div>
+      <div id="build-info">Build: 27cad56</div>
+      <div id="platform-info">Platform: LINUX AMD64</div>
+      <div id="github-link">
+        <a href="https://github.com/EvSecDev/SCMP" target="_blank">GitHub Project Page</a>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="details" id="api-details">
+    <p>Select an endpoint to view details</p>
+  </div>
+  <script type="module" src="/js/apibrowser.js"></script>
+</body>
+
+</html>

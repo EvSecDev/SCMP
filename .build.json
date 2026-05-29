@@ -1,0 +1,23 @@
+{
+    "binaryShortName": "controller",
+    "binaryLongNamePrefix": "controller_v",
+    "readmeHelpMenuStartDelimiter": "### Controller Help Menu",
+    "remoteGitRepo": "SCMP",
+    "remoteGitUsername": "EvSecDev",
+    "licenses": {
+        "permitted": [
+            "MIT",
+            "BSD",
+            "BSD-2-Clause",
+            "BSD-3-Clause",
+            "Apache-2.0",
+            "ISC",
+            "LGPL"
+        ],
+        "disallowed": [
+            "GPL",
+            "AGPL",
+            "MPL"
+        ]
+    }
+}

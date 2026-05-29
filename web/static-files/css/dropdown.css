@@ -1,0 +1,85 @@
+/* Container for input + dropdown */
+.dropdown-multiselect-container {
+  position: relative;
+  width: 250px;
+}
+
+/* Input box styling */
+#overridehosts-input {
+  width: 100%;
+  padding: 0.5rem;
+  background-color: #2a2a2a;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+/* Loading message */
+.dropdown-loading {
+  color: #ccc;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+/* Dropdown list container */
+.dropdown-multiselect,
+#overridehosts-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  width: 100%;
+  max-height: 25vh;
+  overflow-y: auto;
+  background-color: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 0.25rem;
+  margin-top: 0.25rem;
+  z-index: 100;
+  padding: 0.25rem 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+/* Each row in the dropdown */
+.dropdown-multiselect .host-row,
+.host-row {
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  user-select: none;
+}
+
+/* Hover effect for rows */
+.dropdown-multiselect .host-row:hover,
+.host-row:hover {
+  background-color: #3a3a3a;
+}
+
+/* Selected row highlight */
+.dropdown-multiselect .host-row.selected,
+.host-row.selected {
+  background-color: rgba(0, 137, 251, 0.31);
+  color: #fff;
+}
+
+/* Utility class to hide elements */
+.hidden {
+  display: none !important;
+}
+
+/* Search input row at top of dropdown */
+.host-row.search-row {
+  padding: 0.25rem 0.75rem;
+  background-color: #1f1f1f;
+  cursor: auto;
+}
+
+.host-row.search-row input {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background-color: #2a2a2a;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 0.25rem;
+  box-sizing: border-box;
+}

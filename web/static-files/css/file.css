@@ -1,0 +1,241 @@
+/* ----- Main wrapper ----- */
+#file-wrapper {
+  display: flex;
+  gap: 1ch;
+  height: 80vh;
+  font-size: 0.875rem;
+}
+
+/* ----- Generic box ----- */
+.box {
+  display: flex;
+  flex-direction: column;
+  border-radius: 0.375rem;
+  overflow: hidden;
+  box-shadow: 0 0.125rem 0.375rem rgba(0, 0, 0, 0.5);
+}
+
+/* ----- Specific boxes ----- */
+.content-box {
+  flex: 2 1 0;
+  background-color: #1e1e1e;
+}
+
+.metadata-box {
+  flex: 1 1 0;
+  background-color: #2c2c2c;
+}
+
+.box-header {
+  display: flex;
+  flex-direction: row;
+  gap: 0.5rem;
+  background-color: #2a2a2a;
+  color: #ddd;
+  font-weight: bold;
+  padding: 0.5rem 0.5rem;
+  align-items: center;
+}
+
+.box-btn-group {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.box-body {
+  display: flex;
+  flex: 1 1 0;
+  overflow: hidden;
+}
+
+.content-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2rem;
+  margin-bottom: 1rem;
+  text-decoration: none;
+}
+
+/* Content box internals */
+.content-box>.box-body {
+  flex-direction: row;
+}
+
+/* Metadata box internals */
+.metadata-box>.box-body {
+  flex-direction: column;
+}
+
+/* ----- File path inline display ----- */
+.file-path-inline {
+  background-color: #2a2a2a;
+  color: #ddd;
+  padding: 0.5rem 0.5rem;
+  font-size: 1.5rem;
+  border-radius: 0.25rem;
+  user-select: text;
+  cursor: text;
+  white-space: nowrap;
+}
+
+/* ----- File content container with line numbers ----- */
+#file-container {
+  font-family: monospace;
+  white-space: pre;
+  line-height: 1.2em;
+  counter-reset: line;
+  padding-left: 5ch;
+  overflow: auto;
+  position: relative;
+  flex: 1 1 0;
+}
+
+#file-container div {
+  counter-increment: line;
+  position: relative;
+  min-height: 1.2em;
+}
+
+#file-container div::before {
+  content: counter(line);
+  position: absolute;
+  left: -5.5ch;
+  width: 5ch;
+  text-align: right;
+  color: #888;
+  user-select: none;
+}
+
+/* ----- Editor container ----- */
+#file-editor {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  font-family: monospace;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  background: #1f1f1f;
+  color: #ddd;
+  border: 1px solid #3a3a3a;
+  border-radius: 0.25rem;
+  padding: 0.5rem;
+  box-sizing: border-box;
+  overflow: auto;
+}
+
+/* Base button styling */
+.edit-btn {
+  user-select: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.25rem;
+  font-weight: bold;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  font-size: 0.9rem;
+  transition: background-color 0.2s, color 0.2s;
+  color: #fff;
+}
+
+/* Edit mode (blue) */
+.edit-btn.edit-mode {
+  background-color: #3a76f0;
+}
+
+.edit-btn.edit-mode:hover {
+  background-color: #5591f5;
+}
+
+/* Save mode (green) */
+.edit-btn.save-mode {
+  background-color: #3ac47d;
+}
+
+.edit-btn.save-mode:hover {
+  background-color: #55d191;
+}
+
+.edit-btn.edit-mode,
+.edit-btn.save-mode {
+  border: 1px solid #555;
+}
+
+.cancel-btn {
+  user-select: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 0.25rem;
+  font-weight: bold;
+  font-size: 0.9rem;
+  cursor: pointer;
+  background-color: transparent;
+  color: #ccc;
+  border: 1px solid #555;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+}
+
+.cancel-btn:hover {
+  background-color: #555;
+  color: #fff;
+  border-color: #777;
+}
+
+/* ----- Metadata container ----- */
+#file-metadata {
+  flex: 1 1 0;
+  padding: 0.5rem;
+  overflow-y: auto;
+}
+
+.metadata-field {
+  margin-bottom: 0.5rem;
+}
+
+.metadata-field-name {
+  font-weight: bold;
+  background-color: #3a3a3a;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem 0.25rem 0 0;
+  color: #ddd;
+}
+
+.metadata-field-value {
+  font-family: monospace;
+  background-color: #1f1f1f;
+  padding: 0.375rem 0.5rem;
+  border-radius: 0 0 0.25rem 0.25rem;
+  overflow-x: auto;
+  color: #ddd;
+}
+
+/* ----- Scrollbar ----- */
+#file-container,
+#file-metadata,
+.metadata-field-value {
+  scrollbar-width: auto;
+  scrollbar-color: #555 #1e1e1e;
+}
+
+/* ----- Metadata editor ----- */
+.metadata-editor {
+  width: 100%;
+  font-family: monospace;
+  font-size: 0.875rem;
+  line-height: 1.2em;
+  background-color: #1f1f1f;
+  color: #ddd;
+  border: 1px solid #444;
+  border-radius: 0.25rem;
+  padding: 0.375rem 0.5rem;
+  resize: none;
+  overflow: auto;
+  box-sizing: border-box;
+}
+
+/* Optional: focus state */
+.metadata-editor:focus {
+  outline: 2px solid #777;
+  background-color: #2a2a2a;
+}

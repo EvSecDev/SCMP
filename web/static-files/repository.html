@@ -1,0 +1,129 @@
+<!DOCTYPE HTML>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCMP - Repository</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/repository.css">
+  <link rel="stylesheet" href="/css/table.css">
+</head>
+
+<body>
+
+  <div class="sidebar">
+    <select id="repo-select" class="sidebar-header">
+      <option value="repo1">Loading...</option>
+    </select>
+    <div id="sidebar-content">
+      <ul>
+        <li><a href="/index.html">Home</a></li>
+        <li><a href="/dir.html">Files</a></li>
+        <li><a href="/repository.html">Repository</a></li>
+        <li><a href="/deployments.html">Deployments</a></li>
+        <li><a href="/seed.html">Seeding</a></li>
+        <li><a href="/settings.html">Settings</a></li>
+      </ul>
+      <div class="logout-link">
+        <form action="/login.html" method="GET">
+          <button type="submit">Logout</button>
+        </form>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div id="version-info">SCMP Controller v6.0.0-alpha.1</div>
+      <div id="build-info">Build: 27cad56</div>
+      <div id="platform-info">Platform: LINUX AMD64</div>
+      <div id="api-browser">
+        <a href="/apibrowser.html" target="_blank">API Browser</a>
+      </div>
+      <div id="github-link">
+        <a href="https://github.com/EvSecDev/SCMP" target="_blank">GitHub Project Page</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="git-ui-container">
+      <h1>Repository Status</h1>
+
+      <div class="git-panels">
+        <!-- Unstaged Panel -->
+        <div class="git-panel unstaged-panel">
+          <h2 class="panel-title">Unstaged Changes</h2>
+          <div class="btn-row">
+            <button class="btn small btn-stage">Stage All</button>
+            <button class="btn small btn-refresh">Refresh</button>
+          </div>
+          <ul class="git-file-list">
+            <!-- Dynamic -->
+          </ul>
+        </div>
+
+        <!-- Staged Panel -->
+        <div class="git-panel staged-panel">
+          <h2 class="panel-title">Staged Changes</h2>
+          <button class="btn small btn-unstage">Unstage All</button>
+          <ul class="git-file-list">
+            <!-- Dynamic -->
+          </ul>
+        </div>
+      </div>
+
+      <!-- Commit Box -->
+      <div class="git-panel commit-box">
+        <h2 class="panel-title">Create Commit</h2>
+        <label for="commit-message" class="commit-label">Commit Message:</label>
+        <textarea id="commit-message" class="commit-textarea" placeholder="Describe your changes..."></textarea>
+        <div class="commit-actions">
+          <button id="commit-button" class="btn" disabled>Commit</button>
+          <button id="commit-deploy-button" class="btn" disabled>Commit and Deploy</button>
+        </div>
+      </div>
+
+      <!-- Commit History Table -->
+      <div id="commit-history-table" class="table-container">
+        <h2 class="table-header">
+          <p>Past Commits</p>
+
+          <div class="rows-per-page">
+            <label for="rows-select">Rows</label>
+            <select id="rows-select" class="btn">
+              <option value="10" selected>10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </div>
+        </h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Hash</th>
+              <th>Date</th>
+              <th>Author</th>
+              <th>Changes</th>
+              <th>Message</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <!-- Dynamic -->
+          </tbody>
+        </table>
+
+        <!-- Pagination controls -->
+        <div class="pagination">
+          <button class="btn" disabled>&laquo; Prev</button>
+          <span class="page-info">Page 1 of 1</span>
+          <button class="btn">Next &raquo;</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script type="module" src="/js/repo.js"></script>
+</body>
+
+</html>

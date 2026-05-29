@@ -1,0 +1,24 @@
+{
+  "tests": {
+    "CLI": {
+      "lastCommitPct": 0,
+      "lastBuildPct": 0
+    },
+    "Core": {
+      "lastCommitPct": 16.4,
+      "lastBuildPct": 16.4
+    },
+    "Internal": {
+      "lastCommitPct": 16.5,
+      "lastBuildPct": 16.5
+    },
+    "Setup": {
+      "lastCommitPct": 0,
+      "lastBuildPct": 0
+    },
+    "Web": {
+      "lastCommitPct": 1.2,
+      "lastBuildPct": 1.2
+    }
+  }
+}

@@ -1,0 +1,207 @@
+<!DOCTYPE HTML>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SCMP - Deployments</title>
+  <link rel="icon" href="/favicon.ico" type="image/x-icon" />
+  <link rel="stylesheet" href="/css/main.css">
+  <link rel="stylesheet" href="/css/deployments.css">
+  <link rel="stylesheet" href="/css/table.css">
+  <link rel="stylesheet" href="/css/dropdown.css">
+</head>
+
+<body>
+
+  <div class="sidebar">
+    <select id="repo-select" class="sidebar-header">
+      <option value="repo1">Loading...</option>
+    </select>
+    <div id="sidebar-content">
+      <ul>
+        <li><a href="/index.html">Home</a></li>
+        <li><a href="/dir.html">Files</a></li>
+        <li><a href="/repository.html">Repository</a></li>
+        <li><a href="/deployments.html">Deployments</a></li>
+        <li><a href="/seed.html">Seeding</a></li>
+        <li><a href="/settings.html">Settings</a></li>
+      </ul>
+      <div class="logout-link">
+        <form action="/login.html" method="GET">
+          <button type="submit">Logout</button>
+        </form>
+      </div>
+    </div>
+    <div class="sidebar-footer">
+      <div id="version-info">SCMP Controller v6.0.0-alpha.1</div>
+      <div id="build-info">Build: 27cad56</div>
+      <div id="platform-info">Platform: LINUX AMD64</div>
+      <div id="api-browser">
+        <a href="/apibrowser.html" target="_blank">API Browser</a>
+      </div>
+      <div id="github-link">
+        <a href="https://github.com/EvSecDev/SCMP" target="_blank">GitHub Project Page</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="content">
+    <h1>Deploy Configuration</h1>
+
+    <div class="deploy-panel">
+      <h2>Deployment Mode</h2>
+      <div class="deploy-mode">
+        <input type="radio" name="deploy-mode" id="mode-diff" checked hidden>
+        <label for="mode-diff" class="btn toggle-btn">Deploy Changes</label>
+
+        <input type="radio" name="deploy-mode" id="mode-all" hidden>
+        <label for="mode-all" class="btn toggle-btn">Deploy All</label>
+
+        <input type="radio" name="deploy-mode" id="mode-failures" hidden>
+        <label for="mode-failures" class="btn toggle-btn">Deploy Last Failed</label>
+      </div>
+    </div>
+
+    <div class="deploy-panel">
+      <div class="deploy-options">
+        <div class="deploy-optbox">
+          <div class="optbox-header">
+            <h2>Deployment Type</h2>
+          </div>
+          <div class="optbox-content">
+            <input type="radio" name="opt-type" id="type-preview" checked hidden>
+            <label for="type-preview" class="btn toggle-btn" style="flex-direction: column;">Preview</label>
+
+            <input type="radio" name="opt-type" id="type-test" hidden>
+            <label for="type-test" class="btn toggle-btn" style="flex-direction: column;">Test</label>
+
+            <input type="radio" name="opt-type" id="type-live" hidden>
+            <label for="type-live" class="btn toggle-btn" style="flex-direction: column;">Live</label>
+          </div>
+        </div>
+
+        <div class="deploy-optbox">
+          <div class="optbox-header">
+            <h2>Deployment Options</h2>
+          </div>
+          <div class="optbox-content">
+            <input type="checkbox" id="opt-allow-deletions" hidden>
+            <label for="opt-allow-deletions" class="btn toggle-btn">Allow Deletions</label>
+
+            <input type="checkbox" id="opt-run-install" hidden>
+            <label for="opt-run-install" class="btn toggle-btn">Run Install</label>
+
+            <input type="checkbox" id="opt-disable-reloads" hidden>
+            <label for="opt-disable-reloads" class="btn toggle-btn">Disable Reloads</label>
+
+            <input type="checkbox" id="opt-disable-sudo" hidden>
+            <label for="opt-disable-sudo" class="btn toggle-btn">Disable Sudo</label>
+
+            <input type="checkbox" id="opt-ignore-state" hidden>
+            <label for="opt-ignore-state" class="btn toggle-btn">Ignore Host State</label>
+
+            <input type="checkbox" id="opt-force" hidden>
+            <label for="opt-force" class="btn toggle-btn">Ignore Failures</label>
+
+            <input type="checkbox" id="opt-autorollback" hidden>
+            <label for="opt-autorollback" class="btn toggle-btn">Allow Commit Auto-Rollback</label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="deploy-panel">
+      <h2>Configuration Parameters</h2>
+      <div class="deploy-inputs">
+        <label>Commit ID<br>
+          <input id="commitid" type="text" placeholder="e.g. abc123">
+        </label>
+        <label>Override Files<br>
+          <input id="overridefiles" type="text" placeholder="e.g. file1,file2">
+        </label>
+        <label>Override Hosts<br>
+          <div class="dropdown-multiselect-container">
+            <input id="overridehosts-input" type="text" placeholder="Select hosts..." readonly>
+            <div id="overridehosts-dropdown" class="dropdown-multiselect hidden">
+              <div class="dropdown-loading">Loading hosts...</div>
+            </div>
+          </div>
+        </label>
+        <label>Run As User<br>
+          <input id="runasuser" type="text" value="root">
+        </label>
+        <label>Max SSH Connections<br>
+          <input id="maxsshconns" type="number" value="10">
+        </label>
+        <label>Max SSH Channels<br>
+          <input id="maxsshchan" type="number" value="5">
+        </label>
+        <label>Max Command Runtime (sec)<br>
+          <input id="cmdtimeout" type="number" value="180">
+        </label>
+        <label>Verbosity Level (0-5)<br>
+          <input id="verbosity" type="number" value="1" min="0" max="5">
+        </label>
+      </div>
+    </div>
+
+    <div class="deploy-panel">
+      <div class="deploy-actions">
+        <div class="deploy-btn-wrapper">
+          <button class="btn deploy-final-btn">Deploy</button>
+          <div class="spinner hidden" id="deploy-spinner"></div>
+        </div>
+        <button class="btn deploy-abort-btn" disabled="">Abort</button>
+      </div>
+    </div>
+
+    <div class="deploy-panel">
+      <h2>Deployment Result</h2>
+
+      <!-- Summary Block -->
+      <div class="deploy-summary hidden" id="deploy-summary">
+        <!-- Status banner -->
+        <div class="summary-status success" id="summary-status">
+          <div><strong>Status:</strong> <span data-field="status-text">Success</span></div>
+          <div><strong>Start:</strong> <span data-field="start-time">-</span></div>
+          <div><strong>End:</strong> <span data-field="end-time">-</span></div>
+          <div><strong>Elapsed:</strong> <span data-field="elapsed-time">-</span></div>
+          <div><strong>Transferred:</strong> <span data-field="transferred-size">-</span></div>
+          <div><strong>Commit:</strong> <span data-field="commit-id">-</span></div>
+        </div>
+
+        <!-- Counters -->
+        <div class="summary-counters" id="summary-counters">
+          <div class="counter-group">
+            <h5>Hosts</h5>
+            <div><strong>Total:</strong> <span data-field="hosts-total">-</span></div>
+            <div class="success-text"><strong>Completed:</strong> <span data-field="hosts-completed">-</span></div>
+            <div class="error-text"><strong>Failed:</strong> <span data-field="hosts-failed">-</span></div>
+          </div>
+          <div class="counter-group">
+            <h5>Items</h5>
+            <div><strong>Total:</strong> <span data-field="items-total">-</span></div>
+            <div class="success-text"><strong>Completed:</strong> <span data-field="items-completed">-</span></div>
+            <div class="error-text"><strong>Failed:</strong> <span data-field="items-failed">-</span></div>
+          </div>
+        </div>
+
+        <!-- Host list area (will be dynamically populated) -->
+        <div class="host-list" id="host-list">
+          <!-- Dynamically injected host <details> will go here -->
+        </div>
+      </div>
+
+      <!-- Full raw output -->
+      <details>
+        <summary style="cursor: pointer;">View Full Output</summary>
+        <pre class="deploy-output" id="deploy-output">Loading deployment output...</pre>
+      </details>
+    </div>
+  </div>
+
+  <script type="module" src="/js/deploy.js"></script>
+</body>
+
+</html>

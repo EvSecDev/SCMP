@@ -1,0 +1,359 @@
+/* Panel styling */
+.deploy-panel {
+  background-color: #1e1e1e;
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+.deploy-panel h2 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+  color: #fff;
+}
+
+/* Mode buttons */
+.deploy-mode {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.deploy-mode .btn {
+  flex: 1;
+  font-size: 1rem;
+}
+
+.deploy-mode .toggle-btn {
+  display: inline-block;
+  text-align: center;
+  cursor: pointer;
+  border: 1px solid transparent;
+  padding: 1rem;
+  border-radius: 0.25rem;
+  transition: background 0.3s, color 0.3s, border-color 0.3s;
+}
+
+#mode-diff:checked+label,
+#mode-all:checked+label,
+#mode-failures:checked+label,
+#type-preview:checked+label,
+#type-test:checked+label,
+#type-live:checked+label {
+  background-color: #1d5226;
+  color: #b6f7c3;
+  font-weight: bold;
+  border-color: #2a8b42;
+}
+
+/* Deployment options */
+.deploy-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5rem;
+  margin-bottom: 1rem;
+  justify-content: flex-start;
+}
+
+.deploy-optbox {
+  display: flex;
+  flex-direction: column;
+}
+
+.optbox-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+}
+
+.optbox-content {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.deploy-options label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
+}
+
+/* Input fields */
+.deploy-inputs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.deploy-inputs label {
+  font-size: 0.95rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.deploy-inputs input[type="text"],
+.deploy-inputs input[type="number"] {
+  width: 250px;
+  padding: 0.5rem;
+  background-color: #2a2a2a;
+  color: #fff;
+  border: 1px solid #444;
+  border-radius: 0.25rem;
+  font-size: 0.95rem;
+}
+
+/* Actions */
+.deploy-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+}
+
+/* Output section */
+.deploy-output {
+  background: #1f1f1f;
+  padding: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  margin-top: 1rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  max-height: 60vh;
+}
+
+.deploy-summary {
+  background: #1f1f1f;
+  padding-bottom: 1rem;
+  padding-left: 1rem;
+  border-radius: 0.5rem;
+  overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Toggleable button styling */
+.toggle-btn.active {
+  background-color: #1d5226 !important;
+  color: #b6f7c3;
+  font-weight: bold;
+  border: 1px solid #2a8b42;
+}
+
+.toggle-btn {
+  border: 1px solid transparent;
+  padding: 1rem 1.25rem;
+  font-size: 0.95rem;
+  text-align: center;
+  min-width: 160px;
+}
+
+input[type="checkbox"]:checked+.toggle-btn {
+  background-color: #1d5226;
+  color: #b6f7c3;
+  font-weight: bold;
+  border-color: #2a8b42;
+}
+
+.deploy-final-btn {
+  background-color: #1a6e1a;
+  color: #fff;
+  padding: 1.25rem 2rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  border: none;
+  border-radius: 0.5rem;
+  transition: background 0.3s;
+}
+
+.deploy-final-btn:hover {
+  background-color: #218c21;
+}
+
+.deploy-abort-btn {
+  background-color: #7a1a1a;
+  color: #fff;
+  padding: 1.25rem 2rem;
+  font-size: 1.1rem;
+  font-weight: bold;
+  border: none;
+  border-radius: 0.5rem;
+  transition: background 0.3s;
+}
+
+.deploy-abort-btn:hover {
+  background-color: #b32020;
+}
+
+.deploy-abort-btn:disabled {
+  background-color: #5a1a1a;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Loading indicator */
+
+.deploy-btn-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 20px;
+  height: 20px;
+  border: 3px solid #ccc;
+  border-top: 3px solid #333;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  z-index: 2;
+}
+
+@keyframes spin {
+  to {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+/* Summary section */
+
+.deploy-summary-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  width: 100%;
+  color: #eee;
+  font-size: 0.95rem;
+  padding: 1rem 0;
+}
+
+.summary-header,
+.counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+  background-color: #2a2a2a;
+  padding: 0.75rem 1rem;
+  border-radius: 0.4rem;
+}
+
+.status {
+  font-weight: bold;
+}
+
+.status.success {
+  color: #64ff64;
+}
+
+.status.error {
+  color: #ff6464;
+}
+
+.host-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.host-summary summary {
+  cursor: pointer;
+  font-weight: bold;
+  background-color: #292929;
+  padding: 0.6rem 1rem;
+  border-radius: 0.3rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.host-summary[open] summary {
+  background-color: #333;
+}
+
+.host-meta {
+  padding: 0.5rem 1rem;
+  background-color: #1e1e1e;
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.item-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 1.5rem 1rem 1.5rem;
+  background-color: #1a1a1a;
+  border-left: 2px solid #444;
+}
+
+.item-list li {
+  padding: 0.2rem 0;
+}
+
+.action {
+  font-style: italic;
+  color: #aaa;
+}
+
+/* Status banner */
+.summary-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rem;
+  background-color: #264026;
+  border-left: 5px solid #4caf50;
+  padding: 1rem 1.5rem;
+  border-radius: 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 500;
+}
+
+.summary-status.success {
+  border-color: #4caf50;
+}
+
+.summary-status.error {
+  border-color: #f44336;
+  background-color: #402626;
+}
+
+/* Counters */
+.summary-counters {
+  display: flex;
+  gap: 3rem;
+  justify-content: flex-start;
+  padding: 1rem 1.5rem;
+  background-color: #2b2b2b;
+  border-radius: 0.5rem;
+  border: 1px solid #3a3a3a;
+}
+
+.counter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.counter-group h5 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  color: #ccc;
+  border-bottom: 1px solid #444;
+  padding-bottom: 0.3rem;
+}
+
+.success-text {
+  color: #5cf780;
+}
+
+.error-text {
+  color: #f77676;
+}

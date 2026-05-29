@@ -4,8 +4,10 @@
 
 A secure and automated configuration management terminal-based tool backed by git to centrally control and push configuration files to Unix servers through SSH.
 
-This program is designed to assist and automate a Linux administrators job functions by centrally allowing them to edit, version control, and deploy changes to configuration files of remote Linux systems.
+This program is designed to assist and automate an administrator's job functions by centrally allowing them to edit, version control, and deploy changes to configuration files of remote Unix systems.
 This program is NOT intended as a configuration management system (like Terraform), but rather a CLI tool to replace the manual process of SSH'ing into many remote servers to manage configuration files.
+
+## General Overview
 
 The controller utilizes a local git repository of a specific structure to track configuration files that should be applied to every host administered, and specific config overrides as well as host-specific configurations.
 The configuration for the controller utilizes a semi-standard `~/.ssh/config` that you would normally use with any other SSH client.
@@ -33,8 +35,6 @@ In general, it is recommended to use some or all of these below security precaut
 - Using the supplied apparmor profile for the controller.
 - Regular encrypted backups of the git repository to a different machine.
 
-Below you can find the recommended setup for the remote servers, and how to configure the remote host to have the least privileges possible to fulfill the functions of this program.
-
 If you like what this program can do or want to expand functionality yourself, feel free to submit a pull request or fork.
 
 ## Capabilities Overview
@@ -59,10 +59,9 @@ If you like what this program can do or want to expand functionality yourself, f
 - File/Directory Management
   - Create/modify files/file content and directories
   - Modify permissions, owner, and group of files and directories
-  - Removing 'managed' files and directories
+  - Removing 'managed' files
   - Creating/modifying symbolic links
   - Group files together to apply to multiple hosts
-  - Options to ignore specific directories in the repository
   - Track binary/artifact files (executables, images, videos, documents)
   - Support standard ASCII naming
 - Host Management
@@ -85,6 +84,7 @@ If you like what this program can do or want to expand functionality yourself, f
 - File/Directory Management
   - File/Directory names containing newlines or DEL characters
   - File/Directory names containing non-printable ASCII as well as non-ASCII characters
+  - Removing directories that are empty post-file-deletion
   - Handle special files (links, device, pipes, sockets, ect.)
 - SSH
   - 2FA (TOTP) logins
@@ -97,12 +97,38 @@ If you like what this program can do or want to expand functionality yourself, f
   - OpenSSH Server (other servers are untested)
   - Commands: `ls, stat, rm, mv, cp, ln, rmdir, mkdir, chown, chmod, sha256sum, uname`
 - Local Host Requirements:
-  - Unix file paths
+  - POSIX file paths
+
+### Roadmap
+
+Below are brief summaries of planned features.
+
+Core Features:
+
+- Unified Macros/Custom Variables - Dynamic Reference Names (DRN)
+  - Config-driven centralized variable names in both metadata headers AND file content
+- Enhanced Deploy Command Sections
+  - New: pre-apply, pre-remove, post-reload, post-install, post-remove
+- Rollback Deploy Mode
+  - Ability to undo a successfully deployed change
+- Drift Detection
+  - Track what has been deployed vs what has been committed to detect drift and out-of-date remote configs
+- Wet-run File Diff
+  - Extra argument to show actual file difference between local and remote
+- Artifact Versioning
+  - Local storage of artifact file versions by hash (ties in to rollback feature)
+
+Web Features (WiP):
+
+- FIDO2 login support
+- SSH SK key support (Yubikey backed SSH private keys)
+- Web Installer
+- Seed Interface
 
 ### Controller Help Menu
 
 ```bash
-Usage: ./controller [subcommand] [arguments]...
+Usage: /home/admin/Documents/gitRepo/SCMP/controller [subcommand]
 
 Secure Configuration Management Program (SCMP)
   Deploy configuration files from a git repository to Linux servers via SSH
@@ -119,13 +145,12 @@ Secure Configuration Management Program (SCMP)
     secrets   - Modify Vault
     seed      - Download Remote Configurations
     version   - Show Version Information
+    web       - Start Web Server
 
   Options:
       --allow-deletions  Permits deletions of files/entries
       --force            Do not exit/abort on failures
-      --log-file         Write events to log file (using --verbose level)
       --with-summary     Generate JSON summary of actions
-  -c, --config           Path to the configuration file [default: ~/.ssh/config]
   -T, --dry-run          Conducts non-mutating actions (no remote actions)
   -v, --verbosity        Increase detailed progress messages (Higher is more verbose) <0...5> [default: 1]
   -w, --wet-run          Conducts non-mutating actions (including remote actions)
@@ -133,6 +158,7 @@ Secure Configuration Management Program (SCMP)
 Report bugs to: dev@evsec.net
 SCMP home page: <https://github.com/EvSecDev/SCMP>
 General help using GNU software: <https://www.gnu.org/gethelp/>
+
 ```
 
 ## Setup and Configuration
@@ -167,7 +193,7 @@ General help using GNU software: <https://www.gnu.org/gethelp/>
 ### Bootstrapping the Repository
 
 So, what if you already have servers with potentially hundreds of configuration files spread throughout the system?
-Well, fear not, for there is a SSH client built into the controller as an easier method of transferring and formatting new files.
+Well, fear not, for there is an "interactive" SSH client built into the controller as an easier method of transferring and formatting new files.
 The client will permit you to select files on a remote system and automatically format and add them in the correct location to the local repository.
 
 `controller seed --remote-host <host>`
@@ -258,6 +284,12 @@ The structure of the local repository is supposed to be a replica of the remote 
 ```
 
 ## NOTES
+
+### Repository Directory Structure
+
+By default, all files in the root of the repository are ignored by the controller.
+
+If you want a directory in the repository root to be ignored, prefix it with an underscore `_`.
 
 ### Universal Configs
 
@@ -352,7 +384,7 @@ The default for this program is currently set to half of OpenSSH default `maxses
 The controller does include an internal retry and backoff timer so in most cases, even when `--max-deploy-threads` is set to `maxsessions`, there should be no server-side errors.
 
 However, it is not unusual to see the following log from the SSH server:
-`sshd-session[pid]: error: no more sessions`
+`sshd-session[<pid>]: error: no more sessions`
 
 This log should indicate that you should either increase `maxsessions` on the server, or decrease `--max-deploy-threads`.
 
@@ -393,7 +425,9 @@ This feature requires three things:
   - This is how the artifact files are tracked by git.
 
 Any content past the metadata header in the `.remote-artifact` file is used to store the hash of the artifact file content.
-This hash is updated before every commit to ensure updates remotely are tracked in git without tracking the binary's actual content
+This hash is updated before every commit to ensure updates remotely are tracked in git without tracking the binary's actual content.
+
+If the actual artifact file has changed since last commit and you try to deploy, it will fail since the tracked version is not the current artifact file.
 
 You might be asking, how does the git repository know when your binary file has changed?
 Since the binary file is not tracked directly in git, any `.remote-artifact` files will be flagged for inspection when using controller's `git add` argument.

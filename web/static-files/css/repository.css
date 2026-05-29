@@ -1,0 +1,236 @@
+/* ---------- Layout ---------- */
+.git-ui-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
+.git-panels {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+}
+
+.git-panel {
+  flex: 1;
+  background-color: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 6px;
+  padding: 1rem;
+  min-width: 300px;
+}
+
+.git-panel h2,
+.panel-title {
+  text-align: left;
+  font-size: 1.2rem;
+  color: #fff;
+  margin-bottom: 0.5rem;
+}
+
+.git-panel>.btn.small {
+  margin-bottom: 1rem;
+  text-align: left;
+}
+
+/* ---------- File List ---------- */
+.git-file-list,
+.file-list {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.git-file-list li,
+.file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+}
+
+.file-row.compact {
+  background-color: rgba(255, 255, 255, 0.03);
+  padding: 0.2rem 0.4rem;
+  border-radius: 3px;
+}
+
+.file-row span,
+.file-path-cell,
+.file-name {
+  font-weight: bold;
+  color: #ccc;
+  flex-grow: 1;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
+.file-name .hover-text {
+  margin-left: 0.5rem;
+  opacity: 0;
+  transition: opacity 0.2s;
+  font-weight: normal;
+  font-size: 0.85rem;
+}
+
+.file-name:hover .hover-text,
+.file-path-cell:hover {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.unstaged-panel .btn-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.unstaged-panel .btn-refresh {
+  background-color: #1976d2;
+  color: white;
+  cursor: pointer;
+  border: none;
+  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  transition: background-color 0.2s ease;
+}
+
+.unstaged-panel .btn-refresh:hover {
+  background-color: #1565c0;
+}
+
+/* Expanded commit file list */
+.commit-file-row {
+  background-color: #2a2a2a;
+}
+
+.commit-file-row.hidden {
+  display: none;
+}
+
+.expanded-file-list {
+  background-color: #2a2a2a;
+  border-radius: 6px;
+  padding: 0.5rem;
+}
+
+/* ---------- Commit Panel ---------- */
+.commit-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.commit-input,
+.commit-textarea {
+  padding: 0.5rem;
+  background-color: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 4px;
+  color: #fff;
+  font-size: 1rem;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.commit-textarea {
+  min-height: 100px;
+  resize: vertical;
+  margin-bottom: 1rem;
+}
+
+.commit-panel button {
+  width: max-content;
+  padding: 0.5rem 1rem;
+  margin-top: 0.5rem;
+}
+
+.commit-box {
+  width: 40vw;
+  margin: 0 auto;
+}
+
+.commit-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: #ccc;
+  font-size: 0.95rem;
+}
+
+.commit-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
+}
+
+/* ---------- Buttons ---------- */
+.btn.small {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.btn-stage {
+  background-color: #2e7d32;
+  color: #fff;
+}
+
+.btn-stage:hover:enabled {
+  background-color: #388e3c;
+}
+
+.btn-unstage {
+  background-color: #c62828;
+  color: #fff;
+}
+
+.btn-unstage:hover:enabled {
+  background-color: #d32f2f;
+}
+
+/* ---------- File Status Labels ---------- */
+.file-status {
+  font-size: 0.8rem;
+  font-weight: bold;
+  margin-left: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  text-transform: capitalize;
+}
+
+.status-modified {
+  color: #ffeb3b;
+  background-color: rgba(255, 235, 59, 0.1);
+}
+
+.status-added {
+  color: #4caf50;
+  background-color: rgba(76, 175, 80, 0.1);
+}
+
+.status-deleted {
+  color: #f44336;
+  background-color: rgba(244, 67, 54, 0.1);
+}
+
+.status-renamed {
+  color: #2196f3;
+  background-color: rgba(33, 150, 243, 0.1);
+}
+
+.status-copied {
+  color: #9c27b0;
+  background-color: rgba(156, 39, 176, 0.1);
+}
+
+.status-untracked {
+  color: #ff9800;
+  background-color: rgba(255, 152, 0, 0.1);
+}
