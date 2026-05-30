@@ -4,7 +4,9 @@ package input
 import (
 	"context"
 	"scmp/internal/global"
+	"scmp/internal/logctx"
 	"scmp/web/api/prompt"
+	"time"
 )
 
 // Generic user input gatherer
@@ -13,7 +15,13 @@ func AskUser(ctx context.Context, title, details string) (response string, err e
 
 	if username == global.GlobalUsername {
 		// CLI mode always uses global username
-		response, err = PromptUser(title + ": ")
+
+		// Catch up logger prior to prompt print
+		logger := logctx.GetLogger(ctx)
+		logger.Wake()
+		time.Sleep(100 * time.Microsecond)
+
+		response, err = promptUser(title + ": ")
 	} else {
 		// Web user
 		response, err = prompt.WaitForInput(ctx, title, details)
@@ -27,7 +35,13 @@ func AskUserSecret(ctx context.Context, title, details string) (response []byte,
 
 	if username == global.GlobalUsername {
 		// CLI mode always uses global username
-		response, err = PromptUserForSecret(title + ": ")
+
+		// Catch up logger prior to prompt print
+		logger := logctx.GetLogger(ctx)
+		logger.Wake()
+		time.Sleep(100 * time.Microsecond)
+
+		response, err = promptUserForSecret(title + ": ")
 	} else {
 		// Web user
 		response, err = prompt.WaitForSecret(ctx, title, details)

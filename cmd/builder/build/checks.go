@@ -92,9 +92,6 @@ func checkDevArtifacts(ctx *context) (err error) {
 
 	// Check for any left over debug prints
 	found, err := helpers.ScanRepo(ctx.repositoryRoot, false, func(path, line string) (matches bool) {
-		if strings.Contains(path, "ebpf/include/") {
-			return
-		}
 		matches = strings.Contains(line, "DEBUG")
 		return
 	})

@@ -6,6 +6,8 @@ const (
 	IgnoreDirectoryPrefix str.LocalRepoPath = "_"                                  // Top level only
 	FailTrackerFile       string            = ".scmp-last-deployment-summary.json" // file name for recording deployment summary details
 
+	FileCountPromptThreshold int = 50
+
 	// Deployment modes, but also cli subcommands
 	ModeAll   string = "all"
 	ModeDiff  string = "diff"

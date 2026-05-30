@@ -17,12 +17,14 @@ import (
 	"scmp/internal/fsops"
 	"scmp/internal/gitinternal"
 	"scmp/internal/global"
+	"scmp/internal/input"
 	"scmp/internal/logctx"
 	"scmp/internal/network"
 	"scmp/internal/parsing"
 	"scmp/internal/secrets"
 	"scmp/internal/sshinternal"
 	"scmp/internal/str"
+	"strings"
 	"sync"
 )
 
@@ -164,6 +166,20 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 	if opts.DryRunEnabled {
 		predeploy.PrintDeploymentInformation(ctx, deployFiles, allDeploymentHosts, hostFiles)
 		return
+	}
+
+	// Guard against deployments containing a large number of changes
+	if !opts.ForceEnabled && deployFiles.Count() > deployment.FileCountPromptThreshold {
+		var userConfirmation string
+		userConfirmation, err = input.AskUser(ctx, "Large Deployment Detected, please confirm [y/N]", "")
+		if err != nil && !strings.HasSuffix(err.Error(), "unexpected newline") {
+			err = fmt.Errorf("failed to prompt for deployment confirmation: %w", err)
+			return
+		}
+		if userConfirmation != "y" {
+			err = fmt.Errorf("did not receive confirmation, aborting deployment")
+			return
+		}
 	}
 
 	select {

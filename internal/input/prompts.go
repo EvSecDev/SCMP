@@ -11,7 +11,7 @@ import (
 )
 
 // Prompts user to enter something
-func PromptUser(userPrompt string) (userResponse string, err error) {
+func promptUser(userPrompt string) (userResponse string, err error) {
 	// Throw error if not in terminal - stdin not available outside terminal for users
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		err = fmt.Errorf("not in a terminal, prompts do not work")
@@ -29,7 +29,7 @@ func PromptUser(userPrompt string) (userResponse string, err error) {
 }
 
 // Prompts user for a secret value (does not echo back entered text)
-func PromptUserForSecret(userPrompt string) (userResponse []byte, err error) {
+func promptUserForSecret(userPrompt string) (userResponse []byte, err error) {
 	fd := int(os.Stdin.Fd())
 
 	// Throw error if not in terminal - stdin not available outside terminal for users
