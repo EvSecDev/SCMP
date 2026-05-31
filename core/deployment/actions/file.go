@@ -14,7 +14,7 @@ import (
 	"scmp/internal/str"
 )
 
-func DeployFile(ctx context.Context, host sshinternal.HostMeta, repoFilePath str.LocalRepoPath, deployFiles *deployment.AllFiles) (fileModified bool, deployedBytes int, remoteMetadata sshinternal.RemoteFileInfo, err error) {
+func DeployFile(ctx context.Context, host sshinternal.HostMeta, repoFilePath str.LocalRepoPath, deployFiles *deployment.HostFiles) (fileModified bool, deployedBytes int, remoteMetadata sshinternal.RemoteFileInfo, err error) {
 	opts := global.AssertFromContext[config.Opts](ctx, "opts", global.OpsKey, "config.Opts")
 
 	localMetadata := deployFiles.GetFileInfo(repoFilePath)

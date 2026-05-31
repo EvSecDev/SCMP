@@ -69,14 +69,3 @@ func (files *AllFiles) GetFileData(identifier str.FileID) (data []byte) {
 	files.mutex.RUnlock()
 	return
 }
-
-func (files *AllFiles) ChangeFileDataPointer(path str.LocalRepoPath, newIdentifier str.FileID) {
-	files.mutex.Lock()
-	defer files.mutex.Unlock()
-	info, validPath := files.metadata[path]
-	if !validPath {
-		return
-	}
-	info.Hash = newIdentifier
-	files.metadata[path] = info
-}

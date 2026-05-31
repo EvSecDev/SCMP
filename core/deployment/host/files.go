@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-func (group *fileGroup) deploy(ctx context.Context, deploymentList *deployment.FileGroup, deployFiles *deployment.AllFiles) {
+func (group *fileGroup) deploy(ctx context.Context, deploymentList *deployment.FileGroup, deployFiles *deployment.HostFiles) {
 	defer group.deployWG.Done()
 
 	group.deployLimiter <- struct{}{}

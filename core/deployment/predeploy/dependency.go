@@ -20,7 +20,7 @@ func SortFiles(ctx context.Context, hostDeploymentFiles map[str.RepoRootDir][]st
 
 	for host := range hostDeploymentFiles {
 		var hostFiles *deployment.HostFiles
-		hostFiles, err = deployment.NewHostFiles(deployFiles)
+		hostFiles, err = deployment.NewHostFiles()
 		if err != nil {
 			return
 		}
@@ -55,6 +55,9 @@ func SortFiles(ctx context.Context, hostDeploymentFiles map[str.RepoRootDir][]st
 			err = fmt.Errorf("something went wrong: dependency tree sorting resulted in an empty tree with no files")
 			return
 		}
+
+		// Copy data to host-owned store so it can modify it freely
+		hostFiles.CopyGlobalFiles(deployFiles)
 
 		sortedHostInfo[host] = hostFiles
 	}

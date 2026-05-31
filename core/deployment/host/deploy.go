@@ -89,10 +89,10 @@ func (deployer *Deployer) Deploy(ctx context.Context, deployFiles *deployment.Ho
 		deployer.deployWG.Add(1)
 
 		if deployer.maxConcurrentDeploys > 1 {
-			go group.deploy(ctx, independentDeploymentList, deployFiles.GlobalFiles)
+			go group.deploy(ctx, independentDeploymentList, deployFiles)
 		} else {
 			// Max conns of 1 disables using go routine
-			group.deploy(ctx, independentDeploymentList, deployFiles.GlobalFiles)
+			group.deploy(ctx, independentDeploymentList, deployFiles)
 
 			// File groups are considered fully independent, errors do not stop further groups from starting deployment
 			// dependencies/reloads/reload groups are the mechanism to use to halt further file deployments

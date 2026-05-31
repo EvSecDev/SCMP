@@ -15,14 +15,14 @@ func (metric *Metrics) AddAllDeployFiles(host str.RepoRootDir, files *deployment
 	metric.fileActionMutex.Lock()
 	for _, fileGroup := range files.Groups {
 		for _, file := range fileGroup.GetOrderedList() {
-			info := files.GlobalFiles.GetFileInfo(file)
+			info := files.GetFileInfo(file)
 			metric.fileAction[file] = info.Action
 		}
 	}
 	metric.fileActionMutex.Unlock()
 }
 
-func (metric *Metrics) AddFile(host str.RepoRootDir, deployFiles *deployment.AllFiles, files ...str.LocalRepoPath) {
+func (metric *Metrics) AddFile(host str.RepoRootDir, deployFiles *deployment.HostFiles, files ...str.LocalRepoPath) {
 	metric.hostFilesMutex.Lock()
 	metric.hostFiles[host] = append(metric.hostFiles[host], files...)
 	metric.hostFilesMutex.Unlock()

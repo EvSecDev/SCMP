@@ -15,8 +15,10 @@ type AllFiles struct {
 
 // Wrapper for host lists and global list
 type HostFiles struct {
-	Groups      []*FileGroup
-	GlobalFiles *AllFiles
+	Groups   []*FileGroup
+	metadata map[str.LocalRepoPath]FileInfo
+	data     map[str.FileID][]byte
+	mutex    sync.RWMutex
 }
 
 // Represents files to be deployed in serial for a given host

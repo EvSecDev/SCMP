@@ -147,7 +147,7 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 		return
 	}
 
-	hostFiles, err := predeploy.SortFiles(ctx, hostDeploymentFiles, deployFiles)
+	allHostFiles, err := predeploy.SortFiles(ctx, hostDeploymentFiles, deployFiles)
 	if err != nil {
 		rollbackCommit = true
 		err = fmt.Errorf("failed sorting deployment files: %w", err)
@@ -164,7 +164,7 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 	logctx.LogStdInfo(ctx, "Deploying %d item(s) to %d host(s)\n", deployFiles.Count(), len(allDeploymentHosts))
 
 	if opts.DryRunEnabled {
-		predeploy.PrintDeploymentInformation(ctx, deployFiles, allDeploymentHosts, hostFiles)
+		predeploy.PrintDeploymentInformation(ctx, deployFiles, allDeploymentHosts, allHostFiles)
 		return
 	}
 
@@ -229,10 +229,10 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 
 		wg.Add(1)
 		if opts.MaxSSHConcurrency > 1 {
-			go deployer.Deploy(ctx, hostFiles[endpointName])
+			go deployer.Deploy(ctx, allHostFiles[endpointName])
 		} else {
 			// Max conns of <=1 disables using go routine
-			deployer.Deploy(ctx, hostFiles[endpointName])
+			deployer.Deploy(ctx, allHostFiles[endpointName])
 
 			// Don't continue to the next host on errors
 			if deployMetrics.HostHasError(endpointName) {

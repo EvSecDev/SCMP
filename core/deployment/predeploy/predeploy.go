@@ -104,7 +104,7 @@ func RunPreDeploymentCommands(ctx context.Context, deployMetrics *metrics.Metric
 
 	for _, independentDeploymentList := range files.Groups {
 		for _, repoFilePath := range independentDeploymentList.GetOrderedList() {
-			repoFileInfo := files.GlobalFiles.GetFileInfo(repoFilePath)
+			repoFileInfo := files.GetFileInfo(repoFilePath)
 
 			if !repoFileInfo.PredeployRequired {
 				continue
@@ -177,7 +177,7 @@ func RunPreDeploymentCommands(ctx context.Context, deployMetrics *metrics.Metric
 
 				if writeConfToStdin {
 					// Write files contents to stdin if requested
-					_, err = stdin.Write(files.GlobalFiles.GetFileData(oldHashIndex))
+					_, err = stdin.Write(files.GetFileData(oldHashIndex))
 					if err != nil {
 						err = fmt.Errorf("failed to write stdin to command: %w", err)
 						return
@@ -217,12 +217,12 @@ func RunPreDeploymentCommands(ctx context.Context, deployMetrics *metrics.Metric
 				if writeStdoutToFile {
 					// Have to rehash contents to prevent clobbering identical input files for other hosts
 					newHashIndex := str.FileID(crypto.SHA256Sum(stdoutBuf.Bytes()))
-					files.GlobalFiles.StoreDataOnce(newHashIndex, stderrBuf.Bytes())
+					files.StoreDataOnce(newHashIndex, stderrBuf.Bytes())
 
 					// Change hash pointer to new contents
-					files.GlobalFiles.ChangeFileDataPointer(repoFilePath, newHashIndex)
+					files.ChangeFileDataPointer(repoFilePath, newHashIndex)
 				} else if appendStdoutToFile {
-					existingFileContent := files.GlobalFiles.GetFileData(oldHashIndex)
+					existingFileContent := files.GetFileData(oldHashIndex)
 
 					// If content doesn't end with newline, add one for proper append behavior
 					if !strings.HasSuffix(string(existingFileContent), "\n") {
@@ -234,10 +234,10 @@ func RunPreDeploymentCommands(ctx context.Context, deployMetrics *metrics.Metric
 
 					// Rehash and add to content map
 					newHashIndex := str.FileID(crypto.SHA256Sum(newFileContent))
-					files.GlobalFiles.StoreDataOnce(newHashIndex, newFileContent)
+					files.StoreDataOnce(newHashIndex, newFileContent)
 
 					// Change hash pointer to new contents
-					files.GlobalFiles.ChangeFileDataPointer(repoFilePath, newHashIndex)
+					files.ChangeFileDataPointer(repoFilePath, newHashIndex)
 				}
 			}
 		}
