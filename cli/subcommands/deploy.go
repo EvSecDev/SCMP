@@ -16,7 +16,7 @@ import (
 	"scmp/internal/sshinternal"
 )
 
-func Deploy(ctx context.Context, commandname string, args []string) {
+func Deploy(ctx context.Context, subcmdLineage []string, args []string) (exitCode int) {
 	var commitID string
 	var hostOverride string
 	var localFileOverride string
@@ -25,7 +25,7 @@ func Deploy(ctx context.Context, commandname string, args []string) {
 	var configPath string
 	var opts config.Opts
 
-	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	commandFlags := flag.NewFlagSet(subcmdLineage[len(subcmdLineage)-1], flag.ExitOnError)
 	commandFlags.StringVar(&hostOverride, "r", "", "Override hosts for deployment")
 	commandFlags.StringVar(&hostOverride, "remote-hosts", "", "Override hosts for deployment")
 	commandFlags.StringVar(&localFileOverride, "l", "", "Override file(s) for deployment")
@@ -46,16 +46,16 @@ func Deploy(ctx context.Context, commandname string, args []string) {
 	cli.SetDeployConfArguments(commandFlags, &configPath)
 
 	commandFlags.Usage = func() {
-		cli.PrintHelpMenu(commandFlags, commandname, cli.GetCLICmds())
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
 	}
 	if len(args) < 1 {
-		cli.PrintHelpMenu(commandFlags, commandname, cli.GetCLICmds())
-		os.Exit(1)
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
+		return 1
 	}
 	err := commandFlags.Parse(args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	subcommand := args[0]
 
@@ -80,15 +80,15 @@ func Deploy(ctx context.Context, commandname string, args []string) {
 			fmt.Printf("Error rolling back commit. %v\n", err)
 		}
 
-		os.Exit(1)
+		return 1
 	}
 
 	if testConfig {
 		logctx.LogEvent(ctx, logctx.VerbosityStandard, logctx.InfoLog, "configuration file %s test is successful\n", configPath)
-		return
+		return 0
 	}
 
-	if cli.IsValidSubcommand(cli.GetCLICmds(), commandname, subcommand) {
+	if cli.IsValidSubcommand(cli.GetCLICmds(), subcmdLineage[len(subcmdLineage)-1], subcommand) {
 		var rollbackCommit bool
 		rollbackCommit, err = local.StartDeploy(ctx, subcommand, commitID, hostOverride, localFileOverride)
 		if err != nil {
@@ -99,10 +99,11 @@ func Deploy(ctx context.Context, commandname string, args []string) {
 				fmt.Printf("Error rolling back commit. %v\n", err)
 			}
 
-			os.Exit(1)
+			return 1
 		}
 	} else {
-		cli.PrintHelpMenu(commandFlags, commandname, cli.GetCLICmds())
-		os.Exit(1)
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
+		return 1
 	}
+	return 0
 }

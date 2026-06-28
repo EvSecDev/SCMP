@@ -10,7 +10,7 @@ import (
 
 func BashAutocomplete(ctx context.Context) {
 	const sysAutocompleteDir string = "/usr/share/bash-completion/completions"
-	autoCompleteFunc, err := installationConfigs.ReadFile("static-files/configurations/autocomplete.sh")
+	autoCompleteFunc, err := installationConfigs.ReadFile("static-files/autocomplete.sh")
 	if err != nil {
 		logctx.LogEvent(ctx, logctx.VerbosityStandard, logctx.ErrorLog, "Unable to retrieve autocomplete file from embedded filesystem: %v\n", err)
 		return

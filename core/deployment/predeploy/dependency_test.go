@@ -277,9 +277,12 @@ func TestHandleFileDependencies(t *testing.T) {
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
 			// Prepare deploy files obj
-			deployFiles := deployment.NewAllFiles()
+			deployFiles, err := deployment.NewHostFiles()
+			if err != nil {
+				t.Fatalf("failed init host files obj: %v", err)
+			}
 			for path, meta := range test.testFileMeta {
-				deployFiles.AddMetadata(path, meta)
+				deployFiles.SetFileMetadata(path, meta)
 			}
 
 			result, err := HandleFileDependencies(test.hostDeploymentFiles, deployFiles)
@@ -571,9 +574,12 @@ func TestMergeDepTrees(t *testing.T) {
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
 			// Prepare deploy files obj
-			deployFiles := deployment.NewAllFiles()
+			deployFiles, err := deployment.NewHostFiles()
+			if err != nil {
+				t.Fatalf("failed init host files obj: %v", err)
+			}
 			for path, meta := range test.testFileMeta {
-				deployFiles.AddMetadata(path, meta)
+				deployFiles.SetFileMetadata(path, meta)
 			}
 
 			result := MergeDepTrees(test.depTrees, deployFiles)

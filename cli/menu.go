@@ -16,34 +16,16 @@ General help using GNU software: <https://www.gnu.org/gethelp/>
 `
 )
 
-// Full standardized help menu (wraps option printer as well)
-func PrintHelpMenu(fs *flag.FlagSet, command string, rootCmd *CommandSet) {
+// Full standardized help menu (wraps option printer as well).
+// Commands is the lineage, last is current command
+func PrintHelpMenu(fs *flag.FlagSet, commands []string, rootCmd *CommandSet) {
 	const baseIndentSpaces = 2
 
-	var curCmdSet *CommandSet
-	var parentStack []*CommandSet
-
-	// Find the command in tree
-	if command == "" || command == RootCLICommand {
-		curCmdSet = rootCmd
-	} else if cmd, ok := rootCmd.ChildCommands[command]; ok {
-		curCmdSet = cmd
-		parentStack = append(parentStack, rootCmd)
-	} else {
-		// Search in all subcommands
-		found := false
-		for _, topCmd := range rootCmd.ChildCommands {
-			if sub, ok := topCmd.ChildCommands[command]; ok {
-				curCmdSet = sub
-				parentStack = append(parentStack, rootCmd, topCmd)
-				found = true
-				break
-			}
-		}
-		if !found {
-			fmt.Printf("Unknown command: %s\n", command)
-			return
-		}
+	// Strict lineage resolution
+	curCmdSet, parentStack, err := ResolveCommand(commands, rootCmd)
+	if err != nil {
+		fmt.Printf("Unknown command: %s\n", strings.Join(commands, " "))
+		return
 	}
 
 	// Build full usage path
@@ -313,5 +295,28 @@ func GetImmediateChildren(root *CommandSet, cmdName string) (subcommands []strin
 	}
 
 	// Command not found, return empty slice
+	return
+}
+
+// Traverses the command tree strictly by lineage.
+// Returns the matched command, its parent stack, and an error if the path is invalid.
+func ResolveCommand(args []string, root *CommandSet) (subcmd *CommandSet, parents []*CommandSet, err error) {
+	subcmd = root
+	parents = []*CommandSet{}
+
+	for _, arg := range args {
+		if arg == "" || arg == "root" {
+			// Root command is a given
+			continue
+		}
+		child, ok := subcmd.ChildCommands[arg]
+		if ok {
+			parents = append(parents, subcmd)
+			subcmd = child
+		} else {
+			err = fmt.Errorf("unknown command: %s", arg)
+			return
+		}
+	}
 	return
 }

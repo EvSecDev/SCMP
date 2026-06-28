@@ -14,13 +14,13 @@ import (
 	"scmp/internal/str"
 )
 
-func Secrets(ctx context.Context, commandname string, args []string) {
+func Secrets(ctx context.Context, subcmdLineage []string, args []string) (exitCode int) {
 	var modifyVaultHost string
 	var genNewHash bool
 	var configPath string
 	var opts config.Opts
 
-	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	commandFlags := flag.NewFlagSet(subcmdLineage[len(subcmdLineage)-1], flag.ExitOnError)
 	cli.SetDeployConfArguments(commandFlags, &configPath)
 	commandFlags.StringVar(&modifyVaultHost, "p", "", "Create/Update/Delete password for given host.Name")
 	commandFlags.StringVar(&modifyVaultHost, "modify-vault-password", "", "Create/Update/Delete password for given host.Name")
@@ -28,16 +28,16 @@ func Secrets(ctx context.Context, commandname string, args []string) {
 	globalVerbosity := cli.SetGlobalArguments(commandFlags, &opts)
 
 	commandFlags.Usage = func() {
-		cli.PrintHelpMenu(commandFlags, commandname, cli.GetCLICmds())
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
 	}
 	if len(args) < 1 {
-		cli.PrintHelpMenu(commandFlags, commandname, cli.GetCLICmds())
-		os.Exit(1)
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
+		return 1
 	}
 	err := commandFlags.Parse(args[0:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Set verbosity again if the user change at this command level
@@ -49,7 +49,7 @@ func Secrets(ctx context.Context, commandname string, args []string) {
 	ctx, err = sshconfig.Set(ctx, configPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error in controller configuration: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	config := global.AssertFromContext[config.Config](ctx, "config", global.ConfKey, "config.Config")
@@ -57,6 +57,7 @@ func Secrets(ctx context.Context, commandname string, args []string) {
 	err = secrets.CLIEntry(ctx, config, str.RepoRootDir(modifyVaultHost), genNewHash)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }

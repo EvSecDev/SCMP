@@ -1,11 +1,8 @@
-package predeploy
+package parsing
 
 import (
-	"context"
 	"os"
 	"scmp/core/filesystem"
-	"scmp/internal/config"
-	"scmp/internal/global"
 	"scmp/internal/str"
 	"strings"
 )
@@ -15,9 +12,7 @@ import (
 // Returned targetFilePath will contain a leading slash
 // Path separators are linux ("/")
 // Function does not return errors, but unexpected input will return nil outputs
-func translateLocalPathtoRemotePath(ctx context.Context, localRepoPath str.LocalRepoPath) (hostDir str.RepoRootDir, targetFilePath str.RemotePath) {
-	config := global.AssertFromContext[config.Config](ctx, "config", global.ConfKey, "config.Config")
-
+func TranslateLocalPathtoRemotePath(repositoryRootDirectory string, localRepoPath str.LocalRepoPath) (hostDir str.RepoRootDir, targetFilePath str.RemotePath) {
 	// Enforce type at function boundary, but otherwise convert back for use here
 	repoPath := string(localRepoPath)
 
@@ -34,8 +29,8 @@ func translateLocalPathtoRemotePath(ctx context.Context, localRepoPath str.Local
 	repoPath = strings.TrimSuffix(repoPath, "/")
 
 	// Remove repository path if its absolute local path
-	if strings.HasPrefix(repoPath, config.RepositoryPath) {
-		repoPath = strings.TrimPrefix(repoPath, config.RepositoryPath)
+	if strings.HasPrefix(repoPath, repositoryRootDirectory) {
+		repoPath = strings.TrimPrefix(repoPath, repositoryRootDirectory)
 		repoPath = strings.TrimPrefix(repoPath, "/")
 	}
 
@@ -64,14 +59,6 @@ func translateLocalPathtoRemotePath(ctx context.Context, localRepoPath str.Local
 
 	// Retrieve the first array item as the host directory name
 	hostDir = str.RepoRootDir(pathSplit[0])
-
-	// Allow relative paths within hosts (needed for relative symlinks)
-	_, parentDirIsHost := config.HostInfo[hostDir]
-	_, parentDirIsUniversal := config.AllUniversalGroups[hostDir]
-	if !parentDirIsHost && !parentDirIsUniversal && hostDir != config.UniversalDirectory {
-		targetFilePath = str.RemotePath(repoPath)
-		return
-	}
 
 	// Retrieve the second array item as the expected target path
 	targetFilePath = str.RemotePath(pathSplit[1])

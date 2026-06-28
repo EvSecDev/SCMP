@@ -18,9 +18,10 @@ func CheckForOverride(ctx context.Context, override string, current string, host
 
 	ctx = logctx.AppendCtxTag(ctx, logctx.NSValidation)
 
+	hostInfo, inputCheckIsAHost := hostList[str.RepoRootDir(current)]
+
 	// If input is a host and state is offline and user did not request deployment state override, then skip
-	_, inputCheckIsAHost := hostList[str.RepoRootDir(current)]
-	if inputCheckIsAHost && hostList[str.RepoRootDir(current)].DeploymentState == "offline" && !opts.IgnoreDeploymentState {
+	if inputCheckIsAHost && hostInfo.DeploymentState == "offline" && !opts.IgnoreDeploymentState {
 		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "  host %s is currently offline\n", current)
 		skip = true
 		return
@@ -33,8 +34,9 @@ func CheckForOverride(ctx context.Context, override string, current string, host
 
 	// Allow current item if item is part of a group
 	// Only applies to host overrides, but shouldn't affect file overrides
-	_, currentItemIsPartofGroup := hostList[str.RepoRootDir(current)].UniversalGroups[str.RepoRootDir(override)]
+	group, currentItemIsPartofGroup := hostInfo.UniversalGroups[str.RepoRootDir(override)]
 	if currentItemIsPartofGroup {
+		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "  host %s is part of group %s\n", current, group)
 		skip = false
 		return
 	}

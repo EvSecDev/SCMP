@@ -587,9 +587,12 @@ func TestCreateReloadGroups(t *testing.T) {
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
 			// Prepare deploy files obj
-			deployFiles := deployment.NewAllFiles()
+			deployFiles, err := deployment.NewHostFiles()
+			if err != nil {
+				t.Fatalf("failed init host files obj: %v", err)
+			}
 			for path, meta := range test.allFileMeta {
-				deployFiles.AddMetadata(path, meta)
+				deployFiles.SetFileMetadata(path, meta)
 			}
 
 			expectDeploymentList := deployment.NewFileGroup(test.expectFiles)

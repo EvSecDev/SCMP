@@ -17,7 +17,7 @@ func AAProfile(ctx context.Context, repositoryPath string) {
 	}
 
 	const appArmorProfilePath string = "/etc/apparmor.d/scmp-controller"
-	appArmorProfile, err := installationConfigs.ReadFile("static-files/configurations/apparmor-profile")
+	appArmorProfile, err := installationConfigs.ReadFile("static-files/apparmor-profile")
 	if err != nil {
 		logctx.LogEvent(ctx, logctx.VerbosityStandard, logctx.ErrorLog, "Unable to retrieve configuration file from embedded filesystem: %v\n", err)
 		return

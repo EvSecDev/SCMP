@@ -117,7 +117,7 @@ func FilterHostsAndFiles(ctx context.Context, hostList map[str.RepoRootDir]confi
 	return
 }
 
-func CreateReloadGroups(fileList []str.LocalRepoPath, deployFiles *deployment.AllFiles) (groupedDeployList *deployment.FileGroup) {
+func CreateReloadGroups(fileList []str.LocalRepoPath, deployFiles *deployment.HostFiles) (groupedDeployList *deployment.FileGroup) {
 	groupedDeployList = deployment.NewFileGroup(fileList)
 
 	noNamedGroups := make(map[str.ReloadID][]str.LocalRepoPath) // Temp hold any files that aren't part of explicit named group

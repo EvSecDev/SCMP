@@ -35,7 +35,9 @@ const (
 	NSLogger     string = "Logger"
 	NSDeploy     string = "Deploy"
 	NSParsing    string = "Parsing"
+	NSGrouping   string = "Grouping"
 	NSValidation string = "Validation"
+	NSDepEval    string = "Dependency"
 	NSExec       string = "Exec"
 	NSFiles      string = "LocalFiles"
 	NSWeb        string = "Web"
@@ -46,6 +48,8 @@ const (
 	NSVault      string = "Vault"
 	NSSSH        string = "SSH"
 	NSArtifacts  string = "Artifacts"
+	NSDRN        string = "DRN"
+	NSRepo       string = "Repository"
 
 	// Deduplication
 	dedupWindow      = 5 * time.Second

@@ -42,7 +42,7 @@ func PrintDeploymentInformation(ctx context.Context, deployFiles *deployment.All
 		for _, independentDeploymentList := range deploymentList.Groups {
 			for _, filePath := range independentDeploymentList.GetOrderedList() {
 				// Format to remote path type
-				_, targetFile := translateLocalPathtoRemotePath(ctx, filePath)
+				_, targetFile := parsing.TranslateLocalPathtoRemotePath(config.RepositoryPath, filePath)
 
 				nameLength := len(targetFile)
 				if nameLength > maxFileNameLength {
@@ -64,7 +64,7 @@ func PrintDeploymentInformation(ctx context.Context, deployFiles *deployment.All
 		for _, independentDeploymentList := range deploymentList.Groups {
 			for _, file := range independentDeploymentList.GetOrderedList() {
 				// Format to remote path type
-				_, targetFile := translateLocalPathtoRemotePath(ctx, file)
+				_, targetFile := parsing.TranslateLocalPathtoRemotePath(config.RepositoryPath, file)
 
 				// Determine how many spaces to add after file name
 				fileIndentSpaces := maxFileNameLength - len(targetFile)

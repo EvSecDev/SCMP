@@ -5,7 +5,7 @@ _controller()
 
     # Main config of options
     declare -A COMMANDS=(
-        [root_sub]="deploy web exec git install scp secrets seed version file header"
+        [root_sub]="deploy web exec git install scp secrets seed version file header drn"
         [root_opts]="--allow-deletions --force --with-summary -T --dry-run -v --verbosity -w --wet-run"
 
         [web_opts]="-p --listen-port -s --start-server"
@@ -44,6 +44,16 @@ _controller()
         [header:strip_opts]="__inherit__"
         [header:insert_opts]="__inherit__"
         [header:read_opts]="__inherit__"
+
+        [drn_sub]="dump lookup new reference resolve-file validate"
+        [drn_opts]="--host-alias --repo-file-path"
+
+        [drn:dump_opts]="__inherit__"
+        [drn:lookup_opts]="__inherit__"
+        [drn:new_opts]="__inherit__"
+        [drn:reference_opts]="__inherit__"
+        [drn:resolve-file_opts]="__inherit__"
+        [drn:validate_opts]="__inherit__"
     )
 
     # Special completion options

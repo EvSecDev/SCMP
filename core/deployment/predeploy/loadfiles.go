@@ -7,6 +7,7 @@ import (
 	"os"
 	"scmp/core/deployment"
 	"scmp/core/filesystem/metadata"
+	"scmp/internal/config"
 	"scmp/internal/crypto"
 	"scmp/internal/fsops"
 	"scmp/internal/global"
@@ -114,6 +115,7 @@ func loadArtifactContent(artifactPath string, artifactPointerPath str.LocalRepoP
 // Parses loaded file content and retrieves needed metadata
 // Return vales provide the content keyed on local file path for the file data, metadata, hashes, and actions
 func ParseFileContent(ctx context.Context, allDeploymentFiles map[str.LocalRepoPath]str.DeployAction, rawFileContent map[str.LocalRepoPath][]byte) (deployFiles *deployment.AllFiles, err error) {
+	cfg := global.AssertFromContext[config.Config](ctx, "config", global.ConfKey, "config.Config")
 	ctx = logctx.AppendCtxTag(ctx, logctx.NSParsing)
 	logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog, "Parsing files for deployment... \n")
 
@@ -128,7 +130,7 @@ func ParseFileContent(ctx context.Context, allDeploymentFiles map[str.LocalRepoP
 		// Actions that do not require content loading
 		if commitFileAction == deployment.ActionDelete {
 			// Add it to the deploy target files so it can be deleted during ssh
-			_, deletedFilePath := translateLocalPathtoRemotePath(ctx, repoFilePath)
+			_, deletedFilePath := parsing.TranslateLocalPathtoRemotePath(cfg.RepositoryPath, repoFilePath)
 			deployFiles.AddMetadata(repoFilePath, deployment.FileInfo{Action: commitFileAction, TargetFilePath: deletedFilePath})
 			continue
 		} else if commitFileAction != deployment.ActionCreate &&

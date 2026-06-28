@@ -7,10 +7,10 @@ import (
 	"scmp/internal/global"
 )
 
-func Version(ctx context.Context, commandname string, args []string) {
+func Version(ctx context.Context, subcmdLineage []string, args []string) (exitCode int) {
 	// Maintain function signature compatibility
 	_ = ctx
-	_ = commandname
+	_ = subcmdLineage
 
 	if len(args) > 0 && (args[0] == "--verbosity" || args[0] == "-v") {
 		fmt.Printf("SCMP Controller %s\n", global.ProgVersion)
@@ -19,4 +19,5 @@ func Version(ctx context.Context, commandname string, args []string) {
 	} else {
 		fmt.Println(global.ProgVersion)
 	}
+	return 0
 }

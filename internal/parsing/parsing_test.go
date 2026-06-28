@@ -1,37 +1,12 @@
-package predeploy
+package parsing
 
 import (
-	"context"
-	"scmp/internal/config"
-	"scmp/internal/global"
-	"scmp/internal/logctx"
 	"scmp/internal/str"
 	"testing"
 )
 
 func TestTranslateLocalPathtoRemotePath(t *testing.T) {
-	var cfg config.Config
-	cfg.RepositoryPath = "/home/user/repo"
-	cfg.UniversalDirectory = "Universal"
-	cfg.HostInfo = map[str.RepoRootDir]config.EndpointInfo{
-		"868_host_region1": {},
-		"host":             {},
-		"host1":            {},
-		"host2":            {},
-		"host3":            {},
-		"host4":            {},
-		"host9":            {},
-		"!@#$%^&*()_+":     {},
-	}
-	cfg.AllUniversalGroups = map[str.RepoRootDir][]str.RepoRootDir{
-		"Universal_VMs": {"host4", "host9"},
-	}
-
-	ctx := t.Context()
-	ctx = logctx.New(ctx, logctx.NSTest, logctx.VerbosityNone, ctx.Done())
-
-	ctx = context.WithValue(ctx, global.ConfKey, cfg)
-
+	testRepositoryPath := "/home/user/repo"
 	tests := []struct {
 		localRepoPath    str.LocalRepoPath
 		expectedHostDir  str.RepoRootDir
@@ -57,7 +32,7 @@ func TestTranslateLocalPathtoRemotePath(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(string(test.localRepoPath), func(t *testing.T) {
-			hostDir, targetFilePath := translateLocalPathtoRemotePath(ctx, test.localRepoPath)
+			hostDir, targetFilePath := TranslateLocalPathtoRemotePath(testRepositoryPath, test.localRepoPath)
 			if hostDir != test.expectedHostDir {
 				t.Errorf("expected hostDir '%s', got '%s'", test.expectedHostDir, hostDir)
 			}

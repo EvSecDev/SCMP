@@ -1,72 +1,18 @@
 package predeploy
 
 import (
-	"context"
 	"encoding/base64"
 	"fmt"
 	"scmp/core/deployment"
-	"scmp/internal/logctx"
 	"scmp/internal/str"
 	"slices"
 	"sort"
 	"strings"
 )
 
-// Takes the raw list of deployment files and orders according to dependencies and reload commands
-func SortFiles(ctx context.Context, hostDeploymentFiles map[str.RepoRootDir][]str.LocalRepoPath, deployFiles *deployment.AllFiles) (sortedHostInfo map[str.RepoRootDir]*deployment.HostFiles, err error) {
-	sortedHostInfo = make(map[str.RepoRootDir]*deployment.HostFiles)
-
-	ctx = logctx.AppendCtxTag(ctx, logctx.NSParsing)
-
-	for host := range hostDeploymentFiles {
-		var hostFiles *deployment.HostFiles
-		hostFiles, err = deployment.NewHostFiles()
-		if err != nil {
-			return
-		}
-
-		logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog, "Host: %s: Handling dependencies\n", host)
-
-		// Reorder deployment list into independent trees and by dependencies
-		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "  Reordering files based on inter-file dependencies\n")
-		var depTrees [][]str.LocalRepoPath
-		depTrees, err = HandleFileDependencies(hostDeploymentFiles[host], deployFiles)
-		if err != nil {
-			return
-		}
-
-		// Merge dependency trees to ensure similar reloads/reload groups get deployed in the same thread
-		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "  Merging dependency trees based on reload groups/commands\n")
-		depTrees = MergeDepTrees(depTrees, deployFiles)
-
-		// Identify reload groups by command and similar commands - used to coordinate when to reload during deployment
-		for _, depTree := range depTrees {
-			logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "  Grouping config files by reload commands\n")
-			independentDeploymentList := CreateReloadGroups(depTree, deployFiles)
-
-			hostFiles.Groups = append(hostFiles.Groups, independentDeploymentList)
-		}
-
-		// Quick guard against any unforeseen consequences
-		if len(hostDeploymentFiles[host]) > 0 && len(hostFiles.Groups) == 0 {
-			err = fmt.Errorf("something went wrong: dependency tree sorting resulted in no files")
-			return
-		} else if len(hostDeploymentFiles[host]) > 0 && len(hostFiles.Groups[0].GetOrderedList()) == 0 {
-			err = fmt.Errorf("something went wrong: dependency tree sorting resulted in an empty tree with no files")
-			return
-		}
-
-		// Copy data to host-owned store so it can modify it freely
-		hostFiles.CopyGlobalFiles(deployFiles)
-
-		sortedHostInfo[host] = hostFiles
-	}
-	return
-}
-
 // Correct the order of deployment based on any present dependencies
 // Returns independent trees of sorted file lists (each outer array has no dependency on any other outer array)
-func HandleFileDependencies(rawDeploymentFiles []str.LocalRepoPath, deployFiles *deployment.AllFiles) (orderedDeploymentFiles [][]str.LocalRepoPath, err error) {
+func HandleFileDependencies(rawDeploymentFiles []str.LocalRepoPath, deployFiles *deployment.HostFiles) (orderedDeploymentFiles [][]str.LocalRepoPath, err error) {
 	// Tracking maps
 	graph := make(map[str.LocalRepoPath][]str.LocalRepoPath)
 	reverseGraph := make(map[str.LocalRepoPath][]str.LocalRepoPath)
@@ -182,7 +128,7 @@ func HandleFileDependencies(rawDeploymentFiles []str.LocalRepoPath, deployFiles 
 }
 
 // Handles merging dependency trees when they have overlapping reload commands/reload groups
-func MergeDepTrees(depTrees [][]str.LocalRepoPath, deployFiles *deployment.AllFiles) (newDepTrees [][]str.LocalRepoPath) {
+func MergeDepTrees(depTrees [][]str.LocalRepoPath, deployFiles *deployment.HostFiles) (newDepTrees [][]str.LocalRepoPath) {
 	if len(depTrees) == 0 {
 		return [][]str.LocalRepoPath{}
 	}

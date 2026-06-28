@@ -45,6 +45,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Deploy changed configurations based on commit difference or manually via specifying a commit hash
   - Deploy all (or a subset of) tracked files by commit (default is most recent)
   - Deploy individual/lists/groups of files to individual/lists/groups of hosts
+  - Centralize common configuration values into singular file for use across many different files
   - Deployment test run using single host (use `--max-conns 1 -r HOST`)
   - Concurrent file deployment per host (use `--max-deploy-threads`) (note: requires server support for high numbers)
   - Exclude hosts from deployments (use config option `DeploymentState offline` under a host)
@@ -105,8 +106,6 @@ Below are brief summaries of planned features.
 
 Core Features:
 
-- Unified Macros/Custom Variables - Dynamic Reference Names (DRN)
-  - Config-driven centralized variable names in both metadata headers AND file content
 - Enhanced Deploy Command Sections
   - New: pre-apply, pre-remove, post-reload, post-install, post-remove
 - Rollback Deploy Mode
@@ -136,6 +135,7 @@ Secure Configuration Management Program (SCMP)
 
   Subcommands:
     deploy    - Deploy configurations
+    drn       - Dynamic Reference Name Handling
     exec      - Execute Remote Commands
     file      - Modify Local Data
     git       - Repository Actions
@@ -438,30 +438,246 @@ Due to this system, binary files do take up extra processing power and memory sp
 
 Only `file://` (local) URIs are supported for the `ExternalContentLocation` field currently.
 
-### Command Macros (Internal Variables/Actions)
+### Dynamic Reference Names (DRNs) (Internal and User-defined Variables)
 
-Certain macros are supported in the JSON metadata header command strings.
-These macros are replaced with known values or trigger special actions during pre-deployment file processing.
+DRNs provide a URI-like syntax for referencing dynamic values that are resolved at deployment time.
+They enable centralizing host-specific data, file paths, or user-defined variables into both file contents and metadata headers without hardcoding (and duplicating) values.
 
-Special actions can be used inspect or modify file content before files are transferred remotely.
-This allows dynamic file generation/modification without hard coding values in the repository.
+#### DRN Syntax
 
-Notes:
-
-- Macro names are case-sensitive.
-- Macros inside of double quotes will throw a JSON formatting error
-- Special actions for stdout must be at the end of the command string
-
-Example of expansion given input of `Server01/etc/nginx/nginx.conf`:
+Every DRN follows the format:
 
 ```text
-{@FILEPATH}      -> /etc/nginx/nginx.conf
-{@FILEDIR}       -> /etc/nginx
-{@FILENAME}      -> nginx.conf
-{@REPOBASEDIR}   -> Server01
+    <scmp://<namespace>@<field>[.<subfield>...]>
 ```
 
-Example of special actions:
+- **Start**: Single open character `<`
+- **Prefix**: `scmp://` (case-sensitive, required)
+- **Namespace**: One or more slash-separated segments identifying the data source (e.g., `mysettings`, `db/credentials`)
+- **Primary separator**: `@` divides namespace from fields
+- **Fields**: One or more dot-separated keys used to look up the value within a config object
+- **Terminator**: Single closing character `>`
+
+**Examples**:
+
+```text
+    <scmp://myconfig@hostname>
+    <scmp://db/credentials@mysql.password>
+    <scmp://_local@host.alias>
+```
+
+#### Validation Rules
+
+- Total length: 12–255 characters
+- Namespace depth: 1–10 segments (slash-separated)
+- Field depth: 1–10 keys (dot-separated)
+- Allowed characters in namespace: `[a-zA-Z0-9_-{}.]`
+- Allowed characters in fields: `[a-zA-Z0-9_-{}]`
+- No spaces permitted anywhere
+- Maximum nesting depth: 20 (a DRN value can reference another DRN, up to 20 levels)
+- Nested macros are not permitted (e.g., `{{outer{{inner}}}}` is invalid)
+- Macros must use double braces: `{{MACRO_NAME}}`
+
+#### Internal DRNs (Built-in Macros)
+
+Internal DRNs use the `_local` namespace prefix and resolve to runtime context information about the deployment target host or file.
+They are written using macro syntax (`{{...}}`) within DRNs or file content:
+
+| Macro Name           | Internal DRN                              | Resolves To                                           |
+|----------------------|-------------------------------------------|-------------------------------------------------------|
+| `{{HOSTALIAS}}`      | `<scmp://_local@host.alias>`              | The SSH host alias (e.g., `Server01`)                 |
+| `{{HOSTADDRESS}}`    | `<scmp://_local@host.net.address>`        | The address (IP/fqdn) as it appears in the SSH config |
+| `{{HOSTLOGINUSER}}`  | `<scmp://_local@host.user>`               | The SSH login user for the host                       |
+| `{{REPOBASEDIR}}`    | `<scmp://_local@repo.base.dir>`           | The repository base directory for the file            |
+| `{{FILEPATH}}`       | `<scmp://_local@repo.file.path>`          | The full remote file path (e.g., `/etc/nginx.conf`)   |
+| `{{FILENAME}}`       | `<scmp://_local@repo.file.name>`          | The base file name (e.g., `nginx.conf`)               |
+| `{{FILEDIR}}`        | `<scmp://_local@repo.file.dir>`           | The remote directory containing the file              |
+
+Macros can be embedded inside other DRNs in both the namespace and field portions:
+
+```text
+    <scmp://config_{{HOSTALIAS}}@hostname>
+    <scmp://db@port_{{REPOBASEDIR}}>
+```
+
+During resolution, `{{HOSTALIAS}}` is replaced with the actual host alias (e.g., `Server01`), producing `<scmp://config_Server01@hostname>`, which is then resolved as a normal external DRN.
+
+**Important**: Internal DRNs require both host and file context to resolve. They cannot be looked up standalone.
+
+#### External DRNs (User-defined Variables)
+
+External DRNs are user-defined variables stored as JSON configuration files under the `_global/` directory at the repository root.
+The namespace in a DRN maps directly to a file path underneath `_global/`:
+
+```text
+   <scmp://main/myconfig@hostname>
+           ^^^^^^^^^^^^^ ^^^^^^^^
+           namespace      fields
+```
+
+The namespace `main/myconfig` maps to the file `_global/main/myconfig.json`. The field `hostname` map to the JSON key within that file:
+
+`_global/main/myconfig.json`
+
+```json
+    {
+      "hostname": "web01.example.com"
+    }
+```
+
+**Important Note**: Both the config file/directory names and the JSON fields themselves cannot contain macros.
+
+**Nested fields** traverse JSON objects to retrieve a leaf string value:
+
+```text
+    <scmp://app.conf@database.connection.timeout>    ->  `_global/app.conf` -> database.connection.timeout
+```
+
+DRN values can themselves reference other DRNs, enabling chained resolution up to the maximum nesting depth of 20. Cycle detection prevents infinite loops.
+
+#### DRN Resolution During Deployment
+
+The DRN resolution pipeline operates in three phases:
+
+1. **Extraction**: SCMP scans all file contents and metadata headers for strings beginning with `<scmp://`. Raw candidates are extracted greedily (terminated by closing character `>`).
+
+2. **Validation & Macro Expansion**: Each candidate is validated syntactically. Macros within the DRN (both namespace and field segments) are expanded using the host and file context. Unknown or unmatched macros produce an error.
+
+3. **Lookup & Replacement**: Internal DRNs resolve directly from context. External DRNs load the corresponding config file from `_global/` and traverse the JSON structure using the field path. The resolved value replaces the original DRN string in both file data and metadata header command strings.
+
+If a resolved value contains or is a DRN (has value containing `<scmp://`), resolution recurses until a concrete string value is reached or the maximum nesting depth is hit.
+
+#### DRN Config File Tracking and Dependencies
+
+When a DRN config file under `_global/` is committed and deployed, SCMP automatically discovers all repository files that reference the changed DRNs. This includes:
+
+- Files containing the exact DRN string
+- Files containing the DRN with macros (expanded per-host)
+- Files transitively referencing DRNs whose values point to the changed DRN
+
+These dependent files are pulled into the deployment automatically, even if they were not part of the original commit.
+
+This removes the need to know what repository files and hosts need a fresh deployment after modifying any DRN.
+
+If a DRN config is being deleted and files still reference it, deployment is blocked with an error.
+
+#### CLI Helpers
+
+The `drn` subcommand provides four operations:
+
+Note: Open/Close characters are optional.
+
+| Subcommand     | Usage                                                           | Description                                                                    |
+|----------------|-----------------------------------------------------------------|--------------------------------------------------------------------------------|
+| `lookup`       | `drn lookup --host-alias <H> --repo-file-path <P> <DRN string>` | Resolve a DRN to its final value, optionally with host/file context            |
+| `new`          | `drn new <DRN string>=<DRN value>`                              | Create or overwrite a DRN value in the `_global/` config                       |
+| `dump`         | `drn dump`                                                      | Print a formatted table of all internal and external DRNs                      |
+| `reference`    | `drn reference <DRN string>[,<DRN string>...]`                  | Find all files and hosts that reference the given DRN(s)                       |
+| `resolve-file` | `drn resolve-file --host-alias <H> <repo path>`                 | Replaces any DRNs in file (in memory) with concrete value and prints to stdout |
+| `validate`     | `drn validate <DRN string>`                                     | Validates a string is a valid DRN string                                       |
+
+**`lookup` example**:
+
+```bash
+    # External DRN without context
+    controller drn lookup scmp://myconfig@hostname
+    # Output: DRN '<scmp://myconfig@hostname>' = 'web01.example.com'
+
+    # Internal DRN with host/file context
+    controller drn lookup scmp://_local@host.alias --host-alias Server01 --repo-file-path Server01/etc/nginx.conf
+    # Output: DRN '<scmp://_local@host.alias>' = 'Server01'
+```
+
+**`new` example**:
+
+```bash
+    controller drn new scmp://app/redis@port=6379
+    # Creates or updates _global/app/redis with { "port": "6379" }
+```
+
+**`dump` example**:
+
+```bash
+    controller drn dump
+    # Output:
+    # Internal DRNs:
+    #   <scmp://_local@host.alias>       Macro Name - {{HOSTALIAS}}
+    #   ...
+    # External DRNs:
+    #   <scmp://myconfig@hostname>       Config Path - _global/myconfig.json
+    #   ...
+```
+
+**`reference` example**:
+
+```bash
+    controller drn reference scmp://myconfig@hostname
+    # Output:
+    # File(s) referencing DRN(s) '<scmp://myconfig@hostname>':
+    #   Server01/etc/app.conf
+    #   Universal/etc/app.conf
+    #
+    # Host(s) referencing DRN(s) '<scmp://myconfig@hostname>':
+    #   Server01
+    #   Server02
+```
+
+**`resolve-file` example**:
+
+```bash
+    cat "Host1/etc/hostname"
+    # Output:
+    # <scmp://myconfig@hostname>
+
+    controller drn resolve-file Host1/etc/hostname
+    # Output:
+    # host1.mynet.com
+```
+
+**`validate` example**:
+
+```bash
+    controller drn validate scmp://myconfig@hostname
+    # Output:
+    # DRN <scmp://myconfig@hostname> is valid
+```
+
+#### Use in File Content and Headers
+
+DRNs can appear anywhere in file data or metadata header command strings.
+During deployment, every occurrence is replaced with the resolved value:
+
+**File content example** (`Server01/nginx.conf`):
+
+```text
+    server {
+        listen <scmp://server@listen_port>;
+        server_name <scmp://myconfig@hostname>;
+    }
+```
+
+After resolution, the deployed file becomes:
+
+```text
+    server {
+        listen 443;
+        server_name web01.example.com;
+    }
+```
+
+**Header command example** using macros within a DRN:
+
+```json
+    "Install": [
+        "mkdir -p '<scmp://settings@backup_dir_{{HOSTALIAS}}>'"
+    ]
+```
+
+For host `Server01`, the macros expand, producing `<scmp://settings@backup_dir_Server01>`, which is then resolved to the actual backup directory path.
+
+### Special Actions
+
+Examples:
 
 Checking contents on the fly (file contents are written to standard in for the command):
 

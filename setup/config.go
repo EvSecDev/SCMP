@@ -16,7 +16,7 @@ func SSHConfig(ctx context.Context) {
 		return
 	}
 
-	defaultConfig, err := installationConfigs.ReadFile("static-files/configurations/default-ssh-config")
+	defaultConfig, err := installationConfigs.ReadFile("static-files/default-ssh-config")
 	if err != nil {
 		logctx.LogEvent(ctx, logctx.VerbosityStandard, logctx.ErrorLog, "Unable to retrieve configuration file from embedded filesystem: %v\n", err)
 		return

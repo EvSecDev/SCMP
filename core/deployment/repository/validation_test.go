@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"scmp/core/deployment"
+	"scmp/core/drn"
 	"scmp/internal/config"
 	"scmp/internal/global"
 	"scmp/internal/logctx"
@@ -51,6 +52,9 @@ func TestValidateRepoFile(t *testing.T) {
 		{"/etc/file.txt", struct {
 			skipFile bool
 		}{true}},
+		{str.LocalRepoPath(drn.ExternalVariableDirectory + "/file.txt"), struct {
+			skipFile bool
+		}{false}},
 		{"", struct {
 			skipFile bool
 		}{true}},

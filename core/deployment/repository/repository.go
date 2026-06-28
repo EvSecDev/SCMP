@@ -20,6 +20,7 @@ import (
 
 // Retrieves file paths and file mode for a given commit
 func GetChangedFiles(ctx context.Context, commit *object.Commit) (changedFiles []GitChangedFileMetadata, err error) {
+	ctx = logctx.AppendCtxTag(ctx, logctx.NSRepo)
 	logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog, "Retrieving changed files from commit... \n")
 
 	parentCommit, err := commit.Parents().Next()
@@ -85,6 +86,7 @@ func ParseChangedFiles(ctx context.Context, changedFiles []GitChangedFileMetadat
 	cfg := global.AssertFromContext[config.Config](ctx, "config", global.ConfKey, "config.Config")
 	opts := global.AssertFromContext[config.Opts](ctx, "opts", global.OpsKey, "config.Opts")
 
+	ctx = logctx.AppendCtxTag(ctx, logctx.NSRepo)
 	logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog, "Parsing commit files\n")
 
 	commitFiles = make(map[str.LocalRepoPath]str.DeployAction)
@@ -318,3 +320,4 @@ func mapFilesByHostOrUniversal(ctx context.Context, repoFilePath string, allHost
 	}
 	allHostsFiles[topLevelDirName][tgtFilePath] = struct{}{}
 }
+

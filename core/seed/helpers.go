@@ -112,7 +112,7 @@ func handleNewReloadCommands(ctx context.Context, remoteFilePath string, localFi
 	// If user wants reloads, they will be prompted to use the reloads below if the file has the prefix of a map key (reloads are optional)
 	// names surrounded by '??' indicate sections that should be filled in with relevant info from user selected files
 	var DefaultReloadCommands = map[string][]string{
-		"/etc/apparmor.d/":         {"apparmor_parser -r /etc/apparmor.d/??baseDirName??"},
+		"/etc/apparmor.d/":         {"apparmor_parser -r <scmp://_local@repo.file.path>"},
 		"/etc/crontab":             {"crontab -n /etc/crontab"},
 		"/etc/network/":            {"ifup -n -a", "systemctl restart networking.service", "systemctl is-active networking.service"},
 		"/etc/nftables":            {"nft -f /etc/nftables.conf -c", "systemctl restart nftables.service", "systemctl is-active nftables.service"},
@@ -120,9 +120,9 @@ func handleNewReloadCommands(ctx context.Context, remoteFilePath string, localFi
 		"/etc/rsyslog":             {"rsyslogd -N1 -f /etc/rsyslog.conf", "systemctl restart rsyslog.service", "systemctl is-active rsyslog.service"},
 		"/etc/ssh/sshd":            {"sshd -t", "systemctl restart ssh.service", "systemctl is-active ssh.service"},
 		"/etc/sysctl":              {"sysctl -p --dry-run", "sysctl -p"},
-		"/etc/systemd/system/":     {"systemd-analyze verify /etc/systemd/system/??baseDirName??", "systemctl daemon-reload", "systemctl restart ??baseDirName??", "systemctl is-active ??baseDirName??"},
-		"/lib/systemd/system/":     {"systemd-analyze verify /lib/systemd/system/??baseDirName??", "systemctl daemon-reload", "systemctl restart ??baseDirName??", "systemctl is-active ??baseDirName??"},
-		"/usr/lib/systemd/system/": {"systemd-analyze verify /lib/systemd/system/??baseDirName??", "systemctl daemon-reload", "systemctl restart ??baseDirName??", "systemctl is-active ??baseDirName??"},
+		"/etc/systemd/system/":     {"systemd-analyze verify <scmp://_local@repo.file.path>", "systemctl daemon-reload", "systemctl restart ??baseDirName??", "systemctl is-active ??baseDirName??"},
+		"/lib/systemd/system/":     {"systemd-analyze verify <scmp://_local@repo.file.path>", "systemctl daemon-reload", "systemctl restart ??baseDirName??", "systemctl is-active ??baseDirName??"},
+		"/usr/lib/systemd/system/": {"systemd-analyze verify <scmp://_local@repo.file.path>", "systemctl daemon-reload", "systemctl restart ??baseDirName??", "systemctl is-active ??baseDirName??"},
 		"/etc/zabbix":              {"zabbix_agent2 -T -c /etc/zabbix/zabbix_agent2.conf", "systemctl restart zabbix-agent2.service", "systemctl is-active zabbix-agent2.service"},
 		"/etc/squid-deb-proxy":     {"squid -f /etc/squid-deb-proxy/squid-deb-proxy.conf -k check", "systemctl restart squid-deb-proxy.service", "systemctl is-active squid-deb-proxy.service"},
 		"/etc/squid/":              {"squid -f /etc/squid/squid.conf -k check", "systemctl restart squid.service", "systemctl is-active squid.service"},

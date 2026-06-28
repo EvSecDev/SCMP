@@ -12,12 +12,12 @@ import (
 	"scmp/web"
 )
 
-func Web(ctx context.Context, commandname string, args []string) {
+func Web(ctx context.Context, subcmdLineage []string, args []string) (exitCode int) {
 	var webConfigPath string
 	var startServer bool
 	var opts config.Opts
 
-	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	commandFlags := flag.NewFlagSet(subcmdLineage[len(subcmdLineage)-1], flag.ExitOnError)
 	commandFlags.StringVar(&webConfigPath, "c", web.DefaultWebConfigPath, "Path to web configuration")
 	commandFlags.StringVar(&webConfigPath, "config", web.DefaultWebConfigPath, "Path to web configuration")
 	commandFlags.BoolVar(&startServer, "s", false, "Start HTTPS server")
@@ -25,12 +25,12 @@ func Web(ctx context.Context, commandname string, args []string) {
 	globalVerbosity := cli.SetGlobalArguments(commandFlags, &opts)
 
 	commandFlags.Usage = func() {
-		cli.PrintHelpMenu(commandFlags, commandname, cli.GetCLICmds())
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
 	}
 	err := commandFlags.Parse(args[0:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	// Set verbosity again if the user change at this command level
@@ -44,7 +44,8 @@ func Web(ctx context.Context, commandname string, args []string) {
 	if startServer {
 		web.StartListener(ctx, webConfigPath)
 	} else {
-		cli.PrintHelpMenu(commandFlags, commandname, cli.GetCLICmds())
-		os.Exit(1)
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
+		return 1
 	}
+	return 0
 }

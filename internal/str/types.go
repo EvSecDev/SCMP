@@ -11,3 +11,6 @@ type RepoRootDir string   // Top level directory in repository for identifying h
 type FileID string        // Unique identifier for file contents (i.e. hash)
 type DeployAction string  // File action to be done during deployment (on remote) (i.e. create)
 type ReloadID string      // Unique identifier for reload commands (and/or reload group)
+type DRN string           // Dynamic Reference Name
+type DRNRaw string        // Original un-modified Dynamic Reference Name
+type DRNVal string        // Dynamic Reference Name resolved value

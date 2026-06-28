@@ -13,26 +13,26 @@ import (
 	"scmp/internal/str"
 )
 
-func File(ctx context.Context, commandname string, args []string) {
+func File(ctx context.Context, subcmdLineage []string, args []string) (exitCode int) {
 	var userConfirmed bool
 	var opts config.Opts
 
-	commandFlags := flag.NewFlagSet(commandname, flag.ExitOnError)
+	commandFlags := flag.NewFlagSet(subcmdLineage[len(subcmdLineage)-1], flag.ExitOnError)
 	commandFlags.BoolVar(&userConfirmed, "y", false, "Confirm file overwrites")
 	commandFlags.BoolVar(&userConfirmed, "yes", false, "Confirm file overwrites")
 	globalVerbosity := cli.SetGlobalArguments(commandFlags, &opts)
 
 	commandFlags.Usage = func() {
-		cli.PrintHelpMenu(commandFlags, commandname, cli.GetCLICmds())
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
 	}
 	if len(args) < 1 {
-		cli.PrintHelpMenu(commandFlags, commandname, cli.GetCLICmds())
-		os.Exit(1)
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
+		return 1
 	}
 	err := commandFlags.Parse(args[1:])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	remainingArgs := commandFlags.Args()
 
@@ -44,9 +44,10 @@ func File(ctx context.Context, commandname string, args []string) {
 
 	invalidArgs := fileSetup(ctx, args[0], remainingArgs, userConfirmed)
 	if invalidArgs {
-		cli.PrintHelpMenu(commandFlags, args[0], cli.GetCLICmds())
-		os.Exit(1)
+		cli.PrintHelpMenu(commandFlags, append(subcmdLineage, args[0]), cli.GetCLICmds())
+		return 1
 	}
+	return 0
 }
 
 func fileSetup(ctx context.Context, subcommand string, remainingArgs []string, userConfirmed bool) (invalidArgs bool) {

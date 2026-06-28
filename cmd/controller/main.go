@@ -22,15 +22,17 @@ func main() {
 	}
 	var opts config.Opts
 
+	subcmdLineage := []string{cli.RootCLICommand}
+
 	args := os.Args
 	commandFlags := flag.NewFlagSet(args[0], flag.ExitOnError)
 	globalVerbosity := cli.SetGlobalArguments(commandFlags, &opts)
 
 	commandFlags.Usage = func() {
-		cli.PrintHelpMenu(commandFlags, cli.RootCLICommand, cli.GetCLICmds())
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
 	}
 	if len(args) < 2 {
-		cli.PrintHelpMenu(commandFlags, cli.RootCLICommand, cli.GetCLICmds())
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
 		os.Exit(1)
 	}
 	err = commandFlags.Parse(args[1:])
@@ -55,20 +57,21 @@ func main() {
 	ctx = context.WithValue(ctx, global.UserKey, global.GlobalUsername)
 
 	// Use primary function from CLI definition
+	exitCode := 0
 	cmdInfo := allOpts.ChildCommands[command]
 	if cmdInfo == nil {
-		cli.PrintHelpMenu(commandFlags, "root", cli.GetCLICmds())
-		os.Exit(1)
-	}
-	if cmdInfo.PrimaryFunc != nil {
-		cmdInfo.PrimaryFunc(ctx, command, args)
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
+		exitCode = 1
+	} else if cmdInfo.PrimaryFunc != nil {
+		exitCode = cmdInfo.PrimaryFunc(ctx, append(subcmdLineage, command), args)
 	} else {
-		cli.PrintHelpMenu(commandFlags, "root", cli.GetCLICmds())
-		os.Exit(1)
+		cli.PrintHelpMenu(commandFlags, subcmdLineage, cli.GetCLICmds())
+		exitCode = 1
 	}
 
 	// Finish up any stdout writes for global logger
 	cancel()
 	logger.Wake()
 	logger.Wait()
+	os.Exit(exitCode)
 }

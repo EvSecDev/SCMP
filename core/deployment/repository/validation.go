@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"scmp/core/deployment"
+	"scmp/core/drn"
 	"scmp/internal/config"
 	"scmp/internal/global"
 	"scmp/internal/logctx"
@@ -49,9 +50,16 @@ func fileIsValid(ctx context.Context, path str.LocalRepoPath, mode string) (vali
 //  2. A top-level directory name that is the universal config directory
 //  3. A top-level directory name that is the a valid universal config group as in UniversalGroups
 //  4. A file inside any directory (i.e. not a file just in root of repo)
-//  5. A file not inside any top level directory with prefix _
+//  5. A file not inside any top level directory with prefix _ (excluding DRN)
 func repoFileIsNotValid(ctx context.Context, repoPath str.LocalRepoPath) (fileIsNotValid bool) {
 	config := global.AssertFromContext[config.Config](ctx, "config", global.ConfKey, "config.Config")
+	ctx = logctx.AppendCtxTag(ctx, logctx.NSValidation)
+
+	// DRN config directory is always valid at this point (validated later)
+	if strings.HasPrefix(string(repoPath), drn.ExternalVariableDirectory) {
+		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "    File is in DRN config directory, valid\n")
+		return
+	}
 
 	// Always ignore files in root of repository
 	if !strings.ContainsRune(string(repoPath), os.PathSeparator) {

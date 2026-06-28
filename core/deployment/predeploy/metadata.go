@@ -4,15 +4,19 @@ import (
 	"context"
 	"scmp/core/deployment"
 	"scmp/core/filesystem"
+	"scmp/internal/config"
+	"scmp/internal/global"
 	"scmp/internal/logctx"
+	"scmp/internal/parsing"
 	"scmp/internal/str"
-	"strings"
 )
 
 // Parse JSON metadata into File Info Struct
 func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json filesystem.MetaHeader, fileSize int, commitFileAction str.DeployAction, fileID str.FileID) (info deployment.FileInfo) {
+	cfg := global.AssertFromContext[config.Config](ctx, "config", global.ConfKey, "config.Config")
+
 	info.Action = commitFileAction
-	_, info.TargetFilePath = translateLocalPathtoRemotePath(ctx, repoFilePath)
+	_, info.TargetFilePath = parsing.TranslateLocalPathtoRemotePath(cfg.RepositoryPath, repoFilePath)
 	info.OwnerGroup = json.TargetFileOwnerGroup
 	info.Permissions = json.TargetFilePermissions
 
@@ -28,7 +32,6 @@ func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json fi
 	info.Predeploy = json.PreDeployCommands
 	if len(info.Predeploy) > 0 {
 		info.PredeployRequired = true
-		fileMacroToValue(ctx, repoFilePath, &info.Predeploy)
 	} else {
 		info.PredeployRequired = false
 	}
@@ -36,7 +39,6 @@ func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json fi
 	info.Reload = json.ReloadCommands
 	if len(info.Reload) > 0 {
 		info.ReloadRequired = true
-		fileMacroToValue(ctx, repoFilePath, &info.Reload)
 	} else {
 		info.ReloadRequired = false
 	}
@@ -48,7 +50,6 @@ func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json fi
 	info.Checks = json.CheckCommands
 	if len(info.Checks) > 0 {
 		info.ChecksRequired = true
-		fileMacroToValue(ctx, repoFilePath, &info.Checks)
 	} else {
 		info.ChecksRequired = false
 	}
@@ -56,19 +57,11 @@ func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json fi
 	info.Install = json.InstallCommands
 	if len(info.Install) > 0 {
 		info.InstallOptional = true
-		fileMacroToValue(ctx, repoFilePath, &info.Install)
 	} else {
 		info.InstallOptional = false
 	}
 
 	info.Dependencies = json.Dependencies
-	if len(info.Dependencies) > 0 {
-		var strDeps []string
-		for _, dep := range info.Dependencies {
-			strDeps = append(strDeps, string(dep))
-		}
-		fileMacroToValue(ctx, repoFilePath, &strDeps)
-	}
 
 	if len(fileID) > 0 {
 		info.Hash = fileID
@@ -102,30 +95,4 @@ func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json fi
 		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Reload Group      %s\n", info.ReloadGroup)
 	}
 	return
-}
-
-// Convert any macros to their actual values
-// Alters input value to replace all occurrences of supported macros
-func fileMacroToValue(ctx context.Context, filePath str.LocalRepoPath, inputs *[]string) {
-	const fileNameMacro string = "{@FILENAME}"
-	const filePathMacro string = "{@FILEPATH}"
-	const fileDirMacro string = "{@FILEDIR}"
-	const repoBaseDirMacro string = "{@REPOBASEDIR}"
-
-	// Get hostname for config lookups for macro values
-	repoBaseDir, targetFilePath := translateLocalPathtoRemotePath(ctx, filePath)
-	baseFileName := str.FilePathBase(targetFilePath)
-	fileDirPath := str.FilePathDir(targetFilePath)
-
-	// Replace values in inputs
-	for index, input := range *inputs {
-		// Replace all occurrences of all macros
-		input = strings.ReplaceAll(input, fileNameMacro, string(baseFileName))
-		input = strings.ReplaceAll(input, filePathMacro, string(targetFilePath))
-		input = strings.ReplaceAll(input, fileDirMacro, string(fileDirPath))
-		input = strings.ReplaceAll(input, repoBaseDirMacro, string(repoBaseDir))
-
-		// Save back to original
-		(*inputs)[index] = input
-	}
 }

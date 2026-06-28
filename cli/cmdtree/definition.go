@@ -11,18 +11,18 @@ import (
 func DefineOptions() (cmdOpts *cli.CommandSet) {
 	// Root level
 	root := &cli.CommandSet{
+		CommandName:     cli.RootCLICommand,
 		Description:     "Secure Configuration Management Program (SCMP)",
 		FullDescription: "  Deploy configuration files from a git repository to Linux servers via SSH\n  Deploy ad-hoc commands and scripts to Linux servers via SSH",
-		CommandName:     cli.RootCLICommand,
 		ChildCommands:   make(map[string]*cli.CommandSet),
 	}
 
 	// Deployment
 	root.ChildCommands["deploy"] = &cli.CommandSet{
+		CommandName:     "deploy",
 		Description:     "Deploy configurations",
 		FullDescription: "Takes configuration files from local repository, transfers them to remote servers, and reloads associated services",
 		PrimaryFunc:     subcommands.Deploy,
-		CommandName:     "deploy",
 		UsageOption:     "",
 		ChildCommands: map[string]*cli.CommandSet{
 			deployment.ModeAll: {
@@ -117,6 +117,47 @@ func DefineOptions() (cmdOpts *cli.CommandSet) {
 				UsageOption:     "<file path>",
 				Description:     "Test Metadata Header Validity",
 				FullDescription: "Tests the extraction of file header and the syntax validity of the JSON",
+			},
+		},
+	}
+
+	root.ChildCommands["drn"] = &cli.CommandSet{
+		CommandName:     "drn",
+		Description:     "Dynamic Reference Name Handling",
+		FullDescription: "Manipulate/validate/retrieve/store Dynamic Reference Names in file data and headers",
+		PrimaryFunc:     subcommands.DRN,
+		ChildCommands: map[string]*cli.CommandSet{
+			"lookup": {
+				CommandName:     "lookup",
+				UsageOption:     "<DRN string>",
+				Description:     "Retrieve DRN value",
+				FullDescription: "Finds and resolves the given DRN string to its final value (requires file and host context)",
+			},
+			"new": {
+				CommandName:     "new",
+				UsageOption:     "<DRN string>=<DRN value>",
+				Description:     "Write new DRN and value",
+				FullDescription: "Uses the DRN string to create the config file and add/overwrite with the given value",
+			},
+			"dump": {
+				CommandName:     "dump",
+				Description:     "Show all DRNs",
+				FullDescription: "Creates a human readable raw output table of all internal and external DRNs",
+			},
+			"reference": {
+				CommandName:     "reference",
+				Description:     "Find files referencing DRN(s)",
+				FullDescription: "Shows every file path and applicable host that is referencing the given DRN(s) in any way",
+			},
+			"validate": {
+				CommandName:     "validate",
+				Description:     "Validate given DRN string(s)",
+				FullDescription: "Checks if given DRN string(s) meet the validation requirements for a DRN",
+			},
+			"resolve-file": {
+				CommandName:     "resolve-file",
+				Description:     "Resolve DRNs in a file",
+				FullDescription: "Reads given file and replaces all found DRNs with their concrete values and prints the content to stdout",
 			},
 		},
 	}

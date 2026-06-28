@@ -87,28 +87,44 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 
 	var commitFiles map[str.LocalRepoPath]str.DeployAction
 
+	// Build initial deployment list based on mode.
+	var extraHostFilter string
 	switch deployMode {
 	case deployment.ModeDiff:
-		changedFiles, lerr := repository.GetChangedFiles(ctx, commit)
-		if lerr != nil {
+		var changedFiles []repository.GitChangedFileMetadata
+		changedFiles, err = repository.GetChangedFiles(ctx, commit)
+		if err != nil {
 			rollbackCommit = true
-			err = fmt.Errorf("failed to retrieve changed files: %w", lerr)
+			err = fmt.Errorf("failed to retrieve changed files: %w", err)
 			return
 		}
-
 		commitFiles = repository.ParseChangedFiles(ctx, changedFiles, fileOverride)
+		extraHostFilter, err = repository.TrackDRNChanges(ctx, commitFiles, commit)
+		if err != nil {
+			rollbackCommit = true
+			err = fmt.Errorf("failed to retrieve changed DRN files: %w", err)
+			return
+		}
 	case deployment.ModeAll:
 		commitFiles, err = repository.GetRepoFiles(ctx, tree, fileOverride)
+		if err != nil {
+			err = fmt.Errorf("failed to retrieve all files: %w", err)
+			return
+		}
 	case deployment.ModeRetry:
-		commitFiles, hostOverride, err = lastDeploymentSummary.GetFailures(ctx, fileOverride)
+		commitFiles, extraHostFilter, err = lastDeploymentSummary.GetFailures(ctx, fileOverride)
+		if err != nil {
+			err = fmt.Errorf("failed to retrieve failed files: %w", err)
+			return
+		}
 	default:
 		err = fmt.Errorf("unknown deployment mode: mode must be one of '%v'", cli.GetImmediateChildren(cli.GetCLICmds(), "deploy"))
 		return
 	}
-
-	if err != nil {
-		err = fmt.Errorf("failed to retrieve files: %w", err)
-		return
+	if hostOverride != "" && extraHostFilter != "" {
+		hostOverride = hostOverride + "," + extraHostFilter
+	} else if extraHostFilter != "" {
+		hostOverride = extraHostFilter
 	}
 
 	if len(commitFiles) == 0 {
@@ -147,7 +163,22 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 		return
 	}
 
-	allHostFiles, err := predeploy.SortFiles(ctx, hostDeploymentFiles, deployFiles)
+	allHostFiles, err := predeploy.GroupByHost(ctx, deployFiles, hostDeploymentFiles)
+	if err != nil {
+		rollbackCommit = true
+		err = fmt.Errorf("failed grouping host deployment files: %w", err)
+		return
+	}
+
+	// Resolve DRNs now, contextual by host (sort files depends on the resolved text)
+	err = predeploy.HandleDRNs(ctx, tree, allHostFiles, cfg.HostInfo)
+	if err != nil {
+		rollbackCommit = true
+		err = fmt.Errorf("drn: %w", err)
+		return
+	}
+
+	err = predeploy.SortFiles(ctx, allHostFiles)
 	if err != nil {
 		rollbackCommit = true
 		err = fmt.Errorf("failed sorting deployment files: %w", err)
