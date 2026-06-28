@@ -3,6 +3,7 @@ package actions
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"scmp/core/deployment/remote"
 	"scmp/internal/config"
 	"scmp/internal/global"
@@ -45,9 +46,30 @@ func DeploySymLink(ctx context.Context, host sshinternal.HostMeta, linkName str.
 		}
 	}
 
+	// Check if parent directory exists
+	directory := str.RemotePath(filepath.Dir(string(linkName)))
+	parentDirExists, _, err := sshinternal.CheckRemoteFileDirExistence(ctx, host, directory)
+	if err != nil {
+		err = fmt.Errorf("failed checking link parent directory existence before creating symbolic link: %w", err)
+		return
+	}
+
 	if opts.WetRunEnabled {
 		linkModified = true // would have been modified
 		return
+	}
+
+	// Create parent directory if missing
+	if !parentDirExists {
+		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Link parent directory '%s' is missing, creating...\n", directory)
+
+		command := sshinternal.BuildMkdir(directory)
+		command.DisableSudo = opts.DisableSudo
+		command.RunAsUser = opts.RunAsUser
+		_, err = command.SSHexec(ctx, host.SSHClient, host.Password)
+		if err != nil {
+			return
+		}
 	}
 
 	// Create symbolic link
