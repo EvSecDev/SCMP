@@ -1,6 +1,7 @@
 package deployment
 
 import (
+	"fmt"
 	"scmp/internal/str"
 )
 
@@ -85,4 +86,40 @@ func (files *HostFiles) ChangeFileDataPointer(path str.LocalRepoPath, newIdentif
 	}
 	info.Hash = newIdentifier
 	files.metadata[path] = info
+}
+
+// Removes all references in host file for the given path
+func (files *HostFiles) PurgePath(path str.LocalRepoPath) (err error) {
+	files.mutex.Lock()
+	defer files.mutex.Unlock()
+
+	metadata, validPath := files.metadata[path]
+	if !validPath {
+		err = fmt.Errorf("path '%s' not tracked in metadata map", path)
+		return
+	}
+
+	fileID := metadata.Hash
+
+	// Metadata is path specific, delete completely
+	delete(files.metadata, path)
+
+	// Remove from grouped lists
+	for _, group := range files.Groups {
+		group.PurgePath(path)
+	}
+
+	// Remove data if not referenced anymore
+	var doNotDeleteFileID bool
+	for _, metadata := range files.metadata {
+		if metadata.Hash == fileID {
+			// Another file has the same content
+			doNotDeleteFileID = true
+		}
+	}
+	if !doNotDeleteFileID {
+		// No other file shares the same content, remove from map
+		delete(files.data, fileID)
+	}
+	return
 }

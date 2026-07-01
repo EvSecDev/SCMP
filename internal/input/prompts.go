@@ -21,8 +21,11 @@ func promptUser(userPrompt string) (userResponse string, err error) {
 	fmt.Print(userPrompt)
 	_, err = fmt.Scanln(&userResponse)
 	if err != nil {
-		err = fmt.Errorf("failed to read input: %w", err)
-		return
+		if !strings.HasSuffix(err.Error(), "unexpected newline") {
+			err = fmt.Errorf("failed to read input: %w", err)
+			return
+		}
+		err = nil
 	}
 	userResponse = strings.ToLower(userResponse)
 	return

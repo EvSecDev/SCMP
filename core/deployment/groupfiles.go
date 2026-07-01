@@ -83,6 +83,57 @@ func (group *FileGroup) RecordReloadIDFileCount() {
 	group.mutex.Unlock()
 }
 
+func (group *FileGroup) PurgePath(path str.LocalRepoPath) {
+	group.mutex.Lock()
+	defer group.mutex.Unlock()
+
+	// Remove from deployment list itself
+	indexToDelete := slices.Index(group.list, path)
+	if indexToDelete == -1 {
+		// Path not present in this group, no-op return
+		return
+	}
+	group.list = append(group.list[:indexToDelete], group.list[indexToDelete+1:]...)
+
+	// Remove from reload id mapping
+	delete(group.fileToReloadID, path)
+
+	// Find reloadIDs to modify
+	var reloadIDsToModify []str.ReloadID
+	for reloadID, paths := range group.reloadIDtoFile {
+		indexToDelete := slices.Index(paths, path)
+		if indexToDelete == -1 {
+			// Path to delete not part of this reloadID
+			continue
+		}
+		newPaths := append(paths[:indexToDelete], paths[indexToDelete+1:]...)
+		group.reloadIDtoFile[reloadID] = newPaths
+
+		if len(newPaths) == 0 {
+			// Path to delete was only path for this reload ID
+			delete(group.reloadIDtoFile, reloadID)
+		}
+
+		reloadIDsToModify = append(reloadIDsToModify, reloadID)
+	}
+
+	// Decrement or delete reloadIDs that were just for the path being deleted
+	for _, reloadID := range reloadIDsToModify {
+		count, exists := group.reloadIDfileCount[reloadID]
+		if !exists {
+			continue
+		}
+		newCount := count - 1
+
+		if newCount < 1 {
+			delete(group.reloadIDfileCount, reloadID)
+			delete(group.reloadIDcommands, reloadID)
+		} else {
+			group.reloadIDfileCount[reloadID] = newCount
+		}
+	}
+}
+
 // =================== READ ONLY ===================
 
 func (group *FileGroup) GetOrderedList() (paths []str.LocalRepoPath) {

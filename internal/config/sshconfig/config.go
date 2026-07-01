@@ -20,6 +20,7 @@ import (
 
 func Set(ctx context.Context, configFilePath string) (newCtx context.Context, err error) {
 	var cfg config.Config
+	newCtx = ctx
 
 	configFilePath, err = fsops.ExpandHomeDirectory(configFilePath)
 	if err != nil {

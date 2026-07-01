@@ -44,6 +44,11 @@ func OverwriteCtxTag(ctx context.Context, newTags []string) (newCtx context.Cont
 
 // Extracts and copies tag list from context or returns empty array if no tags exist on context.
 func GetTagList(ctx context.Context) (tagListCopy []string) {
+	if ctx == nil {
+		tagListCopy = []string{}
+		return
+	}
+
 	currentTags, ok := ctx.Value(LogTagsKey).([]string)
 	if !ok {
 		tagListCopy = []string{}
