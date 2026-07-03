@@ -62,6 +62,9 @@ func SortFiles(ctx context.Context, allHostFiles map[str.RepoRootDir]*deployment
 			hostFiles.Groups = append(hostFiles.Groups, independentDeploymentList)
 		}
 
+		// Group and set post-installation commands per reload group
+		hostFiles.InitPostInstallCmdSet()
+
 		// Quick guard against any unforeseen consequences
 		if len(hostFiles.GetUnorderedList()) > 0 && len(hostFiles.Groups) == 0 {
 			err = fmt.Errorf("something went wrong: dependency tree sorting resulted in no files")

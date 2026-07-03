@@ -7,7 +7,6 @@ import (
 	"scmp/internal/str"
 	"slices"
 	"sort"
-	"strings"
 )
 
 // Correct the order of deployment based on any present dependencies
@@ -173,7 +172,7 @@ func MergeDepTrees(depTrees [][]str.LocalRepoPath, deployFiles *deployment.HostF
 
 		// Reload command overlaps
 		if len(meta.Reload) > 0 {
-			cmdList := strings.Join(meta.Reload, "|")
+			cmdList := str.Join(meta.Reload, "|")
 			reloadID := str.ReloadID(base64.StdEncoding.EncodeToString([]byte(cmdList)))
 
 			existingTree, reloadIDAlreadyTracked := reloadIDToTreeNum[reloadID]

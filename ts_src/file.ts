@@ -44,7 +44,9 @@ interface WebFileMetadata {
     dependencies?: string[];
     preDeployCommands?: string[];
     installCommands?: string[];
-    checkCommands?: string[];
+    preApplyCommands?: string[];
+    postApplyCommands?: string[];
+    postInstallCommands?: string[];
     reloadCommands?: string[];
     reloadGroup?: string;
 }
@@ -58,7 +60,9 @@ const metadataFieldMap: { [key: string]: string } = {
     dependencies: "metaDependenciesVal",
     preDeployCommands: "metaPreDeployCmdsVal",
     installCommands: "metaInstallCmdsVal",
-    checkCommands: "metaCheckCmdsVal",
+    preApplyCommands: "metaPreApplyCmdsVal",
+    postApplyCommands: "metaPostApplyCmdsVal",
+    postInstallCommands: "metaPostInstallCmdsVal",
     reloadCommands: "metaReloadCmdsVal",
     reloadGroup: "metaReloadGroupVal",
 };
@@ -285,8 +289,10 @@ const arrayFields = [
     "dependencies",
     "preDeployCommands",
     "installCommands",
-    "checkCommands",
-    "reloadCommands"
+    "preApplyCommands",
+    "reloadCommands",
+    "postApplyCommands",
+    "postInstallCommands",
 ];
 
 async function saveMetadataEditMode() {

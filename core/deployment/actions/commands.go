@@ -9,15 +9,19 @@ import (
 	"scmp/internal/sshinternal"
 )
 
-func RunReloadCommands(ctx context.Context, host sshinternal.HostMeta, reloadCommands []string) (err error) {
+func RunCommandSet(ctx context.Context, host sshinternal.HostMeta, setName string, commands []string) (err error) {
+	if len(commands) == 0 {
+		return
+	}
+
 	opts := global.AssertFromContext[config.Opts](ctx, "opts", global.OpsKey, "config.Opts")
 
 	logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog,
-		"Starting execution of reload commands\n")
+		"Starting execution of %s commands\n", setName)
 
-	for _, command := range reloadCommands {
+	for _, command := range commands {
 		logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog,
-			"Running reload command '%s'\n", command)
+			"Running %s command '%s'\n", setName, command)
 
 		if opts.WetRunEnabled {
 			logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog,
@@ -38,11 +42,11 @@ func RunReloadCommands(ctx context.Context, host sshinternal.HostMeta, reloadCom
 		_, err = rawCmd.SSHexec(ctx, host.SSHClient, host.Password)
 		close(done)
 		if err != nil {
-			err = fmt.Errorf("failed SSH Command on host during reload command %s: %w", command, err)
+			err = fmt.Errorf("failed SSH Command on host during %s command %s: %w", setName, command, err)
 			return
 		}
 	}
 
-	logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog, "Finished execution of reload commands\n")
+	logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog, "Finished execution of %s commands\n", setName)
 	return
 }

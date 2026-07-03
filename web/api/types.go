@@ -87,7 +87,9 @@ type FileMetadata struct {
 	Dependencies            []str.LocalRepoPath `json:"dependencies,omitempty"`
 	PreDeployCommands       []string            `json:"preDeployCommands,omitempty"`
 	InstallCommands         []string            `json:"installCommands,omitempty"`
-	CheckCommands           []string            `json:"checkCommands,omitempty"`
+	PostInstallCommands     []string            `json:"postInstallCommands,omitempty"`
+	PreapplyCommands        []string            `json:"preApplyCommands,omitempty"`
+	PostapplyCommands       []string            `json:"postApplyCommands,omitempty"`
 	ReloadCommands          []string            `json:"reloadCommands,omitempty"`
 	ReloadGroup             str.ReloadID        `json:"reloadGroup,omitempty"`
 }

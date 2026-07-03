@@ -16,7 +16,8 @@ func NewFileGroup(existingFileList []str.LocalRepoPath) (group *FileGroup) {
 		reloadIDtoFile:    make(map[str.ReloadID][]str.LocalRepoPath),
 		fileToReloadID:    make(map[str.LocalRepoPath]str.ReloadID),
 		reloadIDfileCount: make(map[str.ReloadID]int),
-		reloadIDcommands:  make(map[str.ReloadID][]string),
+		reloadIDcommands:  make(map[str.ReloadID]map[str.LocalRepoPath][]string),
+		reloadIDpostinst:  make(map[str.ReloadID]map[str.LocalRepoPath][]string),
 		mutex:             sync.RWMutex{},
 	}
 	return
@@ -33,12 +34,17 @@ func (group *FileGroup) AppendFileToReloadID(reloadID str.ReloadID, paths ...str
 	group.mutex.Unlock()
 }
 
-func (group *FileGroup) AppendCmdToReloadID(reloadID str.ReloadID, cmds ...string) {
+func (group *FileGroup) AppendCmdToReloadID(reloadID str.ReloadID, file str.LocalRepoPath, cmds ...string) {
 	cmdsCopy := make([]string, len(cmds))
 	copy(cmdsCopy, cmds)
 
 	group.mutex.Lock()
-	group.reloadIDcommands[reloadID] = append(group.reloadIDcommands[reloadID], cmdsCopy...)
+	fileCmds, ok := group.reloadIDcommands[reloadID]
+	if !ok {
+		fileCmds = make(map[str.LocalRepoPath][]string)
+	}
+	fileCmds[file] = append(fileCmds[file], cmds...)
+	group.reloadIDcommands[reloadID] = fileCmds
 	group.mutex.Unlock()
 }
 
@@ -73,6 +79,17 @@ func (group *FileGroup) InitFiletoReloadID() {
 		}
 	}
 	group.mutex.Unlock()
+}
+
+func (group *FileGroup) AddPostInstallCommands(reloadID str.ReloadID, file str.LocalRepoPath, cmdSet []string) {
+	group.mutex.Lock()
+	defer group.mutex.Unlock()
+	fileCmds, ok := group.reloadIDpostinst[reloadID]
+	if !ok {
+		fileCmds = make(map[str.LocalRepoPath][]string)
+	}
+	fileCmds[file] = append(fileCmds[file], cmdSet...)
+	group.reloadIDpostinst[reloadID] = fileCmds
 }
 
 func (group *FileGroup) RecordReloadIDFileCount() {
@@ -125,9 +142,13 @@ func (group *FileGroup) PurgePath(path str.LocalRepoPath) {
 		}
 		newCount := count - 1
 
+		delete(group.reloadIDcommands[reloadID], path)
+		delete(group.reloadIDpostinst[reloadID], path)
+
 		if newCount < 1 {
 			delete(group.reloadIDfileCount, reloadID)
 			delete(group.reloadIDcommands, reloadID)
+			delete(group.reloadIDpostinst, reloadID)
 		} else {
 			group.reloadIDfileCount[reloadID] = newCount
 		}
@@ -154,9 +175,43 @@ func (group *FileGroup) GetReloadIDFiles(reloadID str.ReloadID) (paths []str.Loc
 
 func (group *FileGroup) GetReloadIDCommands(reloadID str.ReloadID) (cmds []string) {
 	group.mutex.RLock()
-	cmds = make([]string, len(group.reloadIDcommands[reloadID]))
-	copy(cmds, group.reloadIDcommands[reloadID])
-	group.mutex.RUnlock()
+	defer group.mutex.RUnlock()
+
+	// Duplicate commands should not appear in raw ordered set
+	seen := make(map[string]bool)
+
+	reloadCmdMap := group.reloadIDcommands[reloadID]
+	for _, file := range group.reloadIDtoFile[reloadID] {
+		cmds := reloadCmdMap[file]
+		for _, cmd := range cmds {
+			if seen[cmd] {
+				continue
+			}
+			seen[cmd] = true
+			cmds = append(cmds, cmd)
+		}
+	}
+	return
+}
+
+func (group *FileGroup) GetReloadIDPostInstCommands(reloadID str.ReloadID) (cmds []string) {
+	group.mutex.RLock()
+	defer group.mutex.RUnlock()
+
+	// Duplicate commands should not appear in raw ordered set
+	seen := make(map[string]bool)
+
+	postInstCmdMap := group.reloadIDpostinst[reloadID]
+	for _, file := range group.reloadIDtoFile[reloadID] {
+		cmds := postInstCmdMap[file]
+		for _, cmd := range cmds {
+			if seen[cmd] {
+				continue
+			}
+			seen[cmd] = true
+			cmds = append(cmds, cmd)
+		}
+	}
 	return
 }
 

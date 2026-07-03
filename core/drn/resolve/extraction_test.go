@@ -67,10 +67,10 @@ func TestExtractHeaderDRNs(t *testing.T) {
 			hostAlias: "host1",
 			file:      "conf1",
 			header: deployment.FileInfo{
-				Checks: []string{"validate " + drn.QuickFormat([]string{"x"}, "1") + " " + drn.QuickFormat([]string{"y"}, "2")},
+				Preapply: []string{"validate " + drn.QuickFormat([]string{"x"}, "1") + " " + drn.QuickFormat([]string{"y"}, "2")},
 			},
 			expect: map[originKey][]string{
-				{globalID: "host1", file: "conf1", headerField: headerChecks}: {drn.QuickFormat([]string{"x"}, "1"), drn.QuickFormat([]string{"y"}, "2")},
+				{globalID: "host1", file: "conf1", headerField: headerPreapply}: {drn.QuickFormat([]string{"x"}, "1"), drn.QuickFormat([]string{"y"}, "2")},
 			},
 			expectCount: 2,
 		},

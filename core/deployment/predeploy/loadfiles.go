@@ -162,6 +162,8 @@ func ParseFileContent(ctx context.Context, allDeploymentFiles map[str.LocalRepoP
 
 			// Hash the metadata-less contents
 			contentIdentifier = str.FileID(crypto.SHA256Sum(fileContent))
+		} else if len(fileContent) == 0 {
+			contentIdentifier = deployment.EmptyFileHash
 		}
 
 		// Put all metadata gathered into map

@@ -47,13 +47,13 @@ func (group *fileGroup) deploy(ctx context.Context, deploymentList *deployment.F
 		default:
 		}
 
-		err := actions.RunCheckCommands(ctx, group.hostState, info)
+		err := actions.RunInstallationCommands(ctx, group.hostState, info)
 		if err != nil {
 			group.recordFailure(ctx, repoFilePath, deployFiles, err)
 			continue
 		}
 
-		err = actions.RunInstallationCommands(ctx, group.hostState, info)
+		err = actions.RunPreApplyCommands(ctx, group.hostState, info)
 		if err != nil {
 			group.recordFailure(ctx, repoFilePath, deployFiles, err)
 			continue
@@ -61,6 +61,12 @@ func (group *fileGroup) deploy(ctx context.Context, deploymentList *deployment.F
 
 		// Deploy the file
 		remoteModified, transferredBytes, err := group.applyFile(ctx, info, deployFiles, reloadState)
+		if err != nil {
+			group.recordFailure(ctx, repoFilePath, deployFiles, err)
+			continue
+		}
+
+		err = actions.RunPostApplyCommands(ctx, group.hostState, info)
 		if err != nil {
 			group.recordFailure(ctx, repoFilePath, deployFiles, err)
 			continue
@@ -82,6 +88,14 @@ func (group *fileGroup) deploy(ctx context.Context, deploymentList *deployment.F
 				if err != nil {
 					logctx.LogEvent(ctx, logctx.VerbosityData, logctx.ErrorLog, "Reload Group %s Rollback: %w", reloadGroup, err)
 				}
+				continue
+			}
+
+			err = reloadState.RunPostInstall(ctx, group, reloadGroup)
+			if err != nil {
+				logctx.LogEvent(ctx, logctx.VerbosityData, logctx.ErrorLog, "Post-Install Group %s: %w", reloadGroup, err)
+				group.metrics.AddFile(group.hostState.Name, deployFiles, repoFilePath)
+				group.metrics.AddFileFailure(group.hostState.Name, repoFilePath, err)
 				continue
 			}
 		}

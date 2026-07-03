@@ -15,10 +15,12 @@ func (replacer *Replacer) ExtractHeaderDRNs(hostAlias str.RepoRootDir, file str.
 	}
 
 	batches := map[string][]string{
-		headerPreDeploy: header.Predeploy,
-		headerInstall:   header.Install,
-		headerChecks:    header.Checks,
-		headerReload:    header.Reload,
+		headerPreDeploy:   header.Predeploy,
+		headerInstall:     header.Install,
+		headerPostInstall: header.PostInstall,
+		headerPreapply:    header.Preapply,
+		headerPostapply:   header.Postapply,
+		headerReload:      header.Reload,
 	}
 
 	for field, cmds := range batches {

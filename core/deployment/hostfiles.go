@@ -123,3 +123,23 @@ func (files *HostFiles) PurgePath(path str.LocalRepoPath) (err error) {
 	}
 	return
 }
+
+func (files *HostFiles) InitPostInstallCmdSet() {
+	files.mutex.RLock()
+	defer files.mutex.RUnlock()
+
+	// Post installation commands are grouped per independent deploy group and reload set
+	for _, group := range files.Groups {
+		for _, reloadID := range group.GetReloadIDs() {
+			fileList := group.GetReloadIDFiles(reloadID)
+			for _, file := range fileList {
+				info, ok := files.metadata[file]
+				if !ok {
+					continue
+				}
+
+				group.AddPostInstallCommands(reloadID, file, info.PostInstall)
+			}
+		}
+	}
+}

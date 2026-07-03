@@ -23,11 +23,12 @@ type HostFiles struct {
 
 // Represents files to be deployed in serial for a given host
 type FileGroup struct {
-	list              []str.LocalRepoPath                  // Ordered list of files to deploy together
-	reloadIDtoFile    map[str.ReloadID][]str.LocalRepoPath // Lookup of file list by reload ID - File slice ordered the same as above list
-	fileToReloadID    map[str.LocalRepoPath]str.ReloadID   // Lookup of a files reload ID
-	reloadIDfileCount map[str.ReloadID]int                 // Total files in reload group
-	reloadIDcommands  map[str.ReloadID][]string            // Ordered list of reload commands - STABLE ORDER OF COMMANDS - REQUIRED TO ENSURE PROPER RELOAD SEQUENCE
+	list              []str.LocalRepoPath                             // Ordered list of files to deploy together
+	reloadIDtoFile    map[str.ReloadID][]str.LocalRepoPath            // Lookup of file list by reload ID - File slice ordered the same as above list
+	fileToReloadID    map[str.LocalRepoPath]str.ReloadID              // Lookup of a files reload ID
+	reloadIDfileCount map[str.ReloadID]int                            // Total files in reload group
+	reloadIDcommands  map[str.ReloadID]map[str.LocalRepoPath][]string // Ordered list of reload commands per file
+	reloadIDpostinst  map[str.ReloadID]map[str.LocalRepoPath][]string // Ordered list of post-install commands
 	mutex             sync.RWMutex
 }
 
@@ -43,12 +44,15 @@ type FileInfo struct {
 	LinkTarget        str.RemotePath
 	Dependencies      []str.LocalRepoPath // List of files required by this file
 	PredeployRequired bool
-	Predeploy         []string // Command list
+	Predeploy         []string
 	InstallOptional   bool
-	Install           []string // Command list
-	ChecksRequired    bool
-	Checks            []string // Command list
+	Install           []string
+	PostInstall       []string
+	PreapplyRequired  bool
+	Preapply          []string
+	PostapplyRequired bool
+	Postapply         []string
 	ReloadRequired    bool
-	Reload            []string     // Command list
+	Reload            []string
 	ReloadGroup       str.ReloadID // Named string defined by user to manually group files together
 }

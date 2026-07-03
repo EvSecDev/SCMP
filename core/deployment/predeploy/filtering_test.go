@@ -596,14 +596,24 @@ func TestCreateReloadGroups(t *testing.T) {
 			}
 
 			expectDeploymentList := deployment.NewFileGroup(test.expectFiles)
-			for reloadID, file := range test.reloadIDtoFile {
-				expectDeploymentList.AppendFileToReloadID(reloadID, file...)
+			for reloadID, files := range test.reloadIDtoFile {
+				expectDeploymentList.AppendFileToReloadID(reloadID, files...)
+
+				seen := make(map[string]bool)
+				for _, file := range files {
+					info := deployFiles.GetFileInfo(file)
+
+					for _, cmd := range info.Reload {
+						if seen[cmd] {
+							continue
+						}
+						expectDeploymentList.AppendCmdToReloadID(reloadID, file, cmd)
+						seen[cmd] = true
+					}
+				}
 			}
 			expectDeploymentList.InitFiletoReloadID()
 			expectDeploymentList.RecordReloadIDFileCount()
-			for reloadID, cmds := range test.reloadIDcommands {
-				expectDeploymentList.AppendCmdToReloadID(reloadID, cmds...)
-			}
 
 			outputDeploymentList := CreateReloadGroups(test.fileList, deployFiles)
 

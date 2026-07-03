@@ -12,10 +12,12 @@ import (
 // Replaces any found DRN strings in header fields with resolved value
 func (replacer *Replacer) ReplaceHeaderDRNs(hostAlias str.RepoRootDir, file str.LocalRepoPath, header deployment.FileInfo) (newHeader deployment.FileInfo, replaceMade bool, err error) {
 	batches := map[string][]string{
-		headerPreDeploy: header.Predeploy,
-		headerInstall:   header.Install,
-		headerChecks:    header.Checks,
-		headerReload:    header.Reload,
+		headerPreDeploy:   header.Predeploy,
+		headerInstall:     header.Install,
+		headerPostInstall: header.PostInstall,
+		headerPreapply:    header.Preapply,
+		headerPostapply:   header.Postapply,
+		headerReload:      header.Reload,
 	}
 
 	for headerField, inputs := range batches {

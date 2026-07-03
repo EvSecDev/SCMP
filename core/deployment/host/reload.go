@@ -78,7 +78,7 @@ func (tracker *reloadTracker) RunReload(ctx context.Context, deployGroup *fileGr
 	reloadCommands := tracker.fileGroup.GetReloadIDCommands(reloadGroup)
 
 	// Execute the commands for this reload group
-	err = actions.RunReloadCommands(ctx, deployGroup.hostState, reloadCommands)
+	err = actions.RunCommandSet(ctx, deployGroup.hostState, "Reload", reloadCommands)
 	if err != nil {
 		err = fmt.Errorf("reload failed: %w", err)
 		return
@@ -105,7 +105,7 @@ func (tracker *reloadTracker) RollbackReload(ctx context.Context, deployGroup *f
 
 	// Re-execute reload commands after rollback
 	reloadCommands := tracker.fileGroup.GetReloadIDCommands(reloadGroup)
-	err = actions.RunReloadCommands(ctx, deployGroup.hostState, reloadCommands)
+	err = actions.RunCommandSet(ctx, deployGroup.hostState, "Reload", reloadCommands)
 	if err != nil {
 		reloadFiles := tracker.fileGroup.GetReloadIDFiles(reloadGroup)
 
@@ -121,5 +121,17 @@ func (tracker *reloadTracker) RollbackReload(ctx context.Context, deployGroup *f
 
 	logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog,
 		"Succeeded reload after rollback for file(s):\n%v", failedFiles)
+	return
+}
+
+func (tracker *reloadTracker) RunPostInstall(ctx context.Context, deployGroup *fileGroup, reloadGroup str.ReloadID) (err error) {
+	postInstCommands := tracker.fileGroup.GetReloadIDPostInstCommands(reloadGroup)
+
+	// Execute the commands for this reload group
+	err = actions.RunCommandSet(ctx, deployGroup.hostState, "PostInstall", postInstCommands)
+	if err != nil {
+		err = fmt.Errorf("post-install failed: %w", err)
+		return
+	}
 	return
 }

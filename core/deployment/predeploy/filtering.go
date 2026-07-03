@@ -134,7 +134,7 @@ func CreateReloadGroups(fileList []str.LocalRepoPath, deployFiles *deployment.Ho
 
 		var reloadID str.ReloadID
 		if len(info.Reload) > 0 {
-			cmdList := strings.Join(info.Reload, "|")
+			cmdList := str.Join(info.Reload, "|")
 			reloadID = str.ReloadID(base64.StdEncoding.EncodeToString([]byte(cmdList)))
 		}
 
@@ -192,7 +192,7 @@ func CreateReloadGroups(fileList []str.LocalRepoPath, deployFiles *deployment.Ho
 				}
 
 				// Add files command to the groups command list
-				groupedDeployList.AppendCmdToReloadID(reloadID, fileReloadCmd)
+				groupedDeployList.AppendCmdToReloadID(reloadID, file, fileReloadCmd)
 
 				// Mark so it doesn't get added again
 				seen[fileReloadCmd] = true

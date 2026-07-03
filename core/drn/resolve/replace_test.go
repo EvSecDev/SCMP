@@ -83,12 +83,12 @@ func TestReplaceHeaderDRNs(t *testing.T) {
 			name:      "Multiple occurrences of same DRN in one command",
 			hostAlias: "host1", file: "conf1",
 			mapping: map[originKey][]*drn.DRC{
-				{globalID: "host1", file: "conf1", headerField: headerChecks}: {
+				{globalID: "host1", file: "conf1", headerField: headerPreapply}: {
 					{Original: str.DRNRaw(drn.QuickFormat([]string{"cmd"}, "dep")), Resolved: "resolved-dep"},
 				},
 			},
-			header: deployment.FileInfo{Checks: []string{drn.QuickFormat([]string{"cmd"}, "dep") + " && " + drn.QuickFormat([]string{"cmd"}, "dep")}},
-			expect: deployment.FileInfo{Checks: []string{"resolved-dep && resolved-dep"}},
+			header: deployment.FileInfo{Preapply: []string{drn.QuickFormat([]string{"cmd"}, "dep") + " && " + drn.QuickFormat([]string{"cmd"}, "dep")}},
+			expect: deployment.FileInfo{Preapply: []string{"resolved-dep && resolved-dep"}},
 		},
 		{
 			name:      "Empty original DRN should be skipped (impl needs guard)",

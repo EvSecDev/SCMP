@@ -64,7 +64,9 @@ func translateHeaderToWebMeta(filePath string, fileType string, lastModTime stri
 	webMeta.Dependencies = metadata.Dependencies
 	webMeta.PreDeployCommands = metadata.PreDeployCommands
 	webMeta.InstallCommands = metadata.InstallCommands
-	webMeta.CheckCommands = metadata.CheckCommands
+	webMeta.PostInstallCommands = metadata.PostInstallCommands
+	webMeta.PreapplyCommands = metadata.PreapplyCommands
+	webMeta.PostapplyCommands = metadata.PostapplyCommands
 	webMeta.ReloadCommands = metadata.ReloadCommands
 	return
 }
@@ -82,7 +84,9 @@ func translateWebMetaToHeader(webMeta FileMetadata) (metadata filesystem.MetaHea
 	metadata.Dependencies = webMeta.Dependencies
 	metadata.PreDeployCommands = webMeta.PreDeployCommands
 	metadata.InstallCommands = webMeta.InstallCommands
-	metadata.CheckCommands = webMeta.CheckCommands
+	metadata.PostInstallCommands = webMeta.PostInstallCommands
+	metadata.PreapplyCommands = webMeta.PreapplyCommands
+	metadata.PostapplyCommands = webMeta.PostapplyCommands
 	metadata.ReloadCommands = webMeta.ReloadCommands
 	metadata.ReloadGroup = webMeta.ReloadGroup
 	return

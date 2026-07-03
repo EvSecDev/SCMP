@@ -31,9 +31,11 @@ func HeaderEditor(initialHeader filesystem.MetaHeader, fileName str.LocalRepoPat
 			fmt.Sprintf("5  Dependencies              : %v", header.Dependencies),
 			fmt.Sprintf("6  PreDeployCommands         : %v", header.PreDeployCommands),
 			fmt.Sprintf("7  InstallCommands           : %v", header.InstallCommands),
-			fmt.Sprintf("8  CheckCommands             : %v", header.CheckCommands),
-			fmt.Sprintf("9  ReloadCommands            : %v", header.ReloadCommands),
-			fmt.Sprintf("10 ReloadGroup               : %s", header.ReloadGroup),
+			fmt.Sprintf("8  PostInstallCommands       : %v", header.PostInstallCommands),
+			fmt.Sprintf("9  PreapplyCommands          : %v", header.PreapplyCommands),
+			fmt.Sprintf("10 PostapplyCommands         : %v", header.PostapplyCommands),
+			fmt.Sprintf("11 ReloadCommands            : %v", header.ReloadCommands),
+			fmt.Sprintf("12 ReloadGroup               : %s", header.ReloadGroup),
 			"===============================",
 			"Selection  Delete Field  Exit",
 			" [ # ## ]      [ - ]     [ ! ]",
@@ -79,10 +81,14 @@ func HeaderEditor(initialHeader filesystem.MetaHeader, fileName str.LocalRepoPat
 		case "7":
 			header.InstallCommands = editStringSlice(reader, header.InstallCommands, "InstallCommands")
 		case "8":
-			header.CheckCommands = editStringSlice(reader, header.CheckCommands, "CheckCommands")
+			header.PostInstallCommands = editStringSlice(reader, header.PostInstallCommands, "PostInstallCommands")
 		case "9":
-			header.ReloadCommands = editStringSlice(reader, header.ReloadCommands, "ReloadCommands")
+			header.PreapplyCommands = editStringSlice(reader, header.PreapplyCommands, "PreapplyCommands")
 		case "10":
+			header.PostapplyCommands = editStringSlice(reader, header.PostapplyCommands, "PostapplyCommands")
+		case "11":
+			header.ReloadCommands = editStringSlice(reader, header.ReloadCommands, "ReloadCommands")
+		case "12":
 			header.ReloadGroup = str.ReloadID(promptString(reader, string(header.ReloadGroup), "Enter new ReloadGroup"))
 		default:
 			fmt.Println("Invalid choice.")

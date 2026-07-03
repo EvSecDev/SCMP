@@ -29,9 +29,13 @@ func TestExtractMetadata(t *testing.T) {
     "command0",
 	"command3"
   ],
-  "Checks": [
+  "Preapply": [
     "check1",
 	"check2"
+  ],
+  "Postapply": [
+    "postcheck1",
+	"postcheck2"
   ],
   "Reload": [
     "command1",
@@ -48,7 +52,8 @@ file content
 				TargetFilePermissions: 755,
 				Dependencies:          []str.LocalRepoPath{"Host1/etc/network/interfaces", "Host1/etc/hosts"},
 				InstallCommands:       []string{"command0", "command3"},
-				CheckCommands:         []string{"check1", "check2"},
+				PreapplyCommands:      []string{"check1", "check2"},
+				PostapplyCommands:     []string{"postcheck1", "postcheck2"},
 				ReloadCommands:        []string{"command1", "command2"},
 			},
 			expectedRemainingContent: `file content

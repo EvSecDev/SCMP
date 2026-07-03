@@ -48,17 +48,25 @@ func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json fi
 		info.ReloadGroup = json.ReloadGroup
 	}
 
-	info.Checks = json.CheckCommands
-	if len(info.Checks) > 0 {
-		info.ChecksRequired = true
+	info.Preapply = json.PreapplyCommands
+	if len(info.Preapply) > 0 {
+		info.PreapplyRequired = true
 	} else {
-		info.ChecksRequired = false
+		info.PreapplyRequired = false
+	}
+
+	info.Postapply = json.PostapplyCommands
+	if len(info.Postapply) > 0 {
+		info.PostapplyRequired = true
+	} else {
+		info.PostapplyRequired = false
 	}
 
 	info.Install = json.InstallCommands
-	if len(info.Install) > 0 {
+	info.PostInstall = json.PostInstallCommands
+	if len(info.Install) > 0 || len(info.PostInstall) > 0 {
 		info.InstallOptional = true
-	} else {
+	} else if len(info.Install) == 0 && len(info.PostInstall) == 0 {
 		info.InstallOptional = false
 	}
 
@@ -69,31 +77,37 @@ func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json fi
 	}
 
 	// Print verbose file metadata information
-	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Owner and Group:  %s\n", info.OwnerGroup)
-	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Permissions:      %d\n", info.Permissions)
+	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Owner and Group:      %s\n", info.OwnerGroup)
+	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Permissions:          %d\n", info.Permissions)
 	if info.LinkTarget != "" {
-		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Link Target  %s\n", info.LinkTarget)
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Link Target           %s\n", info.LinkTarget)
 	}
 	if len(info.Hash) > 0 {
-		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Content Hash:     %s\n", info.Hash)
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Content Hash:         %s\n", info.Hash)
 	}
 	if len(info.Dependencies) > 0 {
-		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Dependencies  %v\n", info.Dependencies)
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Dependencies          %v\n", info.Dependencies)
 	}
-	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Install Required? %t\n", info.InstallOptional)
+	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Install Required?     %t\n", info.InstallOptional)
 	if info.InstallOptional {
-		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Install Commands  %s\n", info.Install)
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Install Commands      %s\n", info.Install)
+
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      PostInstall Commands  %s\n", info.PostInstall)
 	}
-	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Checks Required?  %t\n", info.ChecksRequired)
-	if info.ChecksRequired {
-		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Check Commands    %s\n", info.Checks)
+	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Preapply Required?    %t\n", info.PreapplyRequired)
+	if info.PreapplyRequired {
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Preapply Commands     %s\n", info.Preapply)
 	}
-	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Reload Required?  %t\n", info.ReloadRequired)
+	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Postapply Required?   %t\n", info.PostapplyRequired)
+	if info.PostapplyRequired {
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Postapply Commands     %s\n", info.Postapply)
+	}
+	logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Reload Required?      %t\n", info.ReloadRequired)
 	if info.ReloadRequired {
-		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Reload Commands   %s\n", info.Reload)
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Reload Commands       %s\n", info.Reload)
 	}
 	if info.ReloadGroup != "" {
-		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Reload Group      %s\n", info.ReloadGroup)
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog, "      Reload Group          %s\n", info.ReloadGroup)
 	}
 	return
 }

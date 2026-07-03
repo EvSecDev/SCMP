@@ -50,8 +50,14 @@ func TestParseFileContent(t *testing.T) {
   "Install": [
     "apt-get install pkg1 -y"
   ],
-  "Checks": [
+  "PostInstall": [
+    "systemctl enable service1"
+  ],
+  "Preapply": [
     "ip a | grep ens18"
+  ],
+  "Postapply": [
+    "ncat -nvz localhost:8080"
   ],
   "Reload": [
     "systemctl restart service1",
@@ -64,21 +70,24 @@ more data here`),
 			},
 			expectedallFileMeta: map[str.LocalRepoPath]deployment.FileInfo{
 				"host1/etc/file1.conf": {
-					Hash:            "72fd888f1aaeea80dd9d8da0082e2c2f6df9c796175b27066c2f71872547b8a9",
-					RepoFilePath:    "host1/etc/file1.conf",
-					TargetFilePath:  "/etc/file1.conf",
-					Action:          deployment.ActionCreate,
-					OwnerGroup:      "root:root",
-					Permissions:     644,
-					FileSize:        29,
-					LinkTarget:      "",
-					Dependencies:    []str.LocalRepoPath{"/etc/file2.conf"},
-					InstallOptional: true,
-					Install:         []string{"apt-get install pkg1 -y"},
-					ChecksRequired:  true,
-					Checks:          []string{"ip a | grep ens18"},
-					ReloadRequired:  true,
-					Reload:          []string{"systemctl restart service1", "systemctl is-active service1"},
+					Hash:              "72fd888f1aaeea80dd9d8da0082e2c2f6df9c796175b27066c2f71872547b8a9",
+					RepoFilePath:      "host1/etc/file1.conf",
+					TargetFilePath:    "/etc/file1.conf",
+					Action:            deployment.ActionCreate,
+					OwnerGroup:        "root:root",
+					Permissions:       644,
+					FileSize:          29,
+					LinkTarget:        "",
+					Dependencies:      []str.LocalRepoPath{"/etc/file2.conf"},
+					InstallOptional:   true,
+					Install:           []string{"apt-get install pkg1 -y"},
+					PostInstall:       []string{"systemctl enable service1"},
+					PreapplyRequired:  true,
+					Preapply:          []string{"ip a | grep ens18"},
+					PostapplyRequired: true,
+					Postapply:         []string{"ncat -nvz localhost:8080"},
+					ReloadRequired:    true,
+					Reload:            []string{"systemctl restart service1", "systemctl is-active service1"},
 				},
 			},
 			expectedallFileData: map[str.FileID][]byte{
@@ -100,7 +109,7 @@ more data here`),
   "Install": [
     "apt-get install nginx -y"
   ],
-  "Checks": [
+  "Preapply": [
     "ss -taplnu | grep 443"
   ],
   "Reload": [
@@ -113,18 +122,18 @@ more data here`),
 			},
 			expectedallFileMeta: map[str.LocalRepoPath]deployment.FileInfo{
 				"host1/var/www/site1/" + filesystem.DirMetaFileName: {
-					Hash:            "",
-					TargetFilePath:  "/var/www/site1",
-					RepoFilePath:    "host1/var/www/site1/" + filesystem.DirMetaFileName,
-					Action:          deployment.ActionDirModify,
-					OwnerGroup:      "root:www-data",
-					Permissions:     775,
-					InstallOptional: true,
-					Install:         []string{"apt-get install nginx -y"},
-					ChecksRequired:  true,
-					Checks:          []string{"ss -taplnu | grep 443"},
-					ReloadRequired:  true,
-					Reload:          []string{"systemctl restart php8.3-fpm", "systemctl is-active php8.3-fpm"},
+					Hash:             deployment.EmptyFileHash,
+					TargetFilePath:   "/var/www/site1",
+					RepoFilePath:     "host1/var/www/site1/" + filesystem.DirMetaFileName,
+					Action:           deployment.ActionDirModify,
+					OwnerGroup:       "root:www-data",
+					Permissions:      775,
+					InstallOptional:  true,
+					Install:          []string{"apt-get install nginx -y"},
+					PreapplyRequired: true,
+					Preapply:         []string{"ss -taplnu | grep 443"},
+					ReloadRequired:   true,
+					Reload:           []string{"systemctl restart php8.3-fpm", "systemctl is-active php8.3-fpm"},
 				},
 			},
 			expectedallFileData: map[str.FileID][]byte{"": {}},

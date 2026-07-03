@@ -26,7 +26,7 @@ func DeployFile(ctx context.Context, host sshinternal.HostMeta, localMetadata de
 	}
 
 	if remoteMetadata.Exists {
-		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Backing up file %s\n", host.Name, remoteMetadata.Name)
+		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Backing up file %s\n", remoteMetadata.Name)
 
 		backupFileName := str.RemotePath(base64.StdEncoding.EncodeToString([]byte(remoteMetadata.Name)))
 		tmpBackupFilePath := host.BackupPath + "/" + backupFileName

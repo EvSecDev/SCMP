@@ -33,7 +33,8 @@ func WriteTemplateFile(ctx context.Context, localPath str.LocalRepoPath, userCon
 	templateMetadata.ReloadCommands = []string{"echo check syntax", "echo reload service", "echo check service"}
 	templateMetadata.ReloadGroup = "ServiceGroupName"
 	templateMetadata.Dependencies = []str.LocalRepoPath{"host/etc/file1", "host/etc/file2"}
-	templateMetadata.CheckCommands = []string{"stat /var/cache/Dir"}
+	templateMetadata.PreapplyCommands = []string{"stat /var/cache/Dir"}
+	templateMetadata.PostapplyCommands = []string{"stat /var/cache/Dir/state"}
 	templateMetadata.InstallCommands = []string{"apt-get install curl -y"}
 	templateMetadata.PreDeployCommands = []string{"grep -i a <<<{@LOCALFILEDATA}"}
 
