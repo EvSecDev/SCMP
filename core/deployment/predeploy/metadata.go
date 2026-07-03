@@ -16,6 +16,7 @@ func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json fi
 	cfg := global.AssertFromContext[config.Config](ctx, "config", global.ConfKey, "config.Config")
 
 	info.Action = commitFileAction
+	info.RepoFilePath = repoFilePath
 	_, info.TargetFilePath = parsing.TranslateLocalPathtoRemotePath(cfg.RepositoryPath, repoFilePath)
 	info.OwnerGroup = json.TargetFileOwnerGroup
 	info.Permissions = json.TargetFilePermissions

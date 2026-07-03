@@ -35,19 +35,26 @@ func (metric *Metrics) AddFile(host str.RepoRootDir, deployFiles *deployment.Hos
 	metric.fileActionMutex.Unlock()
 }
 
+// Adds file failure error to metric tracking map for host.
+// Does not overwrite error if it already exists (preserves first found error)
 func (metric *Metrics) AddFileFailure(hostname str.RepoRootDir, file str.LocalRepoPath, err error) {
 	if err == nil {
 		return
 	}
 
 	metric.hostsFileErrMutex.Lock()
+	defer metric.hostsFileErrMutex.Unlock()
 	hostFileErr := metric.hostsFileErr[hostname]
 	if hostFileErr == nil {
 		hostFileErr = make(map[str.LocalRepoPath]error)
 	}
+	_, hasErr := hostFileErr[file]
+	if hasErr {
+		// Not overwriting
+		return
+	}
 	hostFileErr[file] = err
 	metric.hostsFileErr[hostname] = hostFileErr
-	metric.hostsFileErrMutex.Unlock()
 }
 
 // Checks if the repository file path for a given host has had an error recorded

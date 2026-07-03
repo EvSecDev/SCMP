@@ -14,10 +14,8 @@ import (
 	"scmp/internal/str"
 )
 
-func DeployFile(ctx context.Context, host sshinternal.HostMeta, repoFilePath str.LocalRepoPath, deployFiles *deployment.HostFiles) (fileModified bool, deployedBytes int, remoteMetadata sshinternal.RemoteFileInfo, err error) {
+func DeployFile(ctx context.Context, host sshinternal.HostMeta, localMetadata deployment.FileInfo, localContent []byte) (fileModified bool, deployedBytes int, remoteMetadata sshinternal.RemoteFileInfo, err error) {
 	opts := global.AssertFromContext[config.Opts](ctx, "opts", global.OpsKey, "config.Opts")
-
-	localMetadata := deployFiles.GetFileInfo(repoFilePath)
 
 	targetFilePath := localMetadata.TargetFilePath
 
@@ -82,14 +80,10 @@ func DeployFile(ctx context.Context, host sshinternal.HostMeta, repoFilePath str
 	// Update file content
 	if contentDiffers && localMetadata.FileSize > 0 {
 		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog,
-			"Transferring config '%s' to remote\n", repoFilePath)
-
-		// Use hash to retrieve file data from map
-		hashIndex := localMetadata.Hash
-		data := deployFiles.GetFileData(hashIndex)
+			"Transferring config '%s' to remote\n", localMetadata.RepoFilePath)
 
 		// Transfer config file to remote with correct ownership and permissions
-		err = sshinternal.CreateRemoteFile(ctx, host, targetFilePath, data, string(localMetadata.Hash), localMetadata.OwnerGroup, localMetadata.Permissions)
+		err = sshinternal.CreateRemoteFile(ctx, host, targetFilePath, localContent, string(localMetadata.Hash), localMetadata.OwnerGroup, localMetadata.Permissions)
 		if err != nil {
 			lerr := RestoreOldFile(ctx, host, targetFilePath, remoteMetadata)
 			if lerr != nil {

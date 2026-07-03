@@ -2,6 +2,7 @@ package actions
 
 import (
 	"context"
+	"fmt"
 	"scmp/core/deployment"
 	"scmp/internal/config"
 	"scmp/internal/global"
@@ -36,6 +37,7 @@ func RunInstallationCommands(ctx context.Context, host sshinternal.HostMeta, loc
 			_, err = rawCmd.SSHexec(ctx, host.SSHClient, host.Password)
 			close(done)
 			if err != nil {
+				err = fmt.Errorf("failed SSH Command on host during installation command: %w", err)
 				return
 			}
 		}

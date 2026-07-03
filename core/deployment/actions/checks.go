@@ -3,6 +3,7 @@ package actions
 
 import (
 	"context"
+	"fmt"
 	"scmp/core/deployment"
 	"scmp/internal/config"
 	"scmp/internal/global"
@@ -30,6 +31,7 @@ func RunCheckCommands(ctx context.Context, host sshinternal.HostMeta, localMetad
 			_, err = rawCmd.SSHexec(ctx, host.SSHClient, host.Password)
 			close(done)
 			if err != nil {
+				err = fmt.Errorf("failed SSH Command on host during check command: %w", err)
 				return
 			}
 		}

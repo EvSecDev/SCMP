@@ -131,7 +131,7 @@ func ParseFileContent(ctx context.Context, allDeploymentFiles map[str.LocalRepoP
 		if commitFileAction == deployment.ActionDelete {
 			// Add it to the deploy target files so it can be deleted during ssh
 			_, deletedFilePath := parsing.TranslateLocalPathtoRemotePath(cfg.RepositoryPath, repoFilePath)
-			deployFiles.AddMetadata(repoFilePath, deployment.FileInfo{Action: commitFileAction, TargetFilePath: deletedFilePath})
+			deployFiles.AddMetadata(repoFilePath, deployment.FileInfo{Action: commitFileAction, RepoFilePath: repoFilePath, TargetFilePath: deletedFilePath})
 			continue
 		} else if commitFileAction != deployment.ActionCreate &&
 			commitFileAction != deployment.ActionDirCreate &&

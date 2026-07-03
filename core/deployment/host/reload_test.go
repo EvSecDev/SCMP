@@ -1,4 +1,4 @@
-package actions
+package host
 
 import (
 	"context"
@@ -133,7 +133,11 @@ func TestCheckForReload(t *testing.T) {
 			mockFileGroup.InitFiletoReloadID()
 			mockFileGroup.RecordReloadIDFileCount()
 
-			clearedToReload, reloadID := CheckForReload(ctx, "", mockFileGroup, test.totalDeployedReloadFiles, test.reloadIDreadyToReload, test.filePath, test.remoteModified)
+			tracker := NewReloadTracker(mockFileGroup, &deployment.HostFiles{}, "testhost")
+			tracker.totalDeployedReloadFiles = test.totalDeployedReloadFiles
+			tracker.reloadIDreadyToReload = test.reloadIDreadyToReload
+
+			clearedToReload, reloadID := tracker.CheckForReload(ctx, test.filePath, test.remoteModified)
 
 			// Check if the result matches the expected outcome
 			if reloadID != test.expectedReloadID {

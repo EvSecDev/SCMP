@@ -2,9 +2,11 @@
 package host
 
 import (
+	"scmp/core/deployment"
 	"scmp/core/deployment/metrics"
 	"scmp/internal/config"
 	"scmp/internal/sshinternal"
+	"scmp/internal/str"
 	"sync"
 )
 
@@ -30,4 +32,13 @@ type fileGroup struct {
 	deployLimiter chan struct{}
 	hostState     sshinternal.HostMeta
 	metrics       *metrics.Metrics
+}
+
+type reloadTracker struct {
+	fileGroup                *deployment.FileGroup
+	hostFiles                *deployment.HostFiles
+	hostEndpointName         str.RepoRootDir
+	totalDeployedReloadFiles map[str.ReloadID]int                             // Count of successfully deployed files by their reloadID
+	reloadIDreadyToReload    map[str.ReloadID]bool                            // Signal when a reload group is cleared to reload
+	remoteFileMetadatas      map[str.LocalRepoPath]sshinternal.RemoteFileInfo // Track remote file metadata (mainly for reload failure restoration)
 }

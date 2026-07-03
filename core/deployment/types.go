@@ -33,8 +33,9 @@ type FileGroup struct {
 
 // Struct for deployment file metadata
 type FileInfo struct {
-	Hash              str.FileID     // Pointer (key) to file data map (for deduplication)
-	TargetFilePath    str.RemotePath // Expected remote file path
+	Hash              str.FileID        // Pointer (key) to file data map (for deduplication)
+	RepoFilePath      str.LocalRepoPath // Source path relative to repository
+	TargetFilePath    str.RemotePath    // Expected remote file path
 	Action            str.DeployAction
 	OwnerGroup        string
 	Permissions       int

@@ -65,6 +65,7 @@ more data here`),
 			expectedallFileMeta: map[str.LocalRepoPath]deployment.FileInfo{
 				"host1/etc/file1.conf": {
 					Hash:            "72fd888f1aaeea80dd9d8da0082e2c2f6df9c796175b27066c2f71872547b8a9",
+					RepoFilePath:    "host1/etc/file1.conf",
 					TargetFilePath:  "/etc/file1.conf",
 					Action:          deployment.ActionCreate,
 					OwnerGroup:      "root:root",
@@ -114,6 +115,7 @@ more data here`),
 				"host1/var/www/site1/" + filesystem.DirMetaFileName: {
 					Hash:            "",
 					TargetFilePath:  "/var/www/site1",
+					RepoFilePath:    "host1/var/www/site1/" + filesystem.DirMetaFileName,
 					Action:          deployment.ActionDirModify,
 					OwnerGroup:      "root:www-data",
 					Permissions:     775,
@@ -139,6 +141,7 @@ more data here`),
 			expectedallFileMeta: map[str.LocalRepoPath]deployment.FileInfo{
 				"host1/etc/exm.conf": {
 					TargetFilePath: "/etc/exm.conf",
+					RepoFilePath:   "host1/etc/exm.conf",
 					Action:         deployment.ActionDelete,
 				},
 			},
