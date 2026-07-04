@@ -11,13 +11,18 @@ const (
 	EmptyFileHash str.FileID = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 
 	// Deployment modes, but also cli subcommands
-	ModeAll   string = "all"
-	ModeDiff  string = "diff"
-	ModeRetry string = "failures"
+	ModeAll      string = "all"
+	ModeDiff     string = "diff"
+	ModeRetry    string = "failures"
+	ModeRollback string = "rollback"
 
-	ActionDelete        str.DeployAction = "delete"
-	ActionCreate        str.DeployAction = "fileCreate"
+	ActionFileCreate    str.DeployAction = "fileCreate"
+	ActionFileModify    str.DeployAction = "fileModify"
+	ActionFileDelete    str.DeployAction = "fileDelete"
 	ActionDirCreate     str.DeployAction = "dirCreate"
 	ActionDirModify     str.DeployAction = "dirModify"
+	ActionDirDelete     str.DeployAction = "dirDelete"
 	ActionSymLinkCreate str.DeployAction = "symlinkCreate"
+	ActionSymLinkModify str.DeployAction = "symlinkModify"
+	ActionSymLinkDelete str.DeployAction = "symlinkDelete"
 )

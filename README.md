@@ -23,6 +23,7 @@ Using the Go x/crypto/ssh package, this program will SSH into the hosts defined 
   The deployment method is currently only SSH by key authentication using password sudo for remote commands (password login authentication is currently not supported).
 
 - In deploy diff mode, you can choose a specific commit ID (or specify none and use the latest commit) from your repository and deploy the changed files in that specific commit to their designated remote hosts.
+- In deploy rollback mode, you can choose a specific commit ID (or specify none and use the latest commit) to deploy the previous version of the change in that specific commit.
 - In deploy failures mode, the program will read the last failure json (if present) and extract the commitid, hosts, and files that failed and attempt to redeploy.
 - In deploy all mode, with a comma separated list of hosts, you can deploy every relevant file in the repo to the chosen hosts for a given commit (usually, the head commit).
 
@@ -45,6 +46,7 @@ If you like what this program can do or want to expand functionality yourself, f
   - Deploy changed configurations based on commit difference or manually via specifying a commit hash
   - Deploy all (or a subset of) tracked files by commit (default is most recent)
   - Deploy individual/lists/groups of files to individual/lists/groups of hosts
+  - Deploy the immediately previous version of files by commit (rollback mode)
   - Centralize common configuration values into singular file for use across many different files
   - Deployment test run using single host (use `--max-conns 1 -r HOST`)
   - Concurrent file deployment per host (use `--max-deploy-threads`) (note: requires server support for high numbers)
@@ -106,10 +108,6 @@ Below are brief summaries of planned features.
 
 Core Features:
 
-- Enhanced Deploy Command Sections
-  - New: pre-apply, pre-remove, post-reload, post-install, post-remove
-- Rollback Deploy Mode
-  - Ability to undo a successfully deployed change
 - Drift Detection
   - Track what has been deployed vs what has been committed to detect drift and out-of-date remote configs
 - Wet-run File Diff
@@ -767,12 +765,15 @@ The presence of this key indicates that the local file is actually a link.
 The contents of the file are ignored.
 The ownership/permissions are ignored.
 
-The use of installation/checks/reload/dependency fields are still valid.
+The use of install/postinstall/preapply/postapply/reload/dependency fields are still valid.
 
-### Install commands
+### Install/PostInstall commands
 
 Commands in this metadata JSON array are run only by using the controller deploy argument `--install`.
-This feature is meant to provide a mechanism to initialize a service prior to deploying the file.
+
+This feature is meant to provide a mechanism to initialize a service prior to and after deploying the file.
+
+The `PostInstall` section is run only after a successful reload.
 
 An example of its usage would be install a package.
 
@@ -780,9 +781,31 @@ An example of its usage would be install a package.
   "Install": [
     "apt-get install package1 -y"
   ]
+  "PostInstall": [
+    "systemctl enable service1"
+  ]
 ```
 
-### Check/Reload commands
+### PreApply/PostApply commands
+
+If you want to run any commands prior to the new configuration being written, use the `PreApply` JSON array in the metadata header.
+If you want to run any commands after the new configuration has successfully written, use the `PostApply` JSON array in the metadata header.
+
+Commands that fail for a group of files sharing the same reload commands will cause the reloads to NOT run (although all files which have commands that do not fail will be written to remote host)
+Commands are not grouped together and will run multiple times even if identical between multiple files.
+
+Failure in a file's `PreApply` commands will cause that file not to be written.
+
+```json
+  "PreApply": [
+    "nslookup required.domain.com"
+  ],
+  "PostApply": [
+    "ncat -nvz required.domain.com 8080"
+  ]
+```
+
+### Reload commands
 
 It is recommended to use some sort of pre-check/validation/test option for your first reload command for a particular config file.
 Something like `nginx -t` or `nft -f /etc/nftables.conf -c` ensures that the syntax of the file you are pushing is valid before enabling the new config.
@@ -792,10 +815,6 @@ If any of the reload commands fail, controller will restore the previous file ve
 
 These reload commands will be grouped when identical between several files in the deployment.
 This ensures that if you change multiple files that all require the same systemd service to be restarted, that the service is only restarted once.
-
-If you want to run any commands prior to the new configuration being written, use the `Checks` JSON array in the metadata header.
-Check commands that fail for a group of files sharing the same reload commands will cause the reloads to NOT run (although all files which have checks that do not fail will be written to remote host)
-Check commands are not grouped together and will run multiple times even if identical between multiple files.
 
 #### Named Reload Groups
 
@@ -808,9 +827,6 @@ In addition, the program will automatically attempt to group any files that have
 Example metadata JSON:
 
 ```json
-  "Checks": [
-    "nslookup required.domain.com"
-  ],
   "Reload": [
     "service1 --test-configuration -c /etc/service1/conf",
     "systemctl restart service1",

@@ -28,7 +28,6 @@ func (replacer *Replacer) ResolveAll(ctx context.Context, hostInfo map[str.RepoR
 				"Starting resolution for DRN %s\n", drnConfig.Original)
 			_, err = replacer.resolve(ctx, originKey, hostInfo[originKey.globalID], drnConfig, nil)
 			if err != nil {
-				err = fmt.Errorf("%s: %w", drnConfig.Resolved, err)
 				return
 			}
 			logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog,

@@ -129,7 +129,8 @@ func removeRedundantDeletions(ctx context.Context, hostFiles *deployment.HostFil
 			info := hostFiles.GetFileInfo(repoPath)
 
 			// Gating redundancy removal for duplicate+delete action
-			if info.Action == deployment.ActionDelete {
+			actionIsDelete := info.Action == deployment.ActionDirDelete || info.Action == deployment.ActionFileDelete || info.Action == deployment.ActionSymLinkDelete
+			if actionIsDelete {
 				logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
 					"removing repository path '%s' from deployment: target path '%s' was found marked as create and delete (defaulting to create)\n",
 					repoPath, info.Action)

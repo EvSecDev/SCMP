@@ -146,12 +146,12 @@ func (group fileGroup) applyFile(ctx context.Context,
 	var remoteMetadata sshinternal.RemoteFileInfo
 
 	switch info.Action {
-	case deployment.ActionDelete:
+	case deployment.ActionDirDelete, deployment.ActionFileDelete, deployment.ActionSymLinkDelete:
 		remoteModified, err = actions.DeleteFile(ctx, group.hostState, info.TargetFilePath)
 		if err != nil {
 			return
 		}
-	case deployment.ActionSymLinkCreate:
+	case deployment.ActionSymLinkCreate, deployment.ActionSymLinkModify:
 		remoteModified, err = actions.DeploySymLink(ctx, group.hostState, info.TargetFilePath, info.LinkTarget)
 		if err != nil {
 			err = fmt.Errorf("failed deployment of symbolic link: %w", err)
@@ -163,7 +163,7 @@ func (group fileGroup) applyFile(ctx context.Context,
 			err = fmt.Errorf("failed deployment of directory: %w", err)
 			return
 		}
-	case deployment.ActionCreate:
+	case deployment.ActionFileCreate, deployment.ActionFileModify:
 		data := deployFiles.GetFileData(info.Hash)
 
 		remoteModified, transferredBytes, remoteMetadata, err = actions.DeployFile(ctx, group.hostState, info, data)

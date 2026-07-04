@@ -37,7 +37,7 @@ func TestParseFileContent(t *testing.T) {
 		{
 			name: "Standard single input",
 			allDeploymentFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host1/etc/file1.conf": deployment.ActionCreate,
+				"host1/etc/file1.conf": deployment.ActionFileCreate,
 			},
 			rawFileContent: map[str.LocalRepoPath][]byte{
 				"host1/etc/file1.conf": []byte(`#|^^^|#
@@ -73,7 +73,7 @@ more data here`),
 					Hash:              "72fd888f1aaeea80dd9d8da0082e2c2f6df9c796175b27066c2f71872547b8a9",
 					RepoFilePath:      "host1/etc/file1.conf",
 					TargetFilePath:    "/etc/file1.conf",
-					Action:            deployment.ActionCreate,
+					Action:            deployment.ActionFileCreate,
 					OwnerGroup:        "root:root",
 					Permissions:       644,
 					FileSize:          29,
@@ -142,7 +142,7 @@ more data here`),
 		{
 			name: "Standard delete input",
 			allDeploymentFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host1/etc/exm.conf": deployment.ActionDelete,
+				"host1/etc/exm.conf": deployment.ActionFileDelete,
 			},
 			rawFileContent: map[str.LocalRepoPath][]byte{
 				"host1/etc/exm.conf": {},
@@ -151,7 +151,7 @@ more data here`),
 				"host1/etc/exm.conf": {
 					TargetFilePath: "/etc/exm.conf",
 					RepoFilePath:   "host1/etc/exm.conf",
-					Action:         deployment.ActionDelete,
+					Action:         deployment.ActionFileDelete,
 				},
 			},
 			expectedallFileData: map[str.FileID][]byte{},

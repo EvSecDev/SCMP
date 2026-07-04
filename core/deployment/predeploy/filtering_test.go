@@ -157,15 +157,15 @@ func TestFilterHostsAndFiles(t *testing.T) {
 		{
 			name: "Standard Deployment Only Host Files",
 			commitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host1/etc/resolv.conf":      deployment.ActionCreate,
-				"host1/etc/hosts":            deployment.ActionCreate,
-				"host2/etc/nginx/nginx.conf": deployment.ActionCreate,
+				"host1/etc/resolv.conf":      deployment.ActionFileCreate,
+				"host1/etc/hosts":            deployment.ActionFileCreate,
+				"host2/etc/nginx/nginx.conf": deployment.ActionFileCreate,
 			},
 			expectedHosts: []str.RepoRootDir{"host1", "host2"},
 			expectedFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host1/etc/resolv.conf":      deployment.ActionCreate,
-				"host1/etc/hosts":            deployment.ActionCreate,
-				"host2/etc/nginx/nginx.conf": deployment.ActionCreate,
+				"host1/etc/resolv.conf":      deployment.ActionFileCreate,
+				"host1/etc/hosts":            deployment.ActionFileCreate,
+				"host2/etc/nginx/nginx.conf": deployment.ActionFileCreate,
 			},
 			expectedFilesByHost: map[str.RepoRootDir][]str.LocalRepoPath{
 				"host1": {"host1/etc/resolv.conf", "host1/etc/hosts"},
@@ -175,9 +175,9 @@ func TestFilterHostsAndFiles(t *testing.T) {
 		{
 			name: "Host Override Single Host",
 			commitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host1/etc/hosts":              deployment.ActionCreate,
-				"host2/etc/network/interfaces": deployment.ActionCreate,
-				"host3/etc/rsyslog.conf":       deployment.ActionCreate,
+				"host1/etc/hosts":              deployment.ActionFileCreate,
+				"host2/etc/network/interfaces": deployment.ActionFileCreate,
+				"host3/etc/rsyslog.conf":       deployment.ActionFileCreate,
 			},
 			deniedUniversalFiles: map[str.RepoRootDir]map[str.LocalRepoPath]struct{}{
 				"host1": {
@@ -187,7 +187,7 @@ func TestFilterHostsAndFiles(t *testing.T) {
 			hostOverride:  "host3",
 			expectedHosts: []str.RepoRootDir{"host3"},
 			expectedFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host3/etc/rsyslog.conf": deployment.ActionCreate,
+				"host3/etc/rsyslog.conf": deployment.ActionFileCreate,
 			},
 			expectedFilesByHost: map[str.RepoRootDir][]str.LocalRepoPath{
 				"host3": {"host3/etc/rsyslog.conf"},
@@ -196,9 +196,9 @@ func TestFilterHostsAndFiles(t *testing.T) {
 		{
 			name: "Host Ignores Universal",
 			commitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"UniversalConfs/etc/resolv.conf": deployment.ActionCreate,
-				"host3/etc/hosts":                deployment.ActionCreate,
-				"host3/etc/crontab":              deployment.ActionCreate,
+				"UniversalConfs/etc/resolv.conf": deployment.ActionFileCreate,
+				"host3/etc/hosts":                deployment.ActionFileCreate,
+				"host3/etc/crontab":              deployment.ActionFileCreate,
 			},
 			deniedUniversalFiles: map[str.RepoRootDir]map[str.LocalRepoPath]struct{}{
 				"host3": {
@@ -208,9 +208,9 @@ func TestFilterHostsAndFiles(t *testing.T) {
 			hostOverride:  "",
 			expectedHosts: []str.RepoRootDir{"host1", "host2", "host3", "host4"},
 			expectedFiles: map[str.LocalRepoPath]str.DeployAction{
-				"UniversalConfs/etc/resolv.conf": deployment.ActionCreate,
-				"host3/etc/hosts":                deployment.ActionCreate,
-				"host3/etc/crontab":              deployment.ActionCreate,
+				"UniversalConfs/etc/resolv.conf": deployment.ActionFileCreate,
+				"host3/etc/hosts":                deployment.ActionFileCreate,
+				"host3/etc/crontab":              deployment.ActionFileCreate,
 			},
 			expectedFilesByHost: map[str.RepoRootDir][]str.LocalRepoPath{
 				"host1": {"UniversalConfs/etc/resolv.conf"},
@@ -231,14 +231,14 @@ func TestFilterHostsAndFiles(t *testing.T) {
 		{
 			name: "Commit Files in Root of Repo",
 			commitFiles: map[str.LocalRepoPath]str.DeployAction{
-				".example-file":   deployment.ActionCreate,
-				"host3/etc/fstab": deployment.ActionCreate,
+				".example-file":   deployment.ActionFileCreate,
+				"host3/etc/fstab": deployment.ActionFileCreate,
 			},
 			deniedUniversalFiles: map[str.RepoRootDir]map[str.LocalRepoPath]struct{}{},
 			hostOverride:         "",
 			expectedHosts:        []str.RepoRootDir{"host3"},
 			expectedFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host3/etc/fstab": deployment.ActionCreate,
+				"host3/etc/fstab": deployment.ActionFileCreate,
 			},
 			expectedFilesByHost: map[str.RepoRootDir][]str.LocalRepoPath{
 				"host3": {"host3/etc/fstab"},
@@ -247,8 +247,8 @@ func TestFilterHostsAndFiles(t *testing.T) {
 		{
 			name: "Same File Between Universal And Host",
 			commitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"UniversalConfs/etc/issue": deployment.ActionCreate,
-				"host2/etc/issue":          deployment.ActionCreate,
+				"UniversalConfs/etc/issue": deployment.ActionFileCreate,
+				"host2/etc/issue":          deployment.ActionFileCreate,
 			},
 			deniedUniversalFiles: map[str.RepoRootDir]map[str.LocalRepoPath]struct{}{
 				"host2": {
@@ -257,8 +257,8 @@ func TestFilterHostsAndFiles(t *testing.T) {
 			},
 			expectedHosts: []str.RepoRootDir{"host1", "host2", "host4"},
 			expectedFiles: map[str.LocalRepoPath]str.DeployAction{
-				"UniversalConfs/etc/issue": deployment.ActionCreate,
-				"host2/etc/issue":          deployment.ActionCreate,
+				"UniversalConfs/etc/issue": deployment.ActionFileCreate,
+				"host2/etc/issue":          deployment.ActionFileCreate,
 			},
 			expectedFilesByHost: map[str.RepoRootDir][]str.LocalRepoPath{
 				"host1": {"UniversalConfs/etc/issue"},

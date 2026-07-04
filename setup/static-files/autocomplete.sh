@@ -10,12 +10,13 @@ _controller()
 
         [web_opts]="-p --listen-port -s --start-server"
 
-        [deploy_sub]="all diff failures"
+        [deploy_sub]="all diff failures rollback"
         [deploy_opts]=" -c --config --disable-privilege-escalation --disable-reloads --execution-timeout --ignore-deployment-state --install --regex -C --commitid -l --local-files -m --max-conns -r --remote-hosts -t --test-config -u --run-as-user -M --max-deploy-threads"
 
         [deploy:all_opts]="__inherit__"
         [deploy:diff_opts]="__inherit__"
         [deploy:failures_opts]="__inherit__"
+        [deploy:rollback_opts]="__inherit__"
 
         [exec_opts]="-c --config --regex -r --remote-hosts -R --remote-file --disable-privilege-escalation -m --max-conns -u --run-as-user --execution-timeout"
 

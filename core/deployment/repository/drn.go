@@ -155,18 +155,18 @@ func drnDeployUpdates(ctx context.Context,
 		// Related file not in deployment, but DRN config is being deleted.
 		// Since the related file was found (i.e. exists on disk) then it will have references to a DRN that does not exist
 		// This protects the DRN replacement failing later with unknown DRN
-		if drnFileAction == deployment.ActionDelete {
+		if drnFileAction == deployment.ActionFileDelete {
 			err = fmt.Errorf("drn config '%s' is being deleted but is still referenced by file '%s' which still exists", drnPath, relatedFile)
 			return
 		}
 
 		// Get the correct deployment action for the file since it is not in the deployment list already
-		// Anything that references a DRN must be a file, and the only non "ActionCreate" actions are for the dir meta file (symlink action is added later)
+		// Anything that references a DRN must be a file, and the only non "create" actions are for the dir meta file (symlink action is added later)
 		var newAction str.DeployAction
 		if str.HasSuffix(relatedFile, filesystem.DirMetaFileName) {
 			newAction = deployment.ActionDirModify // Correct since the path would have been in the commitFiles already otherwise
 		} else {
-			newAction = deployment.ActionCreate
+			newAction = deployment.ActionFileModify
 		}
 		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog,
 			"DRN config '%s': related file '%s': using intermediate deployment action '%s'\n", drnPath, relatedFile, newAction)

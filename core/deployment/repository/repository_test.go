@@ -2,7 +2,7 @@ package repository
 
 import (
 	"context"
-	"fmt"
+	"maps"
 	"scmp/core/deployment"
 	"scmp/core/filesystem"
 	"scmp/internal/config"
@@ -26,12 +26,12 @@ func TestParseChangedFiles(t *testing.T) {
 
 	ctx := t.Context()
 	ctx = logctx.New(ctx, logctx.NSTest, logctx.VerbosityNone, ctx.Done())
-	ctx = context.WithValue(ctx, global.OpsKey, config.Opts{AllowDeletions: false})
 	ctx = context.WithValue(ctx, global.ConfKey, cfg)
 
 	type TestCase struct {
 		name                string
 		changedFiles        []GitChangedFileMetadata
+		allowDeletions      bool
 		fileOverride        string
 		expectedCommitFiles map[str.LocalRepoPath]str.DeployAction
 	}
@@ -50,7 +50,7 @@ func TestParseChangedFiles(t *testing.T) {
 			},
 			fileOverride: "",
 			expectedCommitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host1/etc/network/interfaces": deployment.ActionCreate,
+				"host1/etc/network/interfaces": deployment.ActionFileCreate,
 			},
 		},
 		{
@@ -88,6 +88,25 @@ func TestParseChangedFiles(t *testing.T) {
 			},
 		},
 		{
+			name: "Single - Moved to another host with deletions",
+			changedFiles: []GitChangedFileMetadata{
+				{
+					fromNotOnFS: true,
+					fromPath:    "host1/etc/network/interfaces",
+					fromMode:    filemode.FileMode(uint32(0100644)),
+					toNotOnFS:   false,
+					toPath:      "host2/etc/network/interfaces",
+					toMode:      filemode.FileMode(uint32(0100644)),
+				},
+			},
+			allowDeletions: true,
+			fileOverride:   "",
+			expectedCommitFiles: map[str.LocalRepoPath]str.DeployAction{
+				"host1/etc/network/interfaces": deployment.ActionFileDelete,
+				"host2/etc/network/interfaces": deployment.ActionFileCreate,
+			},
+		},
+		{
 			name: "Single - Moved to another host",
 			changedFiles: []GitChangedFileMetadata{
 				{
@@ -101,7 +120,7 @@ func TestParseChangedFiles(t *testing.T) {
 			},
 			fileOverride: "",
 			expectedCommitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host2/etc/network/interfaces": deployment.ActionCreate,
+				"host2/etc/network/interfaces": deployment.ActionFileCreate,
 			},
 		},
 		{
@@ -134,7 +153,7 @@ func TestParseChangedFiles(t *testing.T) {
 			},
 			fileOverride: "host3/etc/resolv.conf",
 			expectedCommitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host3/etc/resolv.conf": deployment.ActionCreate,
+				"host3/etc/resolv.conf": deployment.ActionFileModify,
 			},
 		},
 		{
@@ -151,7 +170,7 @@ func TestParseChangedFiles(t *testing.T) {
 			},
 			fileOverride: "",
 			expectedCommitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host1/etc/hosts": deployment.ActionCreate,
+				"host1/etc/hosts": deployment.ActionFileModify,
 			},
 		},
 		{
@@ -168,7 +187,7 @@ func TestParseChangedFiles(t *testing.T) {
 			},
 			fileOverride: "",
 			expectedCommitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host3/etc/default/grub": deployment.ActionCreate,
+				"host3/etc/default/grub": deployment.ActionFileCreate,
 			},
 		},
 		{
@@ -191,10 +210,12 @@ func TestParseChangedFiles(t *testing.T) {
 					toMode:      filemode.FileMode(uint32(0100644)),
 				},
 			},
-			fileOverride: "",
+			allowDeletions: true,
+			fileOverride:   "",
 			expectedCommitFiles: map[str.LocalRepoPath]str.DeployAction{
-				"host1/etc/backup.hosts": deployment.ActionCreate,
-				"host2/etc/conf1":        deployment.ActionCreate,
+				"host1/etc/hosts":        deployment.ActionFileDelete,
+				"host1/etc/backup.hosts": deployment.ActionFileCreate,
+				"host2/etc/conf1":        deployment.ActionFileModify,
 			},
 		},
 		{
@@ -228,10 +249,12 @@ func TestParseChangedFiles(t *testing.T) {
 
 	for _, test := range testCases {
 		t.Run(test.name, func(t *testing.T) {
+			ctx = context.WithValue(ctx, global.OpsKey, config.Opts{AllowDeletions: test.allowDeletions})
+
 			commitFiles := ParseChangedFiles(ctx, test.changedFiles, test.fileOverride)
 
-			if fmt.Sprintf("%v", test.expectedCommitFiles) != fmt.Sprintf("%v", commitFiles) {
-				t.Errorf("Expected metadata does not match output metadata:\nOutput:\n%v\n\nExpected Output:\n%v\n", commitFiles, test.expectedCommitFiles)
+			if !maps.Equal(test.expectedCommitFiles, commitFiles) {
+				t.Errorf("Expected metadata does not match output metadata:\nOutput:\n%#v\n\nExpected Output:\n%#v\n", commitFiles, test.expectedCommitFiles)
 			}
 		})
 	}

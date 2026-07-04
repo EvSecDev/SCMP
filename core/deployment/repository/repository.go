@@ -113,22 +113,12 @@ func ParseChangedFiles(ctx context.Context, changedFiles []GitChangedFileMetadat
 		} else if changedFile.fromPath == "" && toFileIsValid {
 			// Newly created files
 			//   like `touch etc/file.txt`
-			if str.HasSuffix(changedFile.toPath, filesystem.DirMetaFileName) {
-				logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
-					"  Dir Metadata '%s' is brand new and will affect parent\n", changedFile.toPath)
-				commitFiles[changedFile.toPath] = deployment.ActionDirCreate
-			} else {
-				logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
-					"  File '%s' is brand new and to be created\n", changedFile.toPath)
-				commitFiles[changedFile.toPath] = deployment.ActionCreate
-			}
+			markDeployAction(ctx, changedFile.toPath, "create", commitFiles)
 		} else if changedFile.toPath == "" && fromFileIsValid {
 			// Deleted Files
 			//   like `rm etc/file.txt`
 			if opts.AllowDeletions {
-				logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
-					"  File '%s' is to be deleted\n", changedFile.fromPath)
-				commitFiles[changedFile.fromPath] = deployment.ActionDelete
+				markDeployAction(ctx, changedFile.fromPath, "delete", commitFiles)
 			} else {
 				logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog,
 					"  Skipping deletion of file '%s'\n", changedFile.fromPath)
@@ -137,50 +127,17 @@ func ParseChangedFiles(ctx context.Context, changedFiles []GitChangedFileMetadat
 			// Copied or renamed files
 			//   like `cp etc/file.txt etc/file2.txt` or `mv etc/file.txt etc/file2.txt`
 
-			if changedFile.fromNotOnFS {
-				fromDirs := strings.Split(string(changedFile.fromPath), "/")
-				topLevelDirFrom := fromDirs[0]
-				toDirs := strings.Split(string(changedFile.toPath), "/")
-				topLevelDirTo := toDirs[0]
-
-				if topLevelDirFrom != topLevelDirTo {
-					// File was moved between hosts - must remove source
-					if opts.AllowDeletions {
-						logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
-							"  File '%s' is to be deleted\n", changedFile.fromPath)
-						commitFiles[changedFile.fromPath] = deployment.ActionDelete
-					} else {
-						logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog,
-							"  Skipping deletion of file '%s'\n", changedFile.fromPath)
-					}
-				} else if opts.AllowDeletions {
-					logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
-						"  File '%s' is to be deleted\n", changedFile.fromPath)
-					commitFiles[changedFile.fromPath] = deployment.ActionDelete
-				}
+			// File was moved, handle the 'from' path
+			if changedFile.fromNotOnFS && opts.AllowDeletions {
+				markDeployAction(ctx, changedFile.fromPath, "delete", commitFiles)
 			}
 
-			if str.HasSuffix(changedFile.toPath, filesystem.DirMetaFileName) {
-				logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
-					"  Dir Metadata '%s' is modified and will modify target directory\n", changedFile.toPath)
-				commitFiles[changedFile.toPath] = deployment.ActionDirModify
-			} else {
-				logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog,
-					"  File '%s' is modified and to be created\n", changedFile.toPath)
-				commitFiles[changedFile.toPath] = deployment.ActionCreate
-			}
+			// Handle 'to' path
+			markDeployAction(ctx, changedFile.toPath, "create", commitFiles)
 		} else if changedFile.fromPath == changedFile.toPath && fromFileIsValid && toFileIsValid {
 			// Edited in place
 			//   like `nano etc/file.txt`
-			if str.HasSuffix(changedFile.toPath, filesystem.DirMetaFileName) {
-				logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
-					"  Dir Metadata '%s' is modified in place and will modify target directory\n", changedFile.toPath)
-				commitFiles[changedFile.toPath] = deployment.ActionDirModify
-			} else {
-				logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
-					"  File '%s' is modified in place and to be created\n", changedFile.toPath)
-				commitFiles[changedFile.toPath] = deployment.ActionCreate
-			}
+			markDeployAction(ctx, changedFile.toPath, "modify", commitFiles)
 		} else {
 			logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
 				"  File '%s' unsupported\n", changedFile.fromPath)
@@ -188,6 +145,37 @@ func ParseChangedFiles(ctx context.Context, changedFiles []GitChangedFileMetadat
 	}
 
 	return
+}
+
+func markDeployAction(ctx context.Context, path str.LocalRepoPath, actionMode string, commitFiles map[str.LocalRepoPath]str.DeployAction) {
+	isDir := str.HasSuffix(path, filesystem.DirMetaFileName)
+	if isDir {
+		var deployAction str.DeployAction
+		switch actionMode {
+		case "create":
+			deployAction = deployment.ActionDirCreate
+		case "modify":
+			deployAction = deployment.ActionDirModify
+		case "delete":
+			deployAction = deployment.ActionDirDelete
+		}
+		logctx.LogEvent(ctx, logctx.VerbosityFullData, logctx.InfoLog,
+			"  Dir Metadata '%s': marking with action '%s'\n", path, deployAction)
+		commitFiles[path] = deployAction
+	} else {
+		var deployAction str.DeployAction
+		switch actionMode {
+		case "create":
+			deployAction = deployment.ActionFileCreate
+		case "modify":
+			deployAction = deployment.ActionFileModify
+		case "delete":
+			deployAction = deployment.ActionFileDelete
+		}
+		logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog,
+			"  File '%s': marking with action '%s'\n", path, deployAction)
+		commitFiles[path] = deployAction
+	}
 }
 
 // Retrieves all files for current commit (regardless if changed)
@@ -244,7 +232,7 @@ func GetRepoFiles(ctx context.Context, tree *object.Tree, fileOverride string) (
 			commitFiles[repoFilePath] = deployment.ActionDirCreate
 		} else {
 			// Add repo file to the commit map with always create action
-			commitFiles[repoFilePath] = deployment.ActionCreate
+			commitFiles[repoFilePath] = deployment.ActionFileCreate
 		}
 	}
 
@@ -320,4 +308,3 @@ func mapFilesByHostOrUniversal(ctx context.Context, repoFilePath string, allHost
 	}
 	allHostsFiles[topLevelDirName][tgtFilePath] = struct{}{}
 }
-

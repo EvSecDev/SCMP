@@ -84,6 +84,7 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 		err = fmt.Errorf("error retrieving commit details: %w", err)
 		return
 	}
+	deployTree := tree
 
 	var commitFiles map[str.LocalRepoPath]str.DeployAction
 
@@ -117,6 +118,28 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 			err = fmt.Errorf("failed to retrieve failed files: %w", err)
 			return
 		}
+	case deployment.ModeRollback:
+		var changedFiles []repository.GitChangedFileMetadata
+		changedFiles, err = repository.GetChangedFiles(ctx, commit)
+		if err != nil {
+			err = fmt.Errorf("failed to retrieve changed files: %w", err)
+			return
+		}
+		commitFiles, err = repository.GetRollbackFiles(ctx, changedFiles, fileOverride)
+		if err != nil {
+			err = fmt.Errorf("failed to retrieve rollback files: %w", err)
+			return
+		}
+		deployTree, err = repository.GetParentTree(commit)
+		if err != nil {
+			err = fmt.Errorf("failed to retrieve parent commit tree: %w", err)
+			return
+		}
+		extraHostFilter, err = repository.TrackDRNChanges(ctx, commitFiles, commit)
+		if err != nil {
+			err = fmt.Errorf("failed to retrieve changed DRN files: %w", err)
+			return
+		}
 	default:
 		err = fmt.Errorf("unknown deployment mode: mode must be one of '%v'", cli.GetImmediateChildren(cli.GetCLICmds(), "deploy"))
 		return
@@ -133,7 +156,7 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 		return
 	}
 
-	allHostsFiles, universalFiles, err := repository.ParseAllRepoFiles(ctx, tree)
+	allHostsFiles, universalFiles, err := repository.ParseAllRepoFiles(ctx, deployTree)
 	if err != nil {
 		rollbackCommit = true
 		err = fmt.Errorf("failed to track files by host/universal directory: %w", err)
@@ -149,7 +172,7 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 		return
 	}
 
-	rawFileContent, err := predeploy.LoadGitFileContent(ctx, allDeploymentFiles, tree)
+	rawFileContent, err := predeploy.LoadGitFileContent(ctx, allDeploymentFiles, deployTree)
 	if err != nil {
 		rollbackCommit = true
 		err = fmt.Errorf("error loading files: %w", err)
@@ -171,7 +194,7 @@ func StartDeploy(ctx context.Context, deployMode string, commitID string, hostOv
 	}
 
 	// Resolve DRNs now, contextual by host (sort files depends on the resolved text)
-	err = predeploy.HandleDRNs(ctx, tree, allHostFiles, cfg.HostInfo)
+	err = predeploy.HandleDRNs(ctx, deployTree, allHostFiles, cfg.HostInfo)
 	if err != nil {
 		rollbackCommit = true
 		err = fmt.Errorf("drn: %w", err)

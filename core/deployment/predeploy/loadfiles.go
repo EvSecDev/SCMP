@@ -26,7 +26,9 @@ func LoadGitFileContent(ctx context.Context, allDeploymentFiles map[str.LocalRep
 	rawFileContent = make(map[str.LocalRepoPath][]byte)
 
 	for repoFilePath, commitFileAction := range allDeploymentFiles {
-		if commitFileAction == deployment.ActionDelete {
+		if commitFileAction == deployment.ActionFileDelete ||
+			commitFileAction == deployment.ActionDirDelete ||
+			commitFileAction == deployment.ActionSymLinkDelete {
 			continue
 		}
 
@@ -128,14 +130,19 @@ func ParseFileContent(ctx context.Context, allDeploymentFiles map[str.LocalRepoP
 		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Marked as '%s'\n", commitFileAction)
 
 		// Actions that do not require content loading
-		if commitFileAction == deployment.ActionDelete {
+		if commitFileAction == deployment.ActionFileDelete ||
+			commitFileAction == deployment.ActionDirDelete ||
+			commitFileAction == deployment.ActionSymLinkDelete {
 			// Add it to the deploy target files so it can be deleted during ssh
 			_, deletedFilePath := parsing.TranslateLocalPathtoRemotePath(cfg.RepositoryPath, repoFilePath)
 			deployFiles.AddMetadata(repoFilePath, deployment.FileInfo{Action: commitFileAction, RepoFilePath: repoFilePath, TargetFilePath: deletedFilePath})
 			continue
-		} else if commitFileAction != deployment.ActionCreate &&
-			commitFileAction != deployment.ActionDirCreate &&
-			commitFileAction != deployment.ActionDirModify {
+		}
+		switch commitFileAction {
+		case deployment.ActionDirCreate, deployment.ActionDirModify:
+		case deployment.ActionFileCreate, deployment.ActionFileModify:
+		case deployment.ActionSymLinkCreate, deployment.ActionSymLinkModify:
+		default:
 			// Skip unsupported file types - safety blocker
 			continue
 		}
@@ -170,8 +177,9 @@ func ParseFileContent(ctx context.Context, allDeploymentFiles map[str.LocalRepoP
 		metadata := jsonToFileInfo(ctx, repoFilePath, jsonMetadata, len(fileContent), commitFileAction, contentIdentifier)
 		deployFiles.AddMetadata(repoFilePath, metadata)
 
-		// Put file content into map (only applies to file creation)
-		if len(fileContent) > 0 && commitFileAction == deployment.ActionCreate {
+		// Put file content into map (only applies to file(s))
+		if len(fileContent) > 0 &&
+			(commitFileAction == deployment.ActionFileCreate || commitFileAction == deployment.ActionFileModify) {
 			deployFiles.StoreDataOnce(contentIdentifier, fileContent)
 		}
 	}

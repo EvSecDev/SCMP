@@ -40,6 +40,11 @@ func DefineOptions() (cmdOpts *cli.CommandSet) {
 				Description:     "Deploy Configurations from last Complete Deployment Failure",
 				FullDescription: "Deploy failed configurations from last total failed deployment using local cached failure file",
 			},
+			deployment.ModeRollback: {
+				CommandName:     deployment.ModeRollback,
+				Description:     "Deploy Configurations prior to commit",
+				FullDescription: "Deploy the previous version(s) of configurations before the given commit ID",
+			},
 		},
 	}
 

@@ -23,7 +23,14 @@ func jsonToFileInfo(ctx context.Context, repoFilePath str.LocalRepoPath, json fi
 
 	info.LinkTarget = json.SymbolicLinkTarget
 	if info.LinkTarget != "" {
-		info.Action = deployment.ActionSymLinkCreate
+		switch info.Action {
+		case deployment.ActionFileCreate:
+			info.Action = deployment.ActionSymLinkCreate
+		case deployment.ActionFileModify:
+			info.Action = deployment.ActionSymLinkModify
+		case deployment.ActionFileDelete:
+			info.Action = deployment.ActionSymLinkDelete
+		}
 	}
 
 	if fileSize > 0 {

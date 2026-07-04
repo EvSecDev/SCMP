@@ -24,12 +24,12 @@ func TestRemoveRedundantDeletions(t *testing.T) {
 				"host1/etc/file1.txt": {
 					Hash:           "abc",
 					TargetFilePath: "/etc/file1.txt",
-					Action:         deployment.ActionDelete,
+					Action:         deployment.ActionFileDelete,
 				},
 				"UniversalConfs_Service1/etc/file1.txt": {
 					Hash:           "def",
 					TargetFilePath: "/etc/file1.txt",
-					Action:         deployment.ActionCreate,
+					Action:         deployment.ActionFileCreate,
 				},
 			},
 			expectedPathRemove: "host1/etc/file1.txt",
@@ -40,12 +40,12 @@ func TestRemoveRedundantDeletions(t *testing.T) {
 				"host1/etc/file1.txt": {
 					Hash:           "abc",
 					TargetFilePath: "/etc/file1.txt",
-					Action:         deployment.ActionCreate,
+					Action:         deployment.ActionFileCreate,
 				},
 				"UniversalConfs_Service1/etc/file1.txt": {
 					Hash:           "def",
 					TargetFilePath: "/etc/file1.txt",
-					Action:         deployment.ActionDelete,
+					Action:         deployment.ActionFileDelete,
 				},
 			},
 			expectedPathRemove: "UniversalConfs_Service1/etc/file1.txt",
@@ -56,12 +56,12 @@ func TestRemoveRedundantDeletions(t *testing.T) {
 				"host1/etc/file1.txt": {
 					Hash:           "abc",
 					TargetFilePath: "/etc/file1.txt",
-					Action:         deployment.ActionCreate,
+					Action:         deployment.ActionFileCreate,
 				},
 				"UniversalConfs_Service1/etc/file21.txt": {
 					Hash:           "def",
 					TargetFilePath: "/etc/file2.txt",
-					Action:         deployment.ActionCreate,
+					Action:         deployment.ActionFileCreate,
 				},
 			},
 		},
@@ -71,7 +71,7 @@ func TestRemoveRedundantDeletions(t *testing.T) {
 				"host1/etc/file1.txt": {
 					Hash:           "abc",
 					TargetFilePath: "/etc/file1.txt",
-					Action:         deployment.ActionDelete,
+					Action:         deployment.ActionFileDelete,
 				},
 			},
 		},
