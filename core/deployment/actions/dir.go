@@ -72,3 +72,24 @@ func DeployDirectory(ctx context.Context, host sshinternal.HostMeta, dirInfo dep
 
 	return
 }
+
+// Restores directory to previous known metadata
+func RestoreOldDir(ctx context.Context, host sshinternal.HostMeta, info deployment.FileInfo, previousMetadata sshinternal.RemoteFileInfo) (err error) {
+	logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Restoring directory %s\n", previousMetadata.Name)
+
+	// Build deployment file info from previous metadata
+	info.TargetFilePath = previousMetadata.Name
+	info.OwnerGroup = previousMetadata.Owner + ":" + previousMetadata.Group
+	info.Permissions = previousMetadata.Permissions
+
+	dirModified, _, err := DeployDirectory(ctx, host, info)
+	if err != nil {
+		return
+	}
+	if dirModified {
+		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Restored directory %s\n", previousMetadata.Name)
+	} else {
+		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Directory '%s' restoration not needed\n", previousMetadata.Name)
+	}
+	return
+}

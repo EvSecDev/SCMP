@@ -41,4 +41,5 @@ type reloadTracker struct {
 	totalDeployedReloadFiles map[str.ReloadID]int                             // Count of successfully deployed files by their reloadID
 	reloadIDreadyToReload    map[str.ReloadID]bool                            // Signal when a reload group is cleared to reload
 	remoteFileMetadatas      map[str.LocalRepoPath]sshinternal.RemoteFileInfo // Track remote file metadata (mainly for reload failure restoration)
+	failedReloadGroups       map[str.ReloadID]bool                            // Track when a group has a member that failed, thus entire group is failed
 }

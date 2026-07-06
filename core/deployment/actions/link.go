@@ -13,7 +13,7 @@ import (
 )
 
 // Create symbolic link to specific target file (as present in file action string)
-func DeploySymLink(ctx context.Context, host sshinternal.HostMeta, linkName str.RemotePath, linkTarget str.RemotePath) (linkModified bool, err error) {
+func DeploySymLink(ctx context.Context, host sshinternal.HostMeta, linkName str.RemotePath, linkTarget str.RemotePath) (linkModified bool, remoteMetadata sshinternal.RemoteFileInfo, err error) {
 	logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Creating symlink %s\n", linkName)
 
 	opts := global.AssertFromContext[config.Opts](ctx, "opts", global.OpsKey, "config.Opts")
@@ -83,5 +83,21 @@ func DeploySymLink(ctx context.Context, host sshinternal.HostMeta, linkName str.
 	}
 
 	linkModified = true
+	return
+}
+
+// Restore previous link file (with previous metadata)
+func RestoreOldLink(ctx context.Context, host sshinternal.HostMeta, previousMetadata sshinternal.RemoteFileInfo) (err error) {
+	logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Restoring symlink %s\n", previousMetadata.Name)
+
+	linkModified, _, err := DeploySymLink(ctx, host, previousMetadata.Name, previousMetadata.LinkTarget)
+	if err != nil {
+		return
+	}
+	if linkModified {
+		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Restored symlink %s -> %s\n", previousMetadata.Name, previousMetadata.LinkTarget)
+	} else {
+		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Symlink '%s' restoration not needed\n", previousMetadata.Name)
+	}
 	return
 }

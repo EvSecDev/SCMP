@@ -775,6 +775,8 @@ This feature is meant to provide a mechanism to initialize a service prior to an
 
 The `PostInstall` section is run only after a successful reload.
 
+Failures in `PostInstall` do NOT trigger the automatic restore since the reload has succeeded.
+
 An example of its usage would be install a package.
 
 ```json
@@ -795,6 +797,7 @@ Commands that fail for a group of files sharing the same reload commands will ca
 Commands are not grouped together and will run multiple times even if identical between multiple files.
 
 Failure in a file's `PreApply` commands will cause that file not to be written.
+Failure in a file's `PostApply` commands will cause an automatic restoration of the previous file version.
 
 ```json
   "PreApply": [

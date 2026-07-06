@@ -60,15 +60,26 @@ func (group *fileGroup) deploy(ctx context.Context, deploymentList *deployment.F
 		}
 
 		// Deploy the file
-		remoteModified, transferredBytes, err := group.applyFile(ctx, info, deployFiles, reloadState)
+		remoteModified, remoteMetadata, transferredBytes, err := group.applyFile(ctx, info, deployFiles)
 		if err != nil {
 			group.recordFailure(ctx, repoFilePath, deployFiles, err)
+			reloadID, hasGroup := reloadState.fileGroup.GetFileReloadID(repoFilePath)
+			if hasGroup {
+				reloadState.RecordReloadGroupFailed(reloadID)
+			}
 			continue
+		}
+		if remoteMetadata != (sshinternal.RemoteFileInfo{}) {
+			reloadState.AddRemoteMetadata(info.RepoFilePath, remoteMetadata)
 		}
 
 		err = actions.RunPostApplyCommands(ctx, group.hostState, info)
 		if err != nil {
 			group.recordFailure(ctx, repoFilePath, deployFiles, err)
+			reloadID, hasGroup := reloadState.fileGroup.GetFileReloadID(repoFilePath)
+			if hasGroup {
+				reloadState.RecordReloadGroupFailed(reloadID)
+			}
 			continue
 		}
 
@@ -104,6 +115,11 @@ func (group *fileGroup) deploy(ctx context.Context, deploymentList *deployment.F
 		if remoteModified {
 			group.metrics.AddFile(group.hostState.Name, deployFiles, repoFilePath)
 		}
+	}
+
+	// Final check for any failed reload groups that did not get restored in the loop
+	for _, reloadID := range reloadState.GetFailedReloadGroups() {
+		reloadState.RestoreReloadGroup(ctx, group, reloadID)
 	}
 }
 
@@ -141,10 +157,7 @@ func (group fileGroup) fileCanDeploy(ctx context.Context, info deployment.FileIn
 func (group fileGroup) applyFile(ctx context.Context,
 	info deployment.FileInfo,
 	deployFiles *deployment.HostFiles,
-	reloadState *reloadTracker,
-) (remoteModified bool, transferredBytes int, err error) {
-	var remoteMetadata sshinternal.RemoteFileInfo
-
+) (remoteModified bool, remoteMetadata sshinternal.RemoteFileInfo, transferredBytes int, err error) {
 	switch info.Action {
 	case deployment.ActionDirDelete, deployment.ActionFileDelete, deployment.ActionSymLinkDelete:
 		remoteModified, err = actions.DeleteFile(ctx, group.hostState, info.TargetFilePath)
@@ -152,7 +165,7 @@ func (group fileGroup) applyFile(ctx context.Context,
 			return
 		}
 	case deployment.ActionSymLinkCreate, deployment.ActionSymLinkModify:
-		remoteModified, err = actions.DeploySymLink(ctx, group.hostState, info.TargetFilePath, info.LinkTarget)
+		remoteModified, remoteMetadata, err = actions.DeploySymLink(ctx, group.hostState, info.TargetFilePath, info.LinkTarget)
 		if err != nil {
 			err = fmt.Errorf("failed deployment of symbolic link: %w", err)
 			return
@@ -171,10 +184,6 @@ func (group fileGroup) applyFile(ctx context.Context,
 			err = fmt.Errorf("failed deployment of file: %w", err)
 			return
 		}
-	}
-
-	if remoteMetadata != (sshinternal.RemoteFileInfo{}) {
-		reloadState.AddRemoteMetadata(info.RepoFilePath, remoteMetadata)
 	}
 	return
 }

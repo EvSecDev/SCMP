@@ -4,7 +4,7 @@ package global
 type CtxKey string
 
 const (
-	ProgVersion string = "v6.0.0-alpha.6"
+	ProgVersion string = "v6.0.0-alpha.7"
 
 	GlobalUsername string = "_global"
 

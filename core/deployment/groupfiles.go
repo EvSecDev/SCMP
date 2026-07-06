@@ -182,8 +182,8 @@ func (group *FileGroup) GetReloadIDCommands(reloadID str.ReloadID) (cmds []strin
 
 	reloadCmdMap := group.reloadIDcommands[reloadID]
 	for _, file := range group.reloadIDtoFile[reloadID] {
-		cmds := reloadCmdMap[file]
-		for _, cmd := range cmds {
+		fileCmds := reloadCmdMap[file]
+		for _, cmd := range fileCmds {
 			if seen[cmd] {
 				continue
 			}
@@ -203,8 +203,8 @@ func (group *FileGroup) GetReloadIDPostInstCommands(reloadID str.ReloadID) (cmds
 
 	postInstCmdMap := group.reloadIDpostinst[reloadID]
 	for _, file := range group.reloadIDtoFile[reloadID] {
-		cmds := postInstCmdMap[file]
-		for _, cmd := range cmds {
+		fileCmds := postInstCmdMap[file]
+		for _, cmd := range fileCmds {
 			if seen[cmd] {
 				continue
 			}

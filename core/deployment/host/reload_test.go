@@ -20,6 +20,7 @@ func TestCheckForReload(t *testing.T) {
 		fileToReloadID           map[str.LocalRepoPath]str.ReloadID
 		totalDeployedReloadFiles map[str.ReloadID]int
 		reloadIDreadyToReload    map[str.ReloadID]bool
+		failedReloadGroups       map[str.ReloadID]bool
 		filePath                 str.LocalRepoPath
 		remoteModified           bool
 		disableReloads           bool
@@ -136,6 +137,7 @@ func TestCheckForReload(t *testing.T) {
 			tracker := NewReloadTracker(mockFileGroup, &deployment.HostFiles{}, "testhost")
 			tracker.totalDeployedReloadFiles = test.totalDeployedReloadFiles
 			tracker.reloadIDreadyToReload = test.reloadIDreadyToReload
+			tracker.failedReloadGroups = test.failedReloadGroups
 
 			clearedToReload, reloadID := tracker.CheckForReload(ctx, test.filePath, test.remoteModified)
 

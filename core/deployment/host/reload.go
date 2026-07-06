@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"scmp/core/deployment"
 	"scmp/core/deployment/actions"
+	"scmp/core/deployment/remote"
 	"scmp/internal/config"
 	"scmp/internal/global"
 	"scmp/internal/logctx"
@@ -21,12 +22,24 @@ func NewReloadTracker(deploymentList *deployment.FileGroup, deployFiles *deploym
 		totalDeployedReloadFiles: make(map[str.ReloadID]int),
 		reloadIDreadyToReload:    make(map[str.ReloadID]bool),
 		remoteFileMetadatas:      make(map[str.LocalRepoPath]sshinternal.RemoteFileInfo),
+		failedReloadGroups:       make(map[str.ReloadID]bool),
 	}
 	return
 }
 
 func (tracker *reloadTracker) AddRemoteMetadata(repoPath str.LocalRepoPath, remoteMetadata sshinternal.RemoteFileInfo) {
 	tracker.remoteFileMetadatas[repoPath] = remoteMetadata
+}
+
+func (tracker *reloadTracker) RecordReloadGroupFailed(reloadID str.ReloadID) {
+	tracker.failedReloadGroups[reloadID] = true
+}
+
+func (tracker *reloadTracker) GetFailedReloadGroups() (reloadIDs []str.ReloadID) {
+	for reloadID := range tracker.failedReloadGroups {
+		reloadIDs = append(reloadIDs, reloadID)
+	}
+	return
 }
 
 func (tracker *reloadTracker) CheckForReload(ctx context.Context, repoFilePath str.LocalRepoPath, remoteModified bool) (clearedToReload bool, reloadGroup str.ReloadID) {
@@ -36,6 +49,8 @@ func (tracker *reloadTracker) CheckForReload(ctx context.Context, repoFilePath s
 
 	// Nothing to do for this file, early return
 	if !fileHasReloadGroup {
+		logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog,
+			"File '%s' not part of reload group\n", repoFilePath)
 		return
 	}
 
@@ -67,6 +82,9 @@ func (tracker *reloadTracker) CheckForReload(ctx context.Context, repoFilePath s
 			"Force disabling reloads by user request\n")
 		return
 	}
+
+	logctx.LogEvent(ctx, logctx.VerbosityProgress, logctx.InfoLog,
+		"Reload group %s is ready to run reload commands\n", reloadID)
 
 	// Reload commands will be immediately run
 	reloadGroup = reloadID
@@ -122,6 +140,48 @@ func (tracker *reloadTracker) RollbackReload(ctx context.Context, deployGroup *f
 	logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog,
 		"Succeeded reload after rollback for file(s):\n%v", failedFiles)
 	return
+}
+
+// A file in a reload group failed commands before reload, restore file contents of all group files
+func (tracker *reloadTracker) RestoreReloadGroup(ctx context.Context, deployGroup *fileGroup, reloadGroup str.ReloadID) {
+	for failedFile, metadata := range tracker.remoteFileMetadatas {
+		reloadID, _ := tracker.fileGroup.GetFileReloadID(failedFile)
+		if reloadID != reloadGroup {
+			continue
+		}
+		info := tracker.hostFiles.GetFileInfo(failedFile)
+
+		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog,
+			"Restoring config file %s due to failed write/postapply command\n", info.TargetFilePath)
+
+		// Restore the failed files
+		// Only warning for restoration failures
+		switch metadata.FsType {
+		case remote.DirType:
+			lerr := actions.RestoreOldDir(ctx, deployGroup.hostState, info, metadata)
+			if lerr != nil {
+				logctx.LogStdWarn(ctx, "Directory restoration failed: %v\n", deployGroup.hostState.Name, lerr)
+			}
+		case remote.SymlinkType:
+			lerr := actions.RestoreOldLink(ctx, deployGroup.hostState, metadata)
+			if lerr != nil {
+				logctx.LogStdWarn(ctx, "Symlink restoration failed: %v\n", deployGroup.hostState.Name, lerr)
+			}
+		case remote.FileType:
+			lerr := actions.RestoreOldFile(ctx, deployGroup.hostState, info.TargetFilePath, metadata)
+			if lerr != nil {
+				logctx.LogStdWarn(ctx, "File restoration failed: %v\n", deployGroup.hostState.Name, lerr)
+			}
+		default:
+			logctx.LogStdWarn(ctx, "Unsupported restoration file type '%s' for file '%s'\n", metadata.FsType, failedFile)
+		}
+	}
+
+	logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog,
+		"Succeeded rollback for file(s):\n%v", tracker.remoteFileMetadatas)
+
+	// Remove reload group from failed list (idempotent)
+	delete(tracker.failedReloadGroups, reloadGroup)
 }
 
 func (tracker *reloadTracker) RunPostInstall(ctx context.Context, deployGroup *fileGroup, reloadGroup str.ReloadID) (err error) {
