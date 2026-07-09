@@ -28,7 +28,7 @@ func runCmd(ctx context.Context, command string, hosts string) {
 
 	// Refused seeding without specific hosts specified
 	if hosts == "" {
-		fmt.Fprintf(os.Stderr, "Argument error: remote-hosts cannot be empty when running commands")
+		fmt.Fprintf(os.Stderr, "Argument error: remote-hosts cannot be empty when running commands\n")
 		os.Exit(1)
 	}
 

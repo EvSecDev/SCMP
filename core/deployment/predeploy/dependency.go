@@ -173,7 +173,7 @@ func MergeDepTrees(depTrees [][]str.LocalRepoPath, deployFiles *deployment.HostF
 		// Reload command overlaps
 		if len(meta.Reload) > 0 {
 			cmdList := str.Join(meta.Reload, "|")
-			reloadID := str.ReloadID(base64.StdEncoding.EncodeToString([]byte(cmdList)))
+			reloadID := str.ReloadID(base64.URLEncoding.EncodeToString([]byte(cmdList)))
 
 			existingTree, reloadIDAlreadyTracked := reloadIDToTreeNum[reloadID]
 			if reloadIDAlreadyTracked {

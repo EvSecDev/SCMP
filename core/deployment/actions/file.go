@@ -28,7 +28,7 @@ func DeployFile(ctx context.Context, host sshinternal.HostMeta, localMetadata de
 	if remoteMetadata.Exists {
 		logctx.LogEvent(ctx, logctx.VerbosityData, logctx.InfoLog, "Backing up file %s\n", remoteMetadata.Name)
 
-		backupFileName := str.RemotePath(base64.StdEncoding.EncodeToString([]byte(remoteMetadata.Name)))
+		backupFileName := str.RemotePath(base64.URLEncoding.EncodeToString([]byte(remoteMetadata.Name)))
 		tmpBackupFilePath := host.BackupPath + "/" + backupFileName
 
 		command := sshinternal.BuildCp(remoteMetadata.Name, tmpBackupFilePath)
@@ -134,7 +134,7 @@ func RestoreOldFile(ctx context.Context, host sshinternal.HostMeta, targetFilePa
 	opts := global.AssertFromContext[config.Opts](ctx, "opts", global.OpsKey, "config.Opts")
 
 	// Get the unique id for the backup for the given targetFilePath
-	backupFileName := str.RemotePath(base64.StdEncoding.EncodeToString([]byte(targetFilePath)))
+	backupFileName := str.RemotePath(base64.URLEncoding.EncodeToString([]byte(targetFilePath)))
 	backupFilePath := host.BackupPath + "/" + backupFileName
 
 	// Default user options for commands

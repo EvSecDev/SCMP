@@ -37,7 +37,7 @@ func CreateRemoteFile(ctx context.Context, host HostMeta, targetFilePath str.Rem
 	}
 
 	// Unique file name for buffer file
-	tempFileName := str.RemotePath(base64.StdEncoding.EncodeToString([]byte(targetFilePath)))
+	tempFileName := str.RemotePath(base64.URLEncoding.EncodeToString([]byte(targetFilePath)))
 	bufferFilePath := host.TransferBufferDir + "/" + tempFileName
 
 	// SCP to temp file
@@ -119,7 +119,7 @@ func ExecuteScript(ctx context.Context, host HostMeta, scriptInterpreter string,
 	opts := global.AssertFromContext[config.Opts](ctx, "opts", global.OpsKey, "config.Opts")
 
 	// Unique file name for buffer file
-	tempFileName := str.RemotePath(base64.StdEncoding.EncodeToString([]byte(remoteFilePath)))
+	tempFileName := str.RemotePath(base64.URLEncoding.EncodeToString([]byte(remoteFilePath)))
 	bufferFilePath := host.TransferBufferDir + "/" + tempFileName
 
 	err = SCPUpload(ctx, host.SSHClient, scriptFileBytes, bufferFilePath)

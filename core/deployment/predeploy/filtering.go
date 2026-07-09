@@ -135,7 +135,7 @@ func CreateReloadGroups(fileList []str.LocalRepoPath, deployFiles *deployment.Ho
 		var reloadID str.ReloadID
 		if len(info.Reload) > 0 {
 			cmdList := str.Join(info.Reload, "|")
-			reloadID = str.ReloadID(base64.StdEncoding.EncodeToString([]byte(cmdList)))
+			reloadID = str.ReloadID(base64.URLEncoding.EncodeToString([]byte(cmdList)))
 		}
 
 		// Group custom names - once encountered, no need to group by identical commands
