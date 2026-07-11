@@ -1,4 +1,4 @@
-import { getJSONViaJSON, logError, isErr, initRepoDropdown, Result, logWarning } from "./helpers.js";
+import { getJSONViaJSON, logError, isErr, initRepoDropdown, Result, logWarning, initVersionInfo } from "./helpers.js";
 import { setupOverrideHostsDropdown, selectedHosts } from "./dropdown.js";
 import { showModal } from "./modal.js";
 
@@ -370,6 +370,7 @@ async function fetchDeploymentOutput(reqID: string) {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+    initVersionInfo();
     initRepoDropdown();
 
     const params = new URLSearchParams(window.location.search);

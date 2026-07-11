@@ -35,6 +35,15 @@ type UserLogout struct {
 
 // ====================== SETTINGS ======================
 
+type VersionInfo struct {
+	FullName       string `json:"fullProgramName"`
+	SemVersion     string `json:"versionString"`
+	Platform       string `json:"platform"`
+	Arch           string `json:"architecture"`
+	APIBrowserLink string `json:"apiBrowserLocation"`
+	DocsLink       string `json:"docsLink"`
+}
+
 type RepoList struct {
 	Repositories []string `json:"repositories"`
 }

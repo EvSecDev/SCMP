@@ -1,4 +1,4 @@
-import { logError, isErr, logWarning, getJSONViaJSON, initRepoDropdown } from "./helpers.js";
+import { logError, isErr, logWarning, getJSONViaJSON, initRepoDropdown, initVersionInfo } from "./helpers.js";
 
 type WebRepoStatus = {
     staged: WebRepoFileStatus[];
@@ -58,6 +58,7 @@ async function initRepoUI() {
 }
 
 async function initRepoUIOnce() {
+    initVersionInfo();
     initRepoDropdown();
 
     if (repoUIInitialized) return;
@@ -65,7 +66,7 @@ async function initRepoUIOnce() {
     try {
         await initRepoUI();
     } catch (err) {
-        logError("Failed to initialize repo UI", err);
+        logError("Failed to initialize repo UI", false);
     }
 }
 
@@ -383,7 +384,7 @@ async function refreshHistory(reqOffset = 0, reqLimit = 10) {
                             baseHash = ""; // fallback to empty tree
                         }
                     } catch (err) {
-                        logError("Failed to fetch base commit for diff", err);
+                        logError("Failed to fetch base commit for diff", false);
                         return;
                     }
                 }

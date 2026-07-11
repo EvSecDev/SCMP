@@ -2,12 +2,28 @@ package api
 
 import (
 	"context"
+	"runtime"
 	"scmp/internal/config"
 	"scmp/internal/global"
 	"scmp/internal/str"
 	"scmp/web/internal"
 	"slices"
 )
+
+func versionAPI(baseCtx context.Context, clientCtx context.Context, fullReq internal.Request) (resp any, errObj internal.Error) {
+	_ = baseCtx
+	_ = clientCtx
+	_ = fullReq
+	resp = VersionInfo{
+		FullName:       "SCMP Controller",
+		SemVersion:     global.ProgVersion,
+		Platform:       runtime.GOOS,
+		Arch:           runtime.GOARCH,
+		APIBrowserLink: "/apibrowser.html",
+		DocsLink:       "https://github.com/EvSecDev/SCMP",
+	}
+	return
+}
 
 func repoListAPI(baseCtx context.Context, clientCtx context.Context, fullReq internal.Request) (resp any, errObj internal.Error) {
 	userPermissions := global.AssertFromContext[[]internal.UserPermission](clientCtx, "userPermissions", global.PermKey, "[]internal.UserPermission")

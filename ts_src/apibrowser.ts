@@ -1,3 +1,5 @@
+import { initVersionInfo } from "./helpers.js";
+
 interface ApiEntry {
     name: string;
     description: string;
@@ -192,6 +194,8 @@ function showDetails(api: ApiEntry, details: HTMLElement) {
 
 
 async function loadAPIs() {
+    initVersionInfo();
+
     const rpcRequest = {
         jsonrpc: "2.0",
         method: "api.browser",

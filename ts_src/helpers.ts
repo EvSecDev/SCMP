@@ -366,3 +366,44 @@ function showErrNotification(message: string, durationMs = 15000) {
         notification.remove();
     }, durationMs);
 }
+
+/* ==================== VERSION INFO ==================== */
+
+type VersionInfoResp = {
+    fullProgramName: string;
+    versionString: string;
+    platform: string;
+    architecture: string;
+    apiBrowserLocation: string;
+    docsLink: string;
+};
+
+export async function initVersionInfo() {
+    const result = await getJSONViaJSON<null, VersionInfoResp>("settings.info.version");
+    if (isErr(result)) {
+        console.warn(`Failed to load version info: ${result.error}`);
+        return;
+    }
+
+    const info = result.value;
+
+    const versionEl = document.getElementById("version-info");
+    if (versionEl) {
+        versionEl.textContent = `${info.fullProgramName} ${info.versionString}`;
+    }
+
+    const platformEl = document.getElementById("platform-info");
+    if (platformEl) {
+        platformEl.textContent = `Platform: ${info.platform} ${info.architecture}`;
+    }
+
+    const apiBrowserLink = document.querySelector("#api-browser a") as HTMLAnchorElement | null;
+    if (apiBrowserLink && info.apiBrowserLocation) {
+        apiBrowserLink.href = info.apiBrowserLocation;
+    }
+
+    const githubLink = document.querySelector("#github-link a") as HTMLAnchorElement | null;
+    if (githubLink && info.docsLink) {
+        githubLink.href = info.docsLink;
+    }
+}

@@ -193,12 +193,6 @@ func postCompile(ctx *context, outFileName string) (err error) {
 
 	printSuccess(0, "Done")
 
-	err = updateHTMLStaticFields(ctx)
-	if err != nil {
-		err = fmt.Errorf("failed updating HTML static fields: %w", err)
-		return
-	}
-
 	err = cleanupTypeScript(ctx)
 	if err != nil {
 		err = fmt.Errorf("failed cleaning javascript directory: %w", err)

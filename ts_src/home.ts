@@ -1,4 +1,4 @@
-import { logError, isErr, getJSONViaJSON, initRepoDropdown } from "./helpers.js";
+import { logError, isErr, getJSONViaJSON, initRepoDropdown, initVersionInfo } from "./helpers.js";
 
 function getClaimFromJWT(cookieName: string, claim: string): string | null {
     const cookie = document.cookie
@@ -71,6 +71,7 @@ async function checkGitStatus(): Promise<void> {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+    initVersionInfo();
     initRepoDropdown();
 
     // Username from JWT

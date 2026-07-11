@@ -46,6 +46,17 @@ func SetupAPIEndpoints() (endpoints map[string]internal.Catalog) {
 
 	// ====================== SETTINGS ======================
 
+	verInfo := internal.Catalog{
+		Name:               "Version Information",
+		Description:        "Retrieves versioning and program metadata",
+		Method:             "settings.info.version",
+		Params:             nil,
+		Result:             reflect.TypeOf(VersionInfo{}),
+		AllowedPermissions: []internal.PermissionAction{internal.ReadAction},
+		HandlerFunction:    versionAPI,
+	}
+	endpoints[verInfo.Method] = verInfo
+
 	repoList := internal.Catalog{
 		Name:               "Repo List",
 		Description:        "Gets list of repositories for given user",

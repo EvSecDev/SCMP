@@ -1,4 +1,4 @@
-import { logError, isErr, Result, logWarning, getJSONViaJSON, initRepoDropdown } from "./helpers.js";
+import { logError, isErr, Result, logWarning, getJSONViaJSON, initRepoDropdown, initVersionInfo } from "./helpers.js";
 import { showModal } from "./modal.js";
 
 interface WebPathReq {
@@ -518,5 +518,6 @@ function updatePathHeader() {
 }
 
 // Init
+initVersionInfo();
 initRepoDropdown();
 loadDirectory(currentPath);

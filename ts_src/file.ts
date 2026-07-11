@@ -1,4 +1,4 @@
-import { sendData, logError, isErr, Result, getJSONViaJSON, initRepoDropdown } from "./helpers.js";
+import { sendData, logError, isErr, Result, getJSONViaJSON, initRepoDropdown, initVersionInfo } from "./helpers.js";
 
 // --- DOM ELEMENTS ---
 let fileContainer: HTMLElement;
@@ -342,6 +342,7 @@ async function saveMetadataEditMode() {
 async function init() {
     await onDOMReady();
 
+    initVersionInfo();
     initRepoDropdown();
 
     const backBtn = document.querySelector<HTMLAnchorElement>('#file-header .btn');
