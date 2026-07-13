@@ -1,45 +1,72 @@
-// Strictly typed references, checked for existence and correct types:
+let usernameInput: HTMLInputElement | null = null
+let passwordInput: HTMLInputElement | null = null
+let loginBtn: HTMLElement | null = null
 
-const usernameInputRaw = document.getElementById("username");
-const passwordInputRaw = document.getElementById("password");
-const popupRaw = document.getElementById("accessDeniedPopup");
-const loginBtnRaw = document.getElementById("loginBtn");
-
-if (
-    !(usernameInputRaw instanceof HTMLInputElement) ||
-    !(passwordInputRaw instanceof HTMLInputElement) ||
-    !(popupRaw instanceof HTMLElement) ||
-    !(loginBtnRaw instanceof HTMLElement)
-) {
-    throw new Error("Required DOM elements not found or have wrong types");
-}
-
-const usernameInput = usernameInputRaw;
-const passwordInput = passwordInputRaw;
-const popup = popupRaw;
-const loginBtn = loginBtnRaw;
-
-// Show popup with fade in/out
 function showPopup() {
-    popup.style.display = "block";
-    popup.style.opacity = "1";
+    const popupRaw = document.getElementById("accessDeniedPopup")
+    if (!(popupRaw instanceof HTMLElement)) {
+        return
+    }
+
+    var popup = popupRaw
+    popup.style.display = "block"
+    popup.style.opacity = "1"
 
     setTimeout(() => {
-        popup.style.opacity = "0";
+        popup.style.opacity = "0"
         setTimeout(() => {
-            popup.style.display = "none";
-        }, 500);
-    }, 3000);
+            popup.style.display = "none"
+        }, 500)
+    }, 3000)
+}
+
+function initLogin() {
+    const usernameInputRaw = document.getElementById("username")
+    const passwordInputRaw = document.getElementById("password")
+    const loginBtnRaw = document.getElementById("loginBtn")
+
+    if (
+        !(usernameInputRaw instanceof HTMLInputElement) ||
+        !(passwordInputRaw instanceof HTMLInputElement) ||
+        loginBtnRaw == null
+    ) {
+        throw new Error("Required DOM elements not found or have wrong types")
+    }
+
+    usernameInput = usernameInputRaw
+    passwordInput = passwordInputRaw
+    loginBtn = loginBtnRaw
+
+    loginBtn.addEventListener("click", () => {
+        handleLogin()
+    })
+
+    for (let i = 0; i < [usernameInput, passwordInput].length; i++) {
+        const input = [usernameInput, passwordInput][i]
+        if (input == null) {
+            continue
+        }
+        input.addEventListener("keydown", (event) => {
+            if (event.key === "Enter") {
+                event.preventDefault()
+                handleLogin()
+            }
+        })
+    }
 }
 
 async function handleLogin() {
-    const username = usernameInput.value.trim();
-    const password = passwordInput.value.trim();
+    if (!usernameInput || !passwordInput) {
+        return
+    }
+
+    const username = usernameInput.value.trim()
+    const password = passwordInput.value.trim()
 
     if (!username || !password) {
-        console.error("Username and password are required");
-        showPopup();
-        return;
+        console.error("Username and password are required")
+        showPopup()
+        return
     }
 
     const rpcRequest = {
@@ -47,7 +74,7 @@ async function handleLogin() {
         method: "user.login",
         params: { username, password },
         id: "1",
-    };
+    }
 
     try {
         const response = await fetch("/api/", {
@@ -58,53 +85,50 @@ async function handleLogin() {
             },
             body: JSON.stringify(rpcRequest),
             credentials: "same-origin",
-        });
+        })
 
         if (!response.ok) {
-            console.error("Login failed with HTTP status:", response.status);
-            showPopup();
-            return;
+            console.error("Login failed with HTTP status:", response.status)
+            showPopup()
+            return
         }
 
-        const data = await response.json();
+        const data = await response.json()
 
         if (data.error) {
-            const code = data.error.code;
+            const code = data.error.code
             if (code === -32001 || code === -32002) {
-                showPopup();
-                return;
+                showPopup()
+                return
             }
-            console.error("RPC Error:", data.error);
-            showPopup();
-            return;
+            console.error("RPC Error:", data.error)
+            showPopup()
+            return
         }
 
-        const authToken = data.result;
+        const authToken = data.result
         if (!authToken || !authToken.id_token) {
-            console.error("Invalid login response");
-            showPopup();
-            return;
+            console.error("Invalid login response")
+            showPopup()
+            return
         }
 
-        document.cookie = `id_token=${encodeURIComponent(authToken.id_token)}; path=/; max-age=${authToken.validTime}`;
+        var maxAgeSeconds = 0
+        if (authToken.validTime) {
+            maxAgeSeconds = authToken.validTime
+        }
+        document.cookie = `id_token=${encodeURIComponent(authToken.id_token)}; path=/; max-age=${maxAgeSeconds}`
 
-        const redirectUrl = authToken.redirectTo || "/index.html";
-        window.location.href = redirectUrl;
+        const redirectUrl = authToken.redirectTo || "/index.html"
+        window.location.href = redirectUrl
     } catch (err) {
-        console.error("Network or other error:", err);
-        showPopup();
+        console.error("Network or other error:", err)
+        showPopup()
     }
 }
 
-loginBtn.addEventListener("click", () => {
-    handleLogin();
-});
-
-[usernameInput, passwordInput].forEach((input) => {
-    input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-            event.preventDefault();
-            handleLogin();
-        }
-    });
-});
+if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initLogin)
+} else {
+    initLogin()
+}

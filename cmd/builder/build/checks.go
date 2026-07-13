@@ -238,6 +238,13 @@ func runStaticAnalysis(ctx *context) (err error) {
 		return
 	}
 
+	// Typescript Lint
+	err = lintTypeScript(ctx)
+	if err != nil {
+		err = fmt.Errorf("typescript lint: %w\n%s", err, string(out))
+		return
+	}
+
 	printSuccess(0, "Done")
 	return
 }

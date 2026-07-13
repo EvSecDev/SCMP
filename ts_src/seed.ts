@@ -1,8 +1,7 @@
-import { getJSONViaJSON, logError, isErr, initRepoDropdown, initVersionInfo } from "./helpers.js";
-import { setupOverrideHostsDropdown, selectedHosts } from "./dropdown.js";
+import { initPage } from "./lib/init/page.js"
+import { setupOverrideHostsDropdown } from "./ui/dropdown.js"
 
 window.addEventListener("DOMContentLoaded", () => {
-    initVersionInfo();
-    initRepoDropdown();
+    initPage();
     setupOverrideHostsDropdown();
 });

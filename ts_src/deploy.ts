@@ -1,233 +1,206 @@
-import { getJSONViaJSON, logError, isErr, initRepoDropdown, Result, logWarning, initVersionInfo } from "./helpers.js";
-import { setupOverrideHostsDropdown, selectedHosts } from "./dropdown.js";
-import { showModal } from "./modal.js";
+import { isErr } from "./lib/result.js"
+import type { Result } from "./lib/result.js"
+import { getElement, mustQuerySelector } from "./lib/dom/lookup.js"
+import { getJSONViaJSON } from "./lib/rpc/client.js"
+import { logError, logWarning } from "./lib/logging/log.js"
+import { initPage } from "./lib/init/page.js"
+import { readCheckboxValue, readInputValue, parseIntOrZero } from "./lib/dom/form.js"
+import { setupOverrideHostsDropdown, selectedHosts } from "./ui/dropdown.js"
+import { showModal } from "./ui/modal.js"
+import type { DeployStart, DeployStatus, DeployAbort, PromptReq, PromptAnswer, DeployOutput } from "./types/deployment.js"
+import type { NilSuccess } from "./types/common.js"
 
-type WebDeployStart = {
-    mode: string;
-    type: string;
-    options: {
-        allowDeletions: boolean;
-        runInstall: boolean;
-        disableReloads: boolean;
-        disableSudo: boolean;
-        ignoreHostState: boolean;
-        force: boolean;
-        autoCommitRollbackEnabled: boolean;
-        commitID: string;
-        fileOverride: string;
-        hostOverride: string;
-        runAsUser: string;
-        maxSSHConnections: number;
-        maxSSHChannels: number;
-        maxCommandRuntime: number;
-        verbosity: number;
-    };
-};
-
-type DeployStatus = {
-    deploymentID: string;
-    status: "started" | "running" | "parsing output" | "finished";
-    pending: boolean;
-    pendingAction: PromptReq[];
+function escapeHtml(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 }
-
-type PromptReq = {
-    associatedDataID: string;
-    promptID: string;
-    title: string;
-    details: string;
-    type: string;
-}
-
-type PromptAnswer = {
-    associatedDataID: string;
-    promptID: string;
-    encodedData: string;
-}
-
-type DeploymentResult = {
-    deploymentID: string;
-    status: "started" | "running" | "parsing output" | "finished";
-    rawOutput: string;
-    summary: DeploymentSummary;
-};
-
-type DeploymentSummary = {
-    Status: string;
-    "Start-Time": string;
-    "End-Time": string;
-    "Elapsed-Time": string;
-    "Transferred-Size": string;
-    Counters: {
-        Hosts: number;
-        Items: number;
-        "Hosts-Completed": number;
-        "Items-Completed": number;
-        "Hosts-Failed": number;
-        "Items-Failed": number;
-    };
-    "Deployment-Commit-Hash": string;
-    Hosts?: HostSummary[];
-};
-
-type HostSummary = {
-    Name: string;
-    Status?: string;
-    "Error-Message"?: string;
-    "Total-Items"?: number;
-    "Transferred-Size"?: string;
-    Items?: ItemSummary[];
-};
-
-type ItemSummary = {
-    Name: string;
-    "Deployment-Action": string;
-    Status?: string;
-    "Error-Message"?: string;
-};
 
 async function handleDeployClick() {
-    const deployBtn = document.querySelector(".deploy-final-btn") as HTMLButtonElement;
-    const spinner = document.querySelector(".deploy-btn-wrapper .spinner") as HTMLElement;
+    var result: Result<void>
+    var deployBtnResult = mustQuerySelector<HTMLButtonElement>(".deploy-final-btn")
+    if (isErr(deployBtnResult)) {
+        logError(`handleDeploy: ${deployBtnResult.error}`, false)
+        result = { ok: false, error: deployBtnResult.error }
+        return result
+    }
+    var deployBtn = deployBtnResult.value
+
+    const spinnerResult = mustQuerySelector<HTMLDivElement>(".deploy-btn-wrapper .spinner")
+    if (isErr(spinnerResult)) {
+        logError(`handleDeploy: ${spinnerResult.error}`, false)
+        result = { ok: false, error: spinnerResult.error }
+        return result
+    }
+    var spinner = spinnerResult.value
+
+    deployBtn.disabled = true
+    spinner.classList.remove("hidden")
+
+    var errorOccurred = false
 
     try {
-        // Fade + disable button and show spinner
-        deployBtn.disabled = true;
-        spinner.classList.remove("hidden");
-
         // Step 1: Read inputs
-        const mode =
-            document.querySelector<HTMLInputElement>("input[name='deploy-mode']:checked")?.id.replace("mode-", "") || "diff";
-        const type =
-            document.querySelector<HTMLInputElement>("input[name='opt-type']:checked")?.id.replace("type-", "") || "preview";
+        var modeInput = document.querySelector<HTMLInputElement>("input[name='deploy-mode']:checked")
+        var mode = "diff"
+        if (modeInput) {
+            mode = modeInput.id.replace("mode-", "")
+        }
 
-        const getCheckbox = (id: string): boolean => {
-            const el = document.getElementById(id);
-            return el instanceof HTMLInputElement ? el.checked : false;
-        };
-
-        const getSelectedHostsCSV = (): string => Array.from(selectedHosts).join(",");
-
-        const getInputValueById = (id: string): string =>
-            (document.getElementById(id) as HTMLInputElement)?.value || "";
+        var typeInput = document.querySelector<HTMLInputElement>("input[name='opt-type']:checked")
+        var type = "preview"
+        if (typeInput) {
+            type = typeInput.id.replace("type-", "")
+        }
 
         // Step 2: Construct deployment options
-        const opts: WebDeployStart["options"] = {
-            allowDeletions: getCheckbox("opt-allow-deletions"),
-            runInstall: getCheckbox("opt-run-install"),
-            disableReloads: getCheckbox("opt-disable-reloads"),
-            disableSudo: getCheckbox("opt-disable-sudo"),
-            ignoreHostState: getCheckbox("opt-ignore-state"),
-            force: getCheckbox("opt-force"),
-            autoCommitRollbackEnabled: getCheckbox("opt-autorollback"),
-            commitID: getInputValueById("commitid"),
-            fileOverride: getInputValueById("overridefiles"),
-            hostOverride: getSelectedHostsCSV(),
-            runAsUser: getInputValueById("runasuser"),
-            maxSSHConnections: parseInt(getInputValueById("maxsshconns")) || 10,
-            maxSSHChannels: parseInt(getInputValueById("maxsshchan")) || 5,
-            maxCommandRuntime: parseInt(getInputValueById("cmdtimeout")) || 180,
-            verbosity: parseInt(getInputValueById("verbosity")) || 1
-        };
+        var opts: DeployStart["options"] = {
+            allowDeletions: readCheckboxValue("opt-allow-deletions"),
+            runInstall: readCheckboxValue("opt-run-install"),
+            disableReloads: readCheckboxValue("opt-disable-reloads"),
+            disableSudo: readCheckboxValue("opt-disable-sudo"),
+            ignoreHostState: readCheckboxValue("opt-ignore-state"),
+            force: readCheckboxValue("opt-force"),
+            autoCommitRollbackEnabled: readCheckboxValue("opt-autorollback"),
+            commitID: readInputValue("commitid"),
+            fileOverride: readInputValue("overridefiles"),
+            hostOverride: Array.from(selectedHosts).join(","),
+            runAsUser: readInputValue("runasuser"),
+            maxSSHConnections: parseIntOrZero(readInputValue("maxsshconns")),
+            maxSSHChannels: parseIntOrZero(readInputValue("maxsshchan")),
+            maxCommandRuntime: parseIntOrZero(readInputValue("cmdtimeout")),
+            verbosity: parseIntOrZero(readInputValue("verbosity"))
+        }
 
         // Step 3: Construct payload
-        const payload: WebDeployStart = {
-            mode,
-            type,
+        var payload: DeployStart = {
+            mode: mode,
+            type: type,
             options: opts
-        };
+        }
 
         // Step 4: Send POST request
-        const deployRes = await getJSONViaJSON<WebDeployStart, DeployStatus>("deployment.start", payload);
+        var deployRes = await getJSONViaJSON<DeployStart, DeployStatus>("deployment.start", payload)
 
         if (isErr(deployRes)) {
-            return logError("Failed to start deployment");
+            logError(`handleDeploy: start: ${deployRes.error}`, false)
+            errorOccurred = true
+        } else {
+            var deploymentID = deployRes.value.deploymentID
+
+            // Step 5: Poll for status
+            var pollResult = await pollDeploymentStatus(deploymentID)
+            if (isErr(pollResult)) {
+                errorOccurred = true
+            }
         }
-
-        const deploymentID = deployRes.value.deploymentID;
-
-        // Step 5: Poll for status
-        await pollDeploymentStatus(deploymentID);
-
-    } catch (err) {
-        logError(`Unexpected error during deployment: ${err}`);
     } finally {
-        // Re-enable and un-fade button, hide spinner
-        deployBtn.disabled = false;
-        spinner.classList.add("hidden");
+        deployBtn.disabled = false
+        spinner.classList.add("hidden")
     }
+
+    if (errorOccurred) {
+        result = { ok: false, error: "handleDeploy: deployment failed" }
+    } else {
+        result = { ok: true, value: undefined }
+    }
+    return result
 }
 
-async function pollDeploymentStatus(reqID: string): Promise<void> {
-    const abortBtn = document.querySelector(".deploy-abort-btn") as HTMLButtonElement;
-    let aborted: boolean = false;
-    const abortHandler = async () => {
-        const res = await getJSONViaJSON<
-            { deploymentID: string; stopRequested: boolean },
-            { status: string }
-        >("deployment.abort", { deploymentID: reqID, stopRequested: true });
+async function pollDeploymentStatus(reqID: string): Promise<Result<void>> {
+    var result: Result<void>
+    var abortBtnResult = mustQuerySelector<HTMLButtonElement>(".deploy-abort-btn")
+    if (isErr(abortBtnResult)) {
+        logError(`pollDeploymentStatus: ${abortBtnResult.error}`, false)
+        result = { ok: false, error: abortBtnResult.error }
+        return result
+    }
+    var abortBtn = abortBtnResult.value
+    var aborted = false
+    var abortHandler = async () => {
+        var res = await getJSONViaJSON<DeployAbort, NilSuccess>("deployment.abort", { deploymentID: reqID, stopRequested: true })
 
         if (isErr(res)) {
-            logError("Failed to abort deployment: " + res.error, false);
-            return;
+            logError(`pollDeploymentStatus: abort: ${res.error}`, false)
+            return
         }
-        aborted = true;
-    };
+        aborted = true
+    }
 
-    // Add the listener when polling starts
-    abortBtn.addEventListener("click", abortHandler); abortBtn?.removeAttribute("disabled");
-    abortBtn.removeAttribute("disabled");
+    abortBtn.addEventListener("click", abortHandler)
+    abortBtn.removeAttribute("disabled")
 
-    return new Promise<void>((resolve) => {
-        const poll = async () => {
+    return new Promise<Result<void>>((resolve) => {
+        var poll = async () => {
             if (aborted) {
-                abortBtn.setAttribute("disabled", "");
-                abortBtn.removeEventListener("click", abortHandler);
-                logWarning("Aborted deployment " + reqID);
-                resolve();
-                return;
+                abortBtn.setAttribute("disabled", "")
+                abortBtn.removeEventListener("click", abortHandler)
+                logWarning(`Aborted deployment ${reqID}`)
+                resolve({ ok: true, value: undefined })
+                return
             }
 
-            const statusRes = await getJSONViaJSON<{ deploymentID: string }, DeployStatus>(
-                "deployment.status",
-                { deploymentID: reqID }
-            );
+            var statusRes = await getJSONViaJSON<{ deploymentID: string }, DeployStatus>("deployment.status", { deploymentID: reqID })
 
             if (isErr(statusRes)) {
-                logError("Failed to fetch deployment status");
-                abortBtn.setAttribute("disabled", "");
-                abortBtn.removeEventListener("click", abortHandler);
-                resolve();
-                return;
+                logError(`pollDeploymentStatus: fetch status ${reqID}: ${statusRes.error}`, false)
+                abortBtn.setAttribute("disabled", "")
+                abortBtn.removeEventListener("click", abortHandler)
+                resolve({ ok: false, error: statusRes.error })
+                return
             }
 
-            const status = statusRes.value.status;
+            var status = statusRes.value.status
 
             if (status === "finished") {
-                await fetchDeploymentOutput(reqID);  // ensure output is fetched before finishing
-                abortBtn.setAttribute("disabled", "");
-                abortBtn.removeEventListener("click", abortHandler);
-                resolve();
-            } else if (statusRes.value.pending) {
-                const err = await askUser(statusRes.value.pendingAction)
-                if (err.trim() != "") {
-                    logError("Failed prompt answer: " + err)
-                    abortBtn.setAttribute("disabled", "");
-                    abortBtn.removeEventListener("click", abortHandler);
-                    resolve();
+                var outputResult = await fetchDeploymentOutput(reqID)
+                abortBtn.setAttribute("disabled", "")
+                abortBtn.removeEventListener("click", abortHandler)
+                if (isErr(outputResult)) {
+                    resolve({ ok: false, error: outputResult.error })
+                } else {
+                    resolve({ ok: true, value: undefined })
                 }
-                setTimeout(poll, 2000);
-            } else {
-                setTimeout(poll, 2000); // poll again in 2 seconds
+                return
             }
-        };
 
-        poll(); // kick off the polling
-    });
+            if (statusRes.value.pending) {
+                var pendingAction: PromptReq[] = []
+                if (statusRes.value.pendingAction) {
+                    pendingAction = statusRes.value.pendingAction
+                }
+                var err = await askUser(pendingAction)
+                if (err.trim() !== "") {
+                    logError(`pollDeploymentStatus: prompt answer ${reqID}: ${err}`, false)
+                    abortBtn.setAttribute("disabled", "")
+                    abortBtn.removeEventListener("click", abortHandler)
+                    resolve({ ok: false, error: err })
+                    return
+            }
+        }
+
+        var terminalFailureStatuses = ["failed", "error", "aborted", "cancelled"]
+        var isTerminalFailure = false
+        for (var idx = 0; idx < terminalFailureStatuses.length; idx++) {
+            if (status === terminalFailureStatuses[idx]) {
+                isTerminalFailure = true
+                break
+            }
+        }
+        if (isTerminalFailure) {
+            abortBtn.setAttribute("disabled", "")
+            abortBtn.removeEventListener("click", abortHandler)
+            resolve({ ok: false, error: `Deployment ended with status: ${status}` })
+            return
+        }
+
+        setTimeout(poll, 2000)
+        }
+
+        poll()
+    })
 }
 
 async function askUser(prompts: PromptReq[]): Promise<string> {
-    let answers: PromptAnswer[] = [];
+    const answers: PromptAnswer[] = [];
     let err = "";
 
     for (const prompt of prompts) {
@@ -237,6 +210,7 @@ async function askUser(prompts: PromptReq[]): Promise<string> {
         }
 
         let userInput: string | undefined;
+        let cancelled = false;
         await new Promise<void>((resolve) => {
             showModal({
                 message: prompt.title,
@@ -244,29 +218,37 @@ async function askUser(prompts: PromptReq[]): Promise<string> {
                 confirmText: "Enter",
                 cancelText: "Cancel",
                 hideInput: hideInputText,
-                onConfirm: (inputValue, checkboxes, selects, inputs) => {
+                onConfirm: (inputValue, _checkboxes, _selects, _inputs) => {
                     userInput = inputValue;
+                    resolve();
+                },
+                onCanceled: () => {
+                    cancelled = true;
                     resolve();
                 },
             });
         });
 
+        if (cancelled) {
+            err = `User cancelled prompt: ${prompt.title}`;
+            return err;
+        }
         if (userInput == undefined) {
-            err = "Invalid input for prompt: " + prompt.title;
+            err = `Invalid input for prompt: ${prompt.title}`;
             return err;
         }
 
-        console.log(btoa(userInput))
-
+        const encoded = btoa(Array.from(new TextEncoder().encode(userInput))
+            .map((b) => String.fromCharCode(b)).join(""))
         const newAnswer: PromptAnswer = {
             associatedDataID: prompt.associatedDataID,
             promptID: prompt.promptID,
-            encodedData: btoa(userInput),
+            encodedData: encoded,
         }
         answers.push(newAnswer);
     }
 
-    const ansResp = await getJSONViaJSON<PromptAnswer[], { status: string }>("user.pending.prompt.answer", answers);
+    const ansResp = await getJSONViaJSON<PromptAnswer[], NilSuccess>("user.pending.prompt.answer", answers);
     if (isErr(ansResp)) {
         err = ansResp.error;
         return err;
@@ -280,120 +262,176 @@ async function askUser(prompts: PromptReq[]): Promise<string> {
     }
 }
 
-async function fetchDeploymentOutput(reqID: string) {
-    const outputEl = document.querySelector(".deploy-output") as HTMLElement;
-    const summaryEl = document.getElementById("deploy-summary")!;
-    const outputRes = await getJSONViaJSON<object, DeploymentResult>("deployment.result", { deploymentID: reqID });
+async function fetchDeploymentOutput(reqID: string): Promise<Result<void>> {
+    var result: Result<void>
+    var outputEl = document.querySelector(".deploy-output") as HTMLElement | null
+    if (!outputEl) {
+        result = { ok: false, error: "fetchDeploymentOutput: .deploy-output not found" }
+        return result
+    }
+    var summaryEl = getElement("deploy-summary")
+    var outputRes = await getJSONViaJSON<object, DeployOutput>("deployment.result", { deploymentID: reqID })
 
-    if (!outputRes.ok) {
-        outputEl.textContent = "(No output)";
-        return;
+    if (isErr(outputRes)) {
+        logError(`fetchDeploymentOutput: deployment ${reqID}: ${outputRes.error}`, false)
+        outputEl.textContent = "(No output)"
+        result = { ok: false, error: outputRes.error }
+        return result
     }
 
-    const result = outputRes.value;
-    outputEl.textContent = result.rawOutput;
+    var outputData = outputRes.value
+    if (outputData.rawOutput) {
+        outputEl.textContent = outputData.rawOutput
+    } else {
+        outputEl.textContent = ""
+    }
 
     // --- Populate summary UI ---
-    const summary = result.summary;
+    var summary = outputData.summary
+    if (!summary) {
+        result = { ok: false, error: "fetchDeploymentOutput: no summary data" }
+        return result
+    }
 
     // Fill in top status block
-    document.querySelector('[data-field="status-text"]')!.textContent = summary.Status;
-    document.querySelector('[data-field="start-time"]')!.textContent = summary["Start-Time"];
-    document.querySelector('[data-field="end-time"]')!.textContent = summary["End-Time"];
-    document.querySelector('[data-field="elapsed-time"]')!.textContent = summary["Elapsed-Time"];
-    document.querySelector('[data-field="transferred-size"]')!.textContent = summary["Transferred-Size"];
-    document.querySelector('[data-field="commit-id"]')!.textContent = summary["Deployment-Commit-Hash"];
+    var statusTextEl = document.querySelector('[data-field="status-text"]')
+    if (statusTextEl) {
+        statusTextEl.textContent = summary.Status
+    }
+
+    var startTimeEl = document.querySelector('[data-field="start-time"]')
+    if (startTimeEl) {
+        startTimeEl.textContent = summary["Start-Time"]
+    }
+
+    var endTimeEl = document.querySelector('[data-field="end-time"]')
+    if (endTimeEl) {
+        endTimeEl.textContent = summary["End-Time"]
+    }
+
+    var elapsedTimeEl = document.querySelector('[data-field="elapsed-time"]')
+    if (elapsedTimeEl) {
+        elapsedTimeEl.textContent = summary["Elapsed-Time"]
+    }
+
+    var transferredSizeEl = document.querySelector('[data-field="transferred-size"]')
+    if (transferredSizeEl) {
+        transferredSizeEl.textContent = summary["Transferred-Size"]
+    }
+
+    var commitIdEl = document.querySelector('[data-field="commit-id"]')
+    if (commitIdEl) {
+        commitIdEl.textContent = summary["Deployment-Commit-Hash"]
+    }
 
     // Counters
-    document.querySelector('[data-field="hosts-total"]')!.textContent = summary.Counters.Hosts.toString();
-    document.querySelector('[data-field="hosts-completed"]')!.textContent = summary.Counters["Hosts-Completed"].toString();
-    document.querySelector('[data-field="hosts-failed"]')!.textContent = summary.Counters["Hosts-Failed"].toString();
+    var hostsTotalEl = document.querySelector('[data-field="hosts-total"]')
+    if (hostsTotalEl) {
+        hostsTotalEl.textContent = summary.Counters.Hosts.toString()
+    }
 
-    document.querySelector('[data-field="items-total"]')!.textContent = summary.Counters.Items.toString();
-    document.querySelector('[data-field="items-completed"]')!.textContent = summary.Counters["Items-Completed"].toString();
-    document.querySelector('[data-field="items-failed"]')!.textContent = summary.Counters["Items-Failed"].toString();
+    var hostsCompletedEl = document.querySelector('[data-field="hosts-completed"]')
+    if (hostsCompletedEl) {
+        hostsCompletedEl.textContent = summary.Counters["Hosts-Completed"].toString()
+    }
+
+    var hostsFailedEl = document.querySelector('[data-field="hosts-failed"]')
+    if (hostsFailedEl) {
+        hostsFailedEl.textContent = summary.Counters["Hosts-Failed"].toString()
+    }
+
+    var itemsTotalEl = document.querySelector('[data-field="items-total"]')
+    if (itemsTotalEl) {
+        itemsTotalEl.textContent = summary.Counters.Items.toString()
+    }
+
+    var itemsCompletedEl = document.querySelector('[data-field="items-completed"]')
+    if (itemsCompletedEl) {
+        itemsCompletedEl.textContent = summary.Counters["Items-Completed"].toString()
+    }
+
+    var itemsFailedEl = document.querySelector('[data-field="items-failed"]')
+    if (itemsFailedEl) {
+        itemsFailedEl.textContent = summary.Counters["Items-Failed"].toString()
+    }
 
     // Highlight status visually
-    const statusBox = document.getElementById("summary-status")!;
-    statusBox.classList.remove("success", "error");
-
+    var statusBox = getElement("summary-status")
+    statusBox.classList.remove("success", "error")
     if (summary.Status.toLowerCase() === "deployed" || summary.Status.toLowerCase() === "success") {
-        statusBox.classList.add("success");
+        statusBox.classList.add("success")
     } else {
-        statusBox.classList.add("error");
+        statusBox.classList.add("error")
     }
 
     // Fill in host details
-    const hostList = document.getElementById("host-list")!;
-    hostList.innerHTML = "";
+    var hostListEl = getElement("host-list")
+    hostListEl.innerHTML = ""
 
-    if (summary.Hosts?.length) {
-        for (const host of summary.Hosts) {
-            const el = document.createElement("details");
-            el.className = "host-summary";
+    if (summary.Hosts && summary.Hosts.length > 0) {
+        for (var hostIndex = 0; hostIndex < summary.Hosts.length; hostIndex++) {
+            const host = summary.Hosts[hostIndex]
+            if (host == null) continue;
+            var detailsEl = document.createElement("details")
+            detailsEl.className = "host-summary"
 
-            const statusIcon = host.Status === "Deployed" ? "✓" : "✗";
-            const statusClass = host.Status === "Deployed" ? "Deployed" : "Failed";
+            var statusIcon = "✗"
+            var statusClass = "Failed"
+            if (host.Status === "Deployed") {
+                statusIcon = "✓"
+                statusClass = "Deployed"
+            }
 
-            el.innerHTML = `
-                <summary>
-                    ${host.Name}
-                    <span class="status ${statusClass}">${statusIcon}</span>
-                </summary>
-                <div class="host-meta">
-                    ${host["Error-Message"] ? `<div><strong>Error:</strong> ${host["Error-Message"]}</div>` : ""}
-                    ${host["Total-Items"] ? `<div><strong>Items:</strong> ${host["Total-Items"]}</div>` : ""}
-                    ${host["Transferred-Size"] ? `<div><strong>Transferred:</strong> ${host["Transferred-Size"]}</div>` : ""}
-                </div>
-                ${host.Items?.length
-                    ? `<ul class="item-list">
-                            ${host.Items.map(
-                        item => `
-                                    <li>
-                                        <strong>${item.Name}</strong> —
-                                        <span class="action">${item["Deployment-Action"]}</span>
-                                        ${item.Status ? `(<span class="status-text">${item.Status}</span>)` : ""}
-                                        ${item["Error-Message"] ? `<br><span class="error-text">${item["Error-Message"]}</span>` : ""}
-                                    </li>
-                                `
-                    ).join("")}
-                        </ul>`
-                    : ""
-                }
-            `;
-            hostList.appendChild(el);
+            var hostMetaHtml = "<div class=\"host-meta\">"
+            if (host["Error-Message"]) {
+                hostMetaHtml += `<div><strong>Error:</strong> ${escapeHtml(String(host["Error-Message"]))}</div>`
+            }
+            if (host["Total-Items"]) {
+                hostMetaHtml += `<div><strong>Items:</strong> ${escapeHtml(String(host["Total-Items"]))}</div>`
+            }
+            if (host["Transferred-Size"]) {
+                hostMetaHtml += `<div><strong>Transferred:</strong> ${escapeHtml(String(host["Transferred-Size"]))}</div>`
+            }
+            hostMetaHtml += "</div>"
+
+            detailsEl.innerHTML = "<summary>" + escapeHtml(host.Name) +
+                '<span class="status ' + statusClass + '">' + statusIcon + '</span></summary> ' +
+                hostMetaHtml
+            hostListEl.appendChild(detailsEl)
         }
     }
 
     // Unhide the summary panel
-    summaryEl.classList.remove("hidden");
+    summaryEl.classList.remove("hidden")
+    result = { ok: true, value: undefined }
+    return result
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-    initVersionInfo();
-    initRepoDropdown();
+    initPage()
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(window.location.search)
 
-    // Auto-fill the commit ID input
-    const commitID = params.get("commitid");
+    const commitID = params.get("commitid")
     if (commitID) {
-        const inputEl = document.getElementById("commitid") as HTMLInputElement | null;
-        if (inputEl) {
-            inputEl.value = commitID;
+        const inputEl = document.getElementById("commitid")
+        if (inputEl instanceof HTMLInputElement) {
+            inputEl.value = commitID
         }
     }
 
-    // Enable auto-rollback toggle if present
-    const autorollbackParam = params.get("autorollback");
+    const autorollbackParam = params.get("autorollback")
     if (autorollbackParam === "true") {
-        const checkbox = document.getElementById("opt-autorollback") as HTMLInputElement | null;
-        if (checkbox) {
-            checkbox.checked = true;
+        const checkbox = document.getElementById("opt-autorollback")
+        if (checkbox instanceof HTMLInputElement) {
+            checkbox.checked = true
         }
     }
 
-    setupOverrideHostsDropdown();
+    setupOverrideHostsDropdown()
 
-    document.querySelector(".deploy-final-btn")?.addEventListener("click", handleDeployClick);
-});
+    const deployFinalBtn = document.querySelector(".deploy-final-btn")
+    if (deployFinalBtn instanceof HTMLButtonElement) {
+        deployFinalBtn.addEventListener("click", handleDeployClick)
+    }
+})

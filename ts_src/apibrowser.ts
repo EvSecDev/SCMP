@@ -1,4 +1,9 @@
-import { initVersionInfo } from "./helpers.js";
+import { isErr } from "./lib/result.js"
+import { getElement } from "./lib/dom/lookup.js"
+import { wireSearchInput } from "./lib/dom/filter.js"
+import { callRPC } from "./lib/rpc/client.js"
+import { logError } from "./lib/logging/log.js"
+import { initPage } from "./lib/init/page.js"
 
 interface ApiEntry {
     name: string;
@@ -6,6 +11,10 @@ interface ApiEntry {
     method: string;
     params: any;
     result: any;
+}
+
+function escapeHtml(s: string): string {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 }
 
 interface TreeNode {
@@ -21,36 +30,41 @@ let treeRoot: TreeNode;
 const apiMap = new Map<string, ApiEntry>();
 
 function buildPathTree(apis: ApiEntry[]): TreeNode {
-    const root: TreeNode = { name: "", children: new Map(), expanded: true };
+    var root: TreeNode = { name: "", children: new Map(), expanded: true }
 
-    for (const api of apis) {
-        const parts = (api as any).path.replace(/^\/+/, "").split("/");
-        let current = root;
+    for (var apiIndex = 0; apiIndex < apis.length; apiIndex++) {
+        var api = apis[apiIndex]
+        var apiPath = (api as any).path
+        var parts = apiPath.replace(/^\/+/, "").split("/")
+        var current = root
 
-        for (let i = 0; i < parts.length; i++) {
-            const part = parts[i];
+        for (var partIndex = 0; partIndex < parts.length; partIndex++) {
+            var part = parts[partIndex]
             if (!current.children.has(part)) {
-                const node: TreeNode = {
+                var node: TreeNode = {
                     name: part,
                     children: new Map(),
                     expanded: false,
                     parent: current,
-                };
-                current.children.set(part, node);
+                }
+                current.children.set(part, node)
             }
-            current = current.children.get(part)!;
+            var childNode = current.children.get(part)
+            if (childNode == null) {
+                continue
+            }
+            current = childNode
 
-            if (i === parts.length - 1) {
-                current.fullPath = (api as any).path;
+            if (partIndex === parts.length - 1) {
+                current.fullPath = apiPath
             }
         }
     }
 
-    return root;
+    return root
 }
 
 function renderTree(
-    node: TreeNode,
     container: HTMLElement,
     detailsEl: HTMLElement,
     filter: string = ""
@@ -58,68 +72,110 @@ function renderTree(
     container.innerHTML = "";
 
     function createNodeElement(node: TreeNode): HTMLElement | null {
-        const fullName = node.fullPath || getFullPath(node);
-        const matchesFilter = !filter || fullName.toLowerCase().includes(filter.toLowerCase());
+        var fullName = node.fullPath
+        if (!fullName) {
+            fullName = getFullPath(node)
+        }
+        var matchesFilter = !filter || fullName.toLowerCase().includes(filter.toLowerCase())
 
-        const visible = matchesFilter || hasMatchingDescendants(node, filter);
+        var visible = matchesFilter
+        if (!visible) {
+            visible = hasMatchingDescendants(node, filter)
+        }
         if (!visible) return null;
 
-        const li = document.createElement("li");
-        const row = document.createElement("div");
-        row.className = "tree-row";
+        var li = document.createElement("li")
+        var row = document.createElement("div")
+        row.className = "tree-row"
 
-        const hasChildren = node.children.size > 0;
-        const isLeaf = !!node.fullPath;
+        var hasChildren = node.children.size > 0
+        var isLeaf = !!node.fullPath
 
         if (hasChildren) {
-            const toggle = document.createElement("span");
-            toggle.textContent = node.expanded ? "▼" : "▶";
+            var toggle = document.createElement("span")
+            if (node.expanded) {
+                toggle.textContent = "▼"
+            } else {
+                toggle.textContent = "▶"
+            }
             toggle.className = "tree-toggle";
             toggle.onclick = (e) => {
                 e.stopPropagation();
                 node.expanded = !node.expanded;
-                renderTree(treeRoot, container, detailsEl, filter);
+                renderTree(container, detailsEl, filter);
             };
             row.appendChild(toggle);
         } else {
-            const spacer = document.createElement("span");
-            spacer.textContent = "  ";
-            spacer.className = "tree-spacer";
-            row.appendChild(spacer);
+            var spacer = document.createElement("span")
+            spacer.textContent = "  "
+            spacer.className = "tree-spacer"
+            row.appendChild(spacer)
         }
 
-        const label = document.createElement("span");
-        label.textContent = node.name;
-        label.className = isLeaf ? "tree-leaf" : "tree-branch";
+        var label = document.createElement("span")
+        label.textContent = node.name
+        if (isLeaf) {
+            label.className = "tree-leaf"
+        } else {
+            label.className = "tree-branch"
+        }
         if (isLeaf && node.fullPath) {
             label.onclick = () => {
-                const api = apiMap.get(node.fullPath!);
-                if (api) showDetails(api, detailsEl);
-            };
+                var apiPath = node.fullPath
+                if (apiPath == null) {
+                    apiPath = getFullPath(node)
+                }
+                var api = apiMap.get(apiPath)
+                if (api) {
+                    showDetails(api, detailsEl)
+                }
+            }
         }
         row.appendChild(label);
 
         li.appendChild(row);
 
         if (hasChildren && node.expanded) {
-            const ul = document.createElement("ul");
-            node.children.forEach(child => {
-                const childEl = createNodeElement(child);
-                if (childEl) ul.appendChild(childEl);
-            });
-            li.appendChild(ul);
+            var ul = document.createElement("ul")
+            var childKeys = Array.from(node.children.keys())
+            for (var childKeyIndex = 0; childKeyIndex < childKeys.length; childKeyIndex++) {
+                const ck = childKeys[childKeyIndex]
+                if (ck == null) {
+                    continue
+                }
+                var child = node.children.get(ck)
+                if (child == null) {
+                    continue
+                }
+                var childEl = createNodeElement(child)
+                if (childEl) {
+                    ul.appendChild(childEl)
+                }
+            }
+            li.appendChild(ul)
         }
 
-        return li;
+        return li
     }
 
-    const ul = document.createElement("ul");
-    treeRoot.children.forEach(child => {
-        const el = createNodeElement(child);
-        if (el) ul.appendChild(el);
-    });
+    var ul = document.createElement("ul")
+    var rootKeys = Array.from(treeRoot.children.keys())
+    for (var rootKeyIndex = 0; rootKeyIndex < rootKeys.length; rootKeyIndex++) {
+        const rk = rootKeys[rootKeyIndex]
+        if (rk == null) {
+            continue
+        }
+        var child = treeRoot.children.get(rk)
+        if (child == null) {
+            continue
+        }
+        var el = createNodeElement(child)
+        if (el) {
+            ul.appendChild(el)
+        }
+    }
 
-    container.appendChild(ul);
+    container.appendChild(ul)
 }
 
 function getFullPath(node: TreeNode): string {
@@ -129,16 +185,33 @@ function getFullPath(node: TreeNode): string {
         parts.unshift(current.name);
         current = current.parent;
     }
-    return parts.join(".");
+    return "/" + parts.join("/");
 }
 
 function hasMatchingDescendants(node: TreeNode, filter: string): boolean {
-    for (const child of node.children.values()) {
-        const fullPath = child.fullPath || getFullPath(child);
-        if (fullPath.toLowerCase().includes(filter.toLowerCase())) return true;
-        if (hasMatchingDescendants(child, filter)) return true;
+    var result: boolean
+    var childValues = Array.from(node.children.values())
+    for (var childIndex = 0; childIndex < childValues.length; childIndex++) {
+        const childItem = childValues[childIndex]
+        if (childItem == null) {
+            continue
+        }
+        const child = childItem;
+        var fullPath = child.fullPath
+        if (!fullPath) {
+            fullPath = getFullPath(child)
+        }
+        if (fullPath.toLowerCase().includes(filter.toLowerCase())) {
+            result = true
+            return result
+        }
+        if (hasMatchingDescendants(child, filter)) {
+            result = true
+            return result
+        }
     }
-    return false;
+    result = false
+    return result
 }
 
 function renderBody(body: any, bodyType?: string): string {
@@ -159,9 +232,9 @@ function renderBody(body: any, bodyType?: string): string {
 }
 
 function showDetails(api: ApiEntry, details: HTMLElement) {
-    let html = `<h2>${api.method}</h2>`;
+    let html = `<h2>${escapeHtml(api.method)}</h2>`;
     if (api.description) {
-        html += `<p><em>${api.description}</em></p>`;
+        html += `<p><em>${escapeHtml(api.description)}</em></p>`;
     }
 
     // Request Body
@@ -176,69 +249,70 @@ function showDetails(api: ApiEntry, details: HTMLElement) {
         html += renderBody(api.result, "json");
     }
 
-    details.innerHTML = html;
+    details.innerHTML = html
 
     // Resize text areas dynamically
-    details.querySelectorAll("textarea").forEach((ta) => {
-        const textarea = ta as HTMLTextAreaElement;
+    var textareas = details.querySelectorAll("textarea")
+    for (var textareaIndex = 0; textareaIndex < textareas.length; textareaIndex++) {
+        const textarea = textareas[textareaIndex] as HTMLTextAreaElement;
 
         const resize = () => {
-            textarea.style.height = "auto";
-            textarea.style.height = Math.min(textarea.scrollHeight, window.innerHeight * 0.6) + "px";
-        };
+            textarea.style.height = "auto"
+            textarea.style.height = `${Math.min(textarea.scrollHeight, window.innerHeight * 0.6)}px`
+        }
 
-        resize(); // adjust immediately for prefilled content
-        textarea.addEventListener("input", resize);
-    });
+        resize()
+        textarea.addEventListener("input", resize)
+    }
 }
 
 
 async function loadAPIs() {
-    initVersionInfo();
+    initPage();
 
-    const rpcRequest = {
-        jsonrpc: "2.0",
-        method: "api.browser",
-        params: {},
-        id: "1",
-    };
-
-    const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-    };
-
-    const res = await fetch("/api/", {
-        method: "POST",
-        headers,
-        body: JSON.stringify(rpcRequest),
-    });
-
-    if (!res.ok) {
-        return { ok: false, error: `HTTP ${res.status}` };
+    const result = await callRPC<null, ApiEntry[]>("api.browser");
+    if (isErr(result)) {
+        logError(`apibrowser: load APIs: ${result.error}`, false)
+        return;
     }
 
-    const json = await res.json();
-    const apiEntries: ApiEntry[] = json.result;
+    var apiEntries: ApiEntry[] = result.value
 
     // Build internal structures
-    for (const entry of apiEntries) {
-        const path = "/" + entry.method.replace(/\./g, "/");
-        (entry as any).path = path;
-        apiMap.set(path, entry);
+    for (var entryIndex = 0; entryIndex < apiEntries.length; entryIndex++) {
+        const entryItem = apiEntries[entryIndex]
+        if (entryItem == null) {
+            continue
+        }
+        const entry = entryItem;
+        var methodStr: string
+        if (entry.method) {
+            methodStr = entry.method
+        } else {
+            methodStr = ""
+        }
+        var methodSlash: string
+        if (methodStr.length > 0) {
+            methodSlash = methodStr.split(".").join("/")
+        } else {
+            methodSlash = ""
+        }
+        var entryPath = `/${methodSlash}`;
+        (entry as any).path = entryPath;
+        apiMap.set(entryPath, entry);
     }
 
-    treeRoot = buildPathTree(Array.from(apiMap.values()));
+    treeRoot = buildPathTree(Array.from(apiMap.values()))
 
-    const list = document.getElementById("api-list")!;
-    const details = document.getElementById("api-details")!;
-    const searchInput = document.getElementById("api-search") as HTMLInputElement;
+    var listEl = getElement("api-list")
+    var detailsEl = getElement("api-details")
+    var searchInput = getElement("api-search") as HTMLInputElement
 
-    searchInput.addEventListener("input", () => {
-        const filter = searchInput.value.trim();
-        renderTree(treeRoot, list, details, filter);
-    });
+    wireSearchInput(searchInput, (query) => {
+        renderTree(listEl, detailsEl, query)
+    })
 
-    renderTree(treeRoot, list, details);
+    renderTree(listEl as HTMLElement, detailsEl as HTMLElement)
 }
 
 document.addEventListener("DOMContentLoaded", loadAPIs);

@@ -1,92 +1,113 @@
-import { logError, isErr, getJSONViaJSON, initRepoDropdown, initVersionInfo } from "./helpers.js";
+import { isErr } from "./lib/result.js"
+import { doFetch } from "./lib/http/fetch.js"
+import { parseJSON } from "./lib/parse/json.js"
+import { safeAtob } from "./lib/parse/encoding.js"
+import { getJSONViaJSON } from "./lib/rpc/client.js"
+import { logError, logWarning } from "./lib/logging/log.js"
+import { initPage } from "./lib/init/page.js"
+import type { RepoStatus } from "./types/repository.js"
 
 function getClaimFromJWT(cookieName: string, claim: string): string | null {
-    const cookie = document.cookie
-        .split('; ')
-        .find(row => row.startsWith(`${cookieName}=`));
-    if (!cookie) return null;
+    var result: string | null
+    var rows = document.cookie.split("; ")
+    for (var rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+        const row = rows[rowIndex]
+        if (row == null) {
+            continue
+        }
+        if (row.startsWith(`${cookieName}=`)) {
+            const token = decodeURIComponent(row.slice(cookieName.length + 1))
+            const parts = token.split(".")
+            if (parts.length !== 3) {
+                return null
+            }
 
-    const token = cookie.split('=')[1];
-    const parts = token.split('.');
-    if (parts.length !== 3) return null;
+            const part1 = parts[1]
+            if (part1 == null) {
+                return null
+            }
+            var decodeResult = safeAtob(part1)
+            if (isErr(decodeResult)) {
+                logError(`getClaimFromJWT: decode JWT: ${decodeResult.error}`, false)
+                return null
+            }
 
-    try {
-        const payload = JSON.parse(atob(parts[1]));
-        return typeof payload[claim] === 'string' ? payload[claim] : null;
-    } catch (err) {
-        console.error("Failed to parse JWT token from cookie", err);
-        return null;
+            var parseResult = parseJSON<Record<string, unknown>>(decodeResult.value)
+            if (isErr(parseResult)) {
+                logError(`getClaimFromJWT: parse JWT: ${parseResult.error}`, false)
+                return null
+            }
+
+            var value = parseResult.value[claim]
+            if (typeof value === "string") {
+                result = value
+                return result
+            }
+
+            return null
+        }
     }
+    result = null
+    return result
 }
 
 async function checkConnection(): Promise<void> {
-    const connStatusEl = document.getElementById("conn-status");
-    if (!connStatusEl) return;
-
-    const statusColors = {
-        connected: "lightgreen",
-        disconnected: "orange",
-        error: "red",
-    };
-
-    try {
-        const result = await fetch("/health", { method: "GET" });
-        if (!result.ok) {
-            connStatusEl.textContent = "Unhealthy";
-            connStatusEl.style.color = statusColors.disconnected;
-        }
-
-        connStatusEl.textContent = "Connected";
-        connStatusEl.style.color = statusColors.connected;
-    } catch (err) {
-        connStatusEl.textContent = "Disconnected";
-        connStatusEl.style.color = statusColors.error;
+    var connStatusEl = document.getElementById("conn-status")
+    if (!connStatusEl) {
+        return
     }
+
+    var fetchResult = await doFetch("/health", { method: "GET" })
+    if (isErr(fetchResult)) {
+        connStatusEl.textContent = "Disconnected"
+        connStatusEl.style.color = "red"
+        logWarning(`checkConnection: ${fetchResult.error}`)
+        return
+    }
+
+    var response = fetchResult.value
+    if (!response.ok) {
+        connStatusEl.textContent = "Unhealthy"
+        connStatusEl.style.color = "orange"
+        return
+    }
+
+    connStatusEl.textContent = "Connected"
+    connStatusEl.style.color = "lightgreen"
 }
 
 async function checkGitStatus(): Promise<void> {
-    const gitStatusEl = document.getElementById("git-status");
-    if (!gitStatusEl) return;
-
-    type WebRepoStatus = {
-        staged: WebRepoFileStatus[];
-        unstaged: WebRepoFileStatus[];
-    };
-
-    type WebRepoFileStatus = {
-        path: string;
-        status: string;
-    };
-
-    const result = await getJSONViaJSON<WebRepoStatus>("repo.staging.status");
-    if (isErr(result)) {
-        logError(`Failed to load repo status: ${result.error}`);
-        return;
+    var gitStatusEl = document.getElementById("git-status")
+    if (!gitStatusEl) {
+        return
     }
-    const status = result.value;
-    const totalStaged: number = status.staged.length;
-    const totalUnstaged: number = status.unstaged.length;
 
-    gitStatusEl.textContent = `${totalUnstaged} unstaged file(s) / ${totalStaged} staged file(s)`;
+    var result = await getJSONViaJSON<RepoStatus>("repo.staging.status")
+    if (isErr(result)) {
+        logError(`checkGitStatus: ${result.error}`, false)
+        return
+    }
+
+    var status = result.value
+    var totalStaged = status.staged.length
+    var totalUnstaged = status.unstaged.length
+
+    gitStatusEl.textContent = `${totalUnstaged} unstaged file(s) / ${totalStaged} staged file(s)`
 }
 
 document.addEventListener("DOMContentLoaded", () => {
-    initVersionInfo();
-    initRepoDropdown();
+    initPage()
 
-    // Username from JWT
-    const userName = getClaimFromJWT("id_token", "name");
+    var userName = getClaimFromJWT("id_token", "name")
     if (userName) {
-        const nameEl = document.getElementById("user-name");
+        var nameEl = document.getElementById("user-name")
         if (nameEl) {
-            nameEl.textContent = userName;
+            nameEl.textContent = userName
         }
     }
 
-    // Repo status (one time)
-    checkGitStatus();
+    checkGitStatus()
 
-    // Initial check and polling
-    checkConnection();
-    setInterval(checkConnection, 30000);
-});
+    checkConnection()
+    setInterval(checkConnection, 30000)
+})

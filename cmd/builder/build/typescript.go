@@ -2,12 +2,29 @@ package build
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"scmp/cmd/builder/build/helpers"
 	"strings"
 )
+
+func lintTypeScript(ctx *context) (err error) {
+	typescriptSourceDir := filepath.Join(ctx.repositoryRoot, "ts_src")
+
+	cmd := exec.Command("biome", "lint",
+		"--diagnostic-level=warn",
+		"--error-on-warnings",
+		typescriptSourceDir+"/",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		err = fmt.Errorf("biome: %w: %s", err, string(out))
+		return
+	}
+	return
+}
 
 func compileTypeScript(ctx *context) (err error) {
 	err = cleanupTypeScript(ctx)
@@ -54,11 +71,22 @@ func compileTypeScript(ctx *context) (err error) {
 		"--outDir", javascriptDir,
 		"--target", "ES2017",
 		"--lib", "DOM,ES2017",
+		"--strict",
+		"--noUnusedLocals",
+		"--noImplicitReturns",
+		"--noFallthroughCasesInSwitch",
+		"--noUnusedParameters",
+		"--noEmitOnError",
+		"--forceConsistentCasingInFileNames",
+		"--exactOptionalPropertyTypes",
+		"--noUncheckedIndexedAccess",
 	)
 	cmd.Args = append(cmd.Args, allTSSrcfiles...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		err = fmt.Errorf("failed compiling typescript: %w: %s", err, string(out))
+		warn := cleanupTypeScript(ctx)
+		fmt.Printf("Warning: %v\n", warn)
 		return
 	}
 	return
@@ -69,32 +97,36 @@ func cleanupTypeScript(ctx *context) (err error) {
 	javascriptDir := filepath.Join(webStaticFilesDir, "js")
 	placeholderPath := filepath.Join(webStaticFilesDir, "js", "placeholder")
 
-	dirEntries, err := os.ReadDir(javascriptDir)
-	if err != nil {
-		err = fmt.Errorf("failed to list javascript directory: %w", err)
-		return
-	}
-
-	for _, dirEntry := range dirEntries {
-		itemName := dirEntry.Name()
-		if dirEntry.IsDir() {
-			continue
-		}
-		if filepath.Ext(itemName) != ".js" {
-			continue
-		}
-		err = os.Remove(filepath.Join(javascriptDir, itemName))
+	defer func() {
+		// Put placeholder back always
+		err = os.WriteFile(placeholderPath, []byte("placeholder"), 0600)
 		if err != nil {
-			err = fmt.Errorf("failed to remove javascript file: %w", err)
+			err = fmt.Errorf("failed to create placeholder file in javascript directory: %w", err)
 			return
 		}
-	}
+	}()
 
-	// Put placeholder back
-	err = os.WriteFile(placeholderPath, []byte("placeholder"), 0600)
+	err = filepath.WalkDir(javascriptDir, func(path string, d fs.DirEntry, inErr error) (err error) {
+		if inErr != nil {
+			if strings.HasSuffix(inErr.Error(), "no such file or directory") {
+				inErr = nil // recursive dir removal will hit sub items
+			} else {
+				err = inErr
+			}
+			return
+		}
+		if path == javascriptDir {
+			// Do not remove root dir
+			return
+		}
+
+		err = os.RemoveAll(path)
+		return
+	})
 	if err != nil {
-		err = fmt.Errorf("failed to create placeholder file in javascript directory: %w", err)
+		err = fmt.Errorf("failed removing javascript items: %w", err)
 		return
 	}
+
 	return
 }

@@ -1,57 +1,43 @@
-import { sendData, logError, isErr, Result, getJSONViaJSON, initRepoDropdown, initVersionInfo } from "./helpers.js";
+import { isErr } from "./lib/result.js"
+import type { Result } from "./lib/result.js"
+import { getElement } from "./lib/dom/lookup.js"
+import { doFetch } from "./lib/http/fetch.js"
+import { readText } from "./lib/http/body.js"
+import { getJSONViaJSON, sendData } from "./lib/rpc/client.js"
+import { logError, logWarning } from "./lib/logging/log.js"
+import { initPage } from "./lib/init/page.js"
+import type { FileMetadata, DownloadLink } from "./types/filesystem.js"
 
-// --- DOM ELEMENTS ---
-let fileContainer: HTMLElement;
-let fileMetadataDiv: HTMLElement;
-let filePathSpan: HTMLElement;
-let contentEditor: HTMLTextAreaElement;
-let contentToggleBtn: HTMLElement;
-let contentCancelBtn: HTMLElement;
-let editBtn: HTMLElement;
-let cancelBtn: HTMLElement;
-let metadataFields: HTMLDivElement[];
+// --- DOM ELEMENTS (initialized after DOMReady) ---
+var fileContainer: HTMLElement = document.createElement("div")
+var filePathSpan: HTMLElement = document.createElement("span")
+var contentEditor: HTMLTextAreaElement = document.createElement("textarea")
+var contentToggleBtn: HTMLElement = document.createElement("button")
+var contentCancelBtn: HTMLElement = document.createElement("button")
+var editBtn: HTMLElement = document.createElement("button")
+var cancelBtn: HTMLElement = document.createElement("button")
 
-let isEditingContent = false;
-let isEditingMetadata = false;
-const originalVisibility = new Map<HTMLDivElement, boolean>();
+var isEditingContent = false
+var isEditingMetadata = false
+var originalVisibility: Map<HTMLDivElement, boolean> = new Map()
 
 // --- Utility: Wait for DOM ---
 function onDOMReady(): Promise<void> {
     return new Promise(resolve => {
         if (document.readyState === "loading") {
-            document.addEventListener("DOMContentLoaded", () => resolve());
+            document.addEventListener("DOMContentLoaded", () => resolve())
         } else {
-            resolve();
+            resolve()
         }
-    });
+    })
 }
 
 function getFilePathFromQuery(): string | null {
-    return new URLSearchParams(window.location.search).get("path");
+    const params = new URLSearchParams(window.location.search)
+    return params.get("path")
 }
 
-/** Type for metadata returned by the API */
-interface WebFileMetadata {
-    path: string;
-    type?: string;
-    size?: number;
-    ownerName?: string;
-    groupName?: string;
-    permissions?: string;
-    lastModified?: string;
-    externalContentLocation?: string;
-    symbolicLinkTarget?: string;
-    dependencies?: string[];
-    preDeployCommands?: string[];
-    installCommands?: string[];
-    preApplyCommands?: string[];
-    postApplyCommands?: string[];
-    postInstallCommands?: string[];
-    reloadCommands?: string[];
-    reloadGroup?: string;
-}
-
-const metadataFieldMap: { [key: string]: string } = {
+const metadataFieldMap: Record<string, string> = {
     ownerName: "metaOwnerVal",
     groupName: "metaGroupVal",
     permissions: "metaPermsVal",
@@ -65,148 +51,163 @@ const metadataFieldMap: { [key: string]: string } = {
     postInstallCommands: "metaPostInstallCmdsVal",
     reloadCommands: "metaReloadCmdsVal",
     reloadGroup: "metaReloadGroupVal",
-};
+}
 
 interface FileDataModel {
-    path: string;
-    contentLines: string[];
-    metadata: WebFileMetadata | null;
+    path: string
+    contentLines: string[]
+    metadata: FileMetadata | null
 }
 
 // Hold this files information here for source of truth
 const fileData: FileDataModel = {
     path: "",
     contentLines: [],
-    metadata: null
-};
+    metadata: null,
+}
 
 /** Populate the file lines in the container */
 function populateLines(container: HTMLElement, lines: string[]) {
-    container.innerHTML = "";
-    lines.forEach(lineText => {
-        const lineDiv = document.createElement("div");
-        lineDiv.textContent = lineText === "" ? "\u00a0" : lineText; // preserve empty lines
-        container.appendChild(lineDiv);
-    });
+    container.innerHTML = ""
+    for (let i = 0; i < lines.length; i++) {
+        const lineText = lines[i]
+        if (lineText == null) continue;
+        const lineDiv = document.createElement("div")
+        if (lineText === "") {
+            lineDiv.textContent = "\u00a0"
+        } else {
+            lineDiv.textContent = lineText
+        }
+        container.appendChild(lineDiv)
+    }
 }
 
 /** Populate metadata fields */
-function populateMetadata(metadata: WebFileMetadata | null) {
-    Object.entries(metadataFieldMap).forEach(([key, valId]) => {
-        const valueDiv = document.getElementById(valId);
-        const container = valueDiv?.parentElement;
-        if (!valueDiv || !container) return;
-
-        const value = (metadata as any)?.[key];
-
-        if (value === undefined || value === null || (Array.isArray(value) && value.length === 0)) {
-            container.classList.add("hidden");
-            return;
+function populateMetadata(metadata: FileMetadata | null) {
+    var entries = Object.entries(metadataFieldMap)
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+        const entry = entries[entryIndex];
+        if (entry == null) continue;
+        var key = entry[0]
+        var valId = entry[1]
+        var valueDiv = document.getElementById(valId)
+        if (valueDiv == null) {
+            continue
+        }
+        var container = valueDiv.parentElement
+        if (container == null) {
+            continue
         }
 
-        container.classList.remove("hidden");
+        var value: unknown = undefined
+        if (metadata != null) {
+            value = (metadata as Record<string, unknown>)[key]
+        }
+
+        if (value === undefined || value === null) {
+            container.classList.add("hidden")
+            continue
+        }
+        if (Array.isArray(value) && value.length === 0) {
+            container.classList.add("hidden")
+            continue
+        }
+
+        container.classList.remove("hidden")
 
         if (Array.isArray(value)) {
-            valueDiv.innerHTML = "";
-            value.forEach(item => {
-                const itemDiv = document.createElement("div");
-                itemDiv.textContent = String(item);
-                valueDiv.appendChild(itemDiv);
-            });
+            valueDiv.innerHTML = ""
+            for (var itemIndex = 0; itemIndex < value.length; itemIndex++) {
+                var itemDiv = document.createElement("div")
+                itemDiv.textContent = String(value[itemIndex])
+                valueDiv.appendChild(itemDiv)
+            }
         } else {
-            valueDiv.textContent = String(value);
+            valueDiv.textContent = String(value)
         }
-    });
+    }
 }
 
 // --- Content Editor ---
 
 function hookContentEditorEvents() {
-    let isSaving = false;  // flag to prevent multiple saves
+    let isSaving = false
 
     contentToggleBtn.addEventListener("click", async () => {
-        if (isSaving) return; // prevent if already saving
+        if (isSaving) {
+            return
+        }
 
         if (!isEditingContent) {
-            // Enter edit mode
-            contentEditor.value = fileData.contentLines.join("\n");
-
-            fileContainer.classList.add("hidden");
-            contentEditor.classList.remove("hidden");
-            contentEditor.focus();
-
-            resetEditorPosition(contentEditor);
-
-            contentToggleBtn.textContent = "Save";
-            contentToggleBtn.classList.remove("edit-mode");
-            contentToggleBtn.classList.add("save-mode");
-            isEditingContent = true;
+            contentEditor.value = fileData.contentLines.join("\n")
+            fileContainer.classList.add("hidden")
+            contentEditor.classList.remove("hidden")
+            contentEditor.focus()
+            resetEditorPosition(contentEditor)
+            contentToggleBtn.textContent = "Save"
+            contentToggleBtn.classList.remove("edit-mode")
+            contentToggleBtn.classList.add("save-mode")
+            isEditingContent = true
         } else {
-            isSaving = true; // block concurrent saves
+            isSaving = true
+            fileData.contentLines = contentEditor.value.split(/\r?\n/)
+            const contentPayload = fileData.contentLines.join("\n")
 
-            fileData.contentLines = contentEditor.value.split(/\r?\n/);
+            let path = fileData.path
+            if (path == null) {
+                path = ""
+            }
 
-            const contentPayload = fileData.contentLines.join("\n");
-
-            const path = filePathSpan.textContent || "";
-
-            const res = await sendData(`/data-store/upload`, "POST", contentPayload, true);
+            const res = await sendData("/data-store/upload", "POST", contentPayload, true)
             if (isErr(res)) {
-                isSaving = false;
-                logError(`Failed to upload file content: ${res.error}`, true);
-                return;
+                isSaving = false
+                logError(`hookContentEditorEvents: upload: ${res.error}`, true)
+                return
             }
 
             if (res.value === "" || res.value === undefined || res.value === null) {
-                isSaving = false;
-                logError(`Server did not respond with data ID for upload`, false);
-                return;
+                isSaving = false
+                logError(`hookContentEditorEvents: no data ID for upload: path ${path}`, false)
+                return
             }
 
-            const saveRes = await getJSONViaJSON("fs.item.data.save", { path: path, dataID: res.value });
-
-            isSaving = false;
-
+            const saveRes = await getJSONViaJSON("fs.item.data.save", { path: path, dataID: res.value })
             if (isErr(saveRes)) {
-                isSaving = false;
-                logError(`Failed to save file content`, true);
-                return;
+                logError(`hookContentEditorEvents: save: ${saveRes.error}`, true)
+                return
             }
 
-            populateLines(fileContainer, fileData.contentLines);
-
-            contentEditor.classList.add("hidden");
-            fileContainer.classList.remove("hidden");
-
-            resetEditorPosition(contentEditor);
-
-            contentToggleBtn.textContent = "Edit";
-            contentToggleBtn.classList.remove("save-mode");
-            contentToggleBtn.classList.add("edit-mode");
-            isEditingContent = false;
+            populateLines(fileContainer, fileData.contentLines)
+            contentEditor.classList.add("hidden")
+            fileContainer.classList.remove("hidden")
+            resetEditorPosition(contentEditor)
+            contentToggleBtn.textContent = "Edit"
+            contentToggleBtn.classList.remove("save-mode")
+            contentToggleBtn.classList.add("edit-mode")
+            isEditingContent = false
         }
-    });
+    })
 
     contentCancelBtn.addEventListener("click", () => {
-        if (!isEditingContent) return;
+        if (!isEditingContent) {
+            return
+        }
 
-        contentEditor.classList.add("hidden");
-        fileContainer.classList.remove("hidden");
-
-        resetEditorPosition(contentEditor);
-
-        contentToggleBtn.textContent = "Edit";
-        contentToggleBtn.classList.remove("save-mode");
-        contentToggleBtn.classList.add("edit-mode");
-        isEditingContent = false;
-    });
+        contentEditor.classList.add("hidden")
+        fileContainer.classList.remove("hidden")
+        resetEditorPosition(contentEditor)
+        contentToggleBtn.textContent = "Edit"
+        contentToggleBtn.classList.remove("save-mode")
+        contentToggleBtn.classList.add("edit-mode")
+        isEditingContent = false
+    })
 }
 
 
 function resetEditorPosition(editor: HTMLTextAreaElement) {
-    editor.selectionStart = 0;
-    editor.selectionEnd = 0;
-    editor.scrollTop = 0;
+    editor.selectionStart = 0
+    editor.selectionEnd = 0
+    editor.scrollTop = 0
 }
 
 // --- Metadata Editor ---
@@ -214,75 +215,106 @@ function resetEditorPosition(editor: HTMLTextAreaElement) {
 async function hookMetadataEditorEvents() {
     editBtn.addEventListener("click", async () => {
         if (!isEditingMetadata) {
-            enterMetadataEditMode();
+            enterMetadataEditMode()
         } else {
-            await saveMetadataEditMode();
+            await saveMetadataEditMode()
         }
-    });
-    cancelBtn.addEventListener("click", cancelMetadataEditMode);
+    })
+    cancelBtn.addEventListener("click", cancelMetadataEditMode)
 }
 
 function enterMetadataEditMode() {
-    if (!fileData.metadata) return;
+    if (!fileData.metadata) {
+        return
+    }
 
-    const metadata = fileData.metadata; // <-- now it's non-null
+    var metadata = fileData.metadata as Record<string, unknown>
 
-    isEditingMetadata = true;
-    editBtn.textContent = "Save";
-    editBtn.classList.remove("edit-mode");
-    editBtn.classList.add("save-mode");
+    isEditingMetadata = true
+    editBtn.textContent = "Save"
+    editBtn.classList.remove("edit-mode")
+    editBtn.classList.add("save-mode")
 
-    Object.entries(metadataFieldMap).forEach(([key, valId]) => {
-        const field = document.getElementById(valId)?.closest(".metadata-field") as HTMLDivElement;
-        const valueDiv = document.getElementById(valId)!;
-        if (!field || !valueDiv) return;
+    var entries = Object.entries(metadataFieldMap)
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+        const entry = entries[entryIndex];
+        if (entry == null) continue;
+        var key = entry[0]
+        var valId = entry[1]
+        var valueDiv = document.getElementById(valId)
+        if (valueDiv == null) {
+            continue
+        }
+        var field = valueDiv.closest(".metadata-field")
+        if (field == null) {
+            continue
+        }
+        var fieldDiv = field as HTMLDivElement
 
-        originalVisibility.set(field, !field.classList.contains("hidden"));
-        field.classList.remove("hidden");
+        originalVisibility.set(fieldDiv, !fieldDiv.classList.contains("hidden"))
+        fieldDiv.classList.remove("hidden")
+        valueDiv.style.display = "none"
 
-        valueDiv.style.display = "none";
+        var textarea = document.createElement("textarea")
+        textarea.className = "metadata-editor"
+        textarea.style.width = "100%"
+        textarea.style.height = "4em"
 
-        const textarea = document.createElement("textarea");
-        textarea.className = "metadata-editor";
-        textarea.style.width = "100%";
-        textarea.style.height = "4em";
+        var val = metadata[key]
 
-        const val = metadata[key as keyof WebFileMetadata]; // now safe
+        if (Array.isArray(val)) {
+            textarea.value = val.join("\n")
+        } else if (val !== undefined && val !== null) {
+            textarea.value = String(val)
+        } else {
+            textarea.value = ""
+        }
 
-        textarea.value = Array.isArray(val)
-            ? val.join("\n")
-            : val !== undefined && val !== null
-                ? String(val)
-                : "";
-
-        valueDiv.parentElement!.appendChild(textarea);
-    });
+        if (valueDiv.parentElement) {
+            valueDiv.parentElement.appendChild(textarea)
+        }
+    }
 }
 
 function cancelMetadataEditMode() {
-    if (!isEditingMetadata) return;
+    if (!isEditingMetadata) {
+        return
+    }
 
-    isEditingMetadata = false;
-    editBtn.textContent = "Edit";
-    editBtn.classList.remove("save-mode");
-    editBtn.classList.add("edit-mode");
+    isEditingMetadata = false
+    editBtn.textContent = "Edit"
+    editBtn.classList.remove("save-mode")
+    editBtn.classList.add("edit-mode")
 
-    Object.entries(metadataFieldMap).forEach(([_, valId]) => {
-        const field = document.getElementById(valId)?.closest(".metadata-field") as HTMLDivElement;
-        const valueDiv = document.getElementById(valId)!;
-        const textarea = field.querySelector("textarea");
-
-        if (textarea) textarea.remove();
-        valueDiv.style.display = "";
-
-        if (originalVisibility.get(field)) {
-            field.classList.remove("hidden");
-        } else {
-            field.classList.add("hidden");
+    var values = Object.values(metadataFieldMap)
+    for (var valueIndex = 0; valueIndex < values.length; valueIndex++) {
+        const valId = values[valueIndex]
+        if (valId == null) continue;
+        var valueDiv = document.getElementById(valId)
+        if (valueDiv == null) {
+            continue
         }
-    });
+        var field = valueDiv.closest(".metadata-field")
+        if (field == null) {
+            continue
+        }
+        var fieldDiv = field as HTMLDivElement
+        var textarea = field.querySelector("textarea")
 
-    originalVisibility.clear();
+        if (textarea) {
+            textarea.remove()
+        }
+        valueDiv.style.display = ""
+
+        var wasVisible = originalVisibility.get(fieldDiv)
+        if (wasVisible) {
+            fieldDiv.classList.remove("hidden")
+        } else {
+            fieldDiv.classList.add("hidden")
+        }
+    }
+
+    originalVisibility.clear()
 }
 
 const arrayFields = [
@@ -296,114 +328,125 @@ const arrayFields = [
 ];
 
 async function saveMetadataEditMode() {
-    if (!fileData.metadata) return;
+    if (!fileData.metadata) {
+        return
+    }
 
-    const metadata = fileData.metadata;
+    const metadata = fileData.metadata as Record<string, unknown>
 
-    isEditingMetadata = false;
-    editBtn.textContent = "Edit";
-    editBtn.classList.remove("save-mode");
-    editBtn.classList.add("edit-mode");
+    var entries = Object.entries(metadataFieldMap)
+    for (var entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+        const entry = entries[entryIndex];
+        if (entry == null) continue;
+        var key = entry[0]
+        var valId = entry[1]
+        var valueDiv = document.getElementById(valId)
+        if (valueDiv == null) {
+            continue
+        }
+        var field = valueDiv.closest(".metadata-field")
+        if (field == null) {
+            continue
+        }
+        var textarea = field.querySelector("textarea")
+        if (textarea == null) {
+            continue
+        }
 
-    Object.entries(metadataFieldMap).forEach(([key, valId]) => {
-        const field = document.getElementById(valId)?.closest(".metadata-field") as HTMLDivElement;
-        const valueDiv = document.getElementById(valId)!;
-        const textarea = field.querySelector("textarea");
-        if (!textarea) return;
-
-        const input = textarea.value.trim();
+        var input = textarea.value.trim()
 
         if (input === "") {
-            delete (fileData.metadata as any)[key];
+            delete metadata[key]
         } else {
-            // For known array fields, always send array, even if one item
-            if (Array.isArray((fileData.metadata as any)[key]) || arrayFields.includes(key)) {
-                (fileData.metadata as any)[key] = input.split(/\r?\n/);
+            var currentVal = metadata[key]
+            if (Array.isArray(currentVal) || arrayFields.includes(key)) {
+                metadata[key] = input.split(/\r?\n/)
             } else {
-                (fileData.metadata as any)[key] = input;
+                metadata[key] = input
             }
         }
 
-        textarea.remove();
-        valueDiv.style.display = "";
-    });
-
-    // Push updated metadata to server
-    const res = await getJSONViaJSON("fs.item.metadata.edit", metadata);
-
-    if (isErr(res)) {
-        logError(`Failed to update metadata for '${metadata.path}': ${res.error}`, true);
+        textarea.remove()
+        valueDiv.style.display = ""
     }
 
-    populateMetadata(fileData.metadata);
+    // Push updated metadata to server
+    const res = await getJSONViaJSON("fs.item.metadata.edit", metadata)
+
+    if (isErr(res)) {
+        logError(`saveMetadataEditMode: ${res.error}`, true)
+        return
+    }
+
+    isEditingMetadata = false
+    editBtn.textContent = "Edit"
+    editBtn.classList.remove("save-mode")
+    editBtn.classList.add("edit-mode")
+
+    populateMetadata(fileData.metadata)
 }
 
 // --- INIT ---
 async function init() {
-    await onDOMReady();
+    await onDOMReady()
 
-    initVersionInfo();
-    initRepoDropdown();
+    fileContainer = getElement("file-container")
+    filePathSpan = getElement("file-path")
+    contentEditor = getElement("file-editor") as HTMLTextAreaElement
+    contentToggleBtn = getElement("content-edit-btn")
+    contentCancelBtn = getElement("content-cancel-btn")
+    editBtn = getElement("metadata-edit-btn")
+    cancelBtn = getElement("metadata-cancel-btn")
 
-    const backBtn = document.querySelector<HTMLAnchorElement>('#file-header .btn');
+    initPage()
+
+    var backBtn = document.querySelector<HTMLAnchorElement>("#file-header .btn")
     if (backBtn) {
-        backBtn.addEventListener('click', (event) => {
-            event.preventDefault(); // prevent the default link behavior
-            history.back();
-        });
+        backBtn.addEventListener("click", (event) => {
+            event.preventDefault()
+            history.back()
+        })
     }
 
-    // DOM references
-    fileContainer = document.getElementById("file-container")!;
-    fileMetadataDiv = document.getElementById("file-metadata")!;
-    filePathSpan = document.getElementById("file-path")!;
-    contentEditor = document.getElementById("file-editor") as HTMLTextAreaElement;
-    contentToggleBtn = document.getElementById("content-edit-btn")!;
-    contentCancelBtn = document.getElementById("content-cancel-btn")!;
-    editBtn = document.getElementById("metadata-edit-btn")!;
-    cancelBtn = document.getElementById("metadata-cancel-btn")!;
-    metadataFields = Array.from(document.querySelectorAll<HTMLDivElement>("#file-metadata .metadata-field"));
+    hookContentEditorEvents()
+    hookMetadataEditorEvents()
 
-    hookContentEditorEvents();
-    await hookMetadataEditorEvents();
-
-    const path = getFilePathFromQuery();
+    const path = getFilePathFromQuery()
     if (!path) {
-        fileContainer.textContent = "No file path provided in URL.";
-        return;
+        logWarning("init: no file path provided in URL")
+        fileContainer.textContent = "No file path provided in URL."
+        return
     }
 
-    fileData.path = path;
-    filePathSpan.textContent = path.replace(/^\/+/, "");
+    fileData.path = path
+    filePathSpan.textContent = path.replace(/^\/+/, "")
 
-    interface DownloadResponse {
-        downloadLocation: string;
-    }
-
-    const dataLocation: Result<DownloadResponse> = await getJSONViaJSON("fs.item.data.download", { path: path });
+    const dataLocation: Result<DownloadLink> = await getJSONViaJSON("fs.item.data.download", { path: path })
     if (isErr(dataLocation)) {
-        logError(`Failed to fetch content link for '${path}': ${dataLocation.error}`, false);
-        return "";
+        logError(`init: fetch content link: ${dataLocation.error}`, false)
+        return
     }
 
-    const dataResult = await fetch(dataLocation.value.downloadLocation);
-    if (!dataResult.ok) {
-        logError(`Failed to fetch content for '${path}'`, false);
-        return "";
+    const fetchResult = await doFetch(dataLocation.value.downloadLocation, { method: "GET" })
+    if (isErr(fetchResult)) {
+        logError(`init: fetch content for ${path}: ${fetchResult.error}`, false)
+        return
     }
-    const text = await dataResult.text();
-    fileData.contentLines = text.split(/\r?\n/);
+    const textResult = await readText(fetchResult.value)
+    if (!isErr(textResult)) {
+        fileData.contentLines = textResult.value.split(/\r?\n/)
+    }
 
-    const metaResult: Result<WebFileMetadata> = await getJSONViaJSON("fs.item.metadata.get", { path: path });
+    const metaResult: Result<FileMetadata> = await getJSONViaJSON("fs.item.metadata.get", { path: path })
     if (isErr(metaResult)) {
-        logError(`Failed to fetch metadata for '${path}': ${metaResult.error}`, false);
-        return null;
+        logError(`init: fetch metadata: ${metaResult.error}`, false)
+        return
     }
-    fileData.metadata = metaResult.value;
+    fileData.metadata = metaResult.value
 
-    populateLines(fileContainer, fileData.contentLines);
-    populateMetadata(fileData.metadata);
+    populateLines(fileContainer, fileData.contentLines)
+    populateMetadata(fileData.metadata)
 }
 
 // --- START ---
-init(); // Safe to call immediately — will wait for DOM
+init()

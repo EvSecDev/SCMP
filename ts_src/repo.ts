@@ -1,494 +1,637 @@
-import { logError, isErr, logWarning, getJSONViaJSON, initRepoDropdown, initVersionInfo } from "./helpers.js";
+import { isErr, id } from "./lib/result.js"
+import { getElement, mustElement, mustQuerySelector } from "./lib/dom/lookup.js"
+import { createStatusSpan } from "./lib/dom/widgets.js"
+import { getJSONViaJSON } from "./lib/rpc/client.js"
+import { logError, logWarning } from "./lib/logging/log.js"
+import { initPage } from "./lib/init/page.js"
+import type { RepoStatus, RepoFileStatus, RepoCommitInfo, DiffFile, RepoFileDiffResp } from "./types/repository.js"
 
-type WebRepoStatus = {
-    staged: WebRepoFileStatus[];
-    unstaged: WebRepoFileStatus[];
-};
-
-type WebRepoFileStatus = {
-    path: string;
-    status: string;
-};
-
-type WebRepoCommitInfo = {
-    shortHash: string;
-    fullHash: string;
-    date: string;
-    authorName: string;
-    authorEmail: string;
-    numberOfChanges: number;
-    filesChanged: WebRepoFileStatus[];
-    message: string;
-    gpgSignature?: string;
-    branches?: string[];
-    tags?: string[];
-};
-
-let latestStatus: WebRepoStatus | null = null;
-
-interface RepoFileDiffResp {
-    files: DiffFile[];
-}
-interface DiffFile {
-    old_path?: string;       // Original path (before rename/move)
-    new_path?: string;       // New path (after rename/move)
-    change_type: string;     // "added", "modified", "deleted", "renamed", etc.
-    is_binary: boolean;      // True if file is binary
-    hunks?: DiffHunk[];      // List of changed hunks (if not binary)
-}
-interface DiffHunk {
-    old_start_line: number;  // Start line in the old file
-    old_line_count: number;  // Number of lines affected in old file
-    new_start_line: number;  // Start line in the new file
-    new_line_count: number;  // Number of lines affected in new file
-    changes: LineChange[];   // Line-level changes
-}
-interface LineChange {
-    type: "add" | "del" | "context"; // Line change type
-    content: string;                 // Line content
-}
+let latestStatus: RepoStatus | null = null
 
 /* ---------- UI Entry Point ---------- */
-let repoUIInitialized = false;
+let repoUIInitialized = false
 
 async function initRepoUI() {
-    await refreshStatus();
-    await refreshHistory();
-    hookCommitBox();
+    await refreshStatus()
+    await refreshHistory()
+    hookCommitBox()
 }
 
 async function initRepoUIOnce() {
-    initVersionInfo();
-    initRepoDropdown();
+    initPage()
 
-    if (repoUIInitialized) return;
-    repoUIInitialized = true;
-    try {
-        await initRepoUI();
-    } catch (err) {
-        logError("Failed to initialize repo UI", false);
+    if (repoUIInitialized) {
+        return
     }
+    repoUIInitialized = true
+    initPaginationElements()
+    await initRepoUI()
 }
 
-// Run on DOM ready
-document.addEventListener("DOMContentLoaded", initRepoUIOnce);
-
-// Run on back/forward navigation if page was persisted (bfcache)
+// Run on back/forward navigation if page was persisted (bfcache) - registered
+// before variable declarations to avoid TDZ; variables are hoisted as `undefined`.
 window.addEventListener("pageshow", (event) => {
     if (event.persisted) {
-        // re-init only status
         repoUIInitialized = false;
+        stageHooksInitialized = false;
         refreshStatus();
     }
 });
 
+// Run on DOM ready
+document.addEventListener("DOMContentLoaded", initRepoUIOnce);
+
 /* ---------- Status Panel ---------- */
 async function refreshStatus() {
-    const result = await getJSONViaJSON<WebRepoStatus>("repo.staging.status");
+    const result = await getJSONViaJSON<RepoStatus>("repo.staging.status")
     if (isErr(result)) {
-        logError(`Failed to load repo status: ${result.error}`);
-        return;
+        logError(`refreshStatus: ${result.error}`, false)
+        return
     }
 
-    latestStatus = result.value;
+    latestStatus = result.value
 
-    renderFileList(
-        document.querySelector(".git-panel .git-file-list")!,
-        result.value.unstaged,
-        "unstaged"
-    );
-    renderFileList(
-        document.querySelectorAll(".git-panel .git-file-list")[1]!,
-        result.value.staged,
-        "staged"
-    );
+    var lists = document.querySelectorAll(".git-panel .git-file-list")
+    if (lists.length >= 2) {
+        const list0 = lists[0];
+        const list1 = lists[1];
+        if (list0 == null || list1 == null) {
+            return
+        }
+        renderFileList(list0, result.value.unstaged, "unstaged")
+        renderFileList(list1, result.value.staged, "staged")
+    }
 
-    hookStageUnstageAll(); // rebind after rendering
+    hookStageUnstageAll()
 }
 
 function renderFileList(
     container: Element,
-    files: WebRepoFileStatus[],
+    files: RepoFileStatus[],
     type: "staged" | "unstaged"
 ) {
-    container.innerHTML = "";
-    for (const file of files) {
-        const li = document.createElement("li");
+    container.innerHTML = ""
+    for (var fileIndex = 0; fileIndex < files.length; fileIndex++) {
+        const file = files[fileIndex];
+        if (file == null) continue;
+        var li = document.createElement("li")
 
-        const btn = document.createElement("button");
-        btn.className =
-            "btn small " + (type === "unstaged" ? "btn-stage" : "btn-unstage");
-        btn.textContent = type === "unstaged" ? "Stage" : "Unstage";
-        btn.onclick = () => toggleStage([file.path], type);
+        var btn = document.createElement("button")
+        if (type === "unstaged") {
+            btn.className = "btn small btn-stage"
+            btn.textContent = "Stage"
+        } else {
+            btn.className = "btn small btn-unstage"
+            btn.textContent = "Unstage"
+        }
+        btn.onclick = () => toggleStage([file.path], type)
 
-        const link = document.createElement("a");
-        link.className = "file-name";
-        link.textContent = file.path;
-        link.href = `/file.html?path=${encodeURIComponent(file.path)}`;
+        var link = document.createElement("a")
+        link.className = "file-name"
+        link.textContent = file.path
+        link.href = `/file.html?path=${encodeURIComponent(file.path)}`
 
-        const statusSpan = document.createElement("span");
-        statusSpan.className = `file-status status-${file.status.toLowerCase()}`;
-        statusSpan.textContent = file.status;
+        var statusSpan = createStatusSpan(file.status)
 
-        li.appendChild(btn);
-        li.appendChild(link);
-        li.appendChild(statusSpan);
-        container.appendChild(li);
+        li.appendChild(btn)
+        li.appendChild(link)
+        li.appendChild(statusSpan)
+        container.appendChild(li)
     }
 }
 
 async function toggleStage(paths: string[], type: "staged" | "unstaged") {
-    const method = type === "unstaged" ? "repo.staging.add" : "repo.staging.remove";
-    const payload = { paths };
+    var method: string
+    if (type === "unstaged") {
+        method = "repo.staging.add"
+    } else {
+        method = "repo.staging.remove"
+    }
+    const payload = { paths: paths }
 
-    const result = await getJSONViaJSON(method, payload);
+    const result = await getJSONViaJSON(method, payload)
     if (isErr(result)) {
-        logError(`Failed to ${type === "unstaged" ? "stage" : "unstage"}: ${result.error}`);
-        return;
+        var action: string
+        if (type === "unstaged") {
+            action = "stage"
+        } else {
+            action = "unstage"
+        }
+        logError(`toggleStage: ${action}: ${result.error}`, false)
+        return
     }
 
-    refreshFileList(result.value);
+    refreshFileList(result.value)
 }
 
-function refreshFileList(newStatus: WebRepoStatus) {
-    latestStatus = newStatus;
-    renderFileList(
-        document.querySelector(".git-panel .git-file-list")!,
-        newStatus.unstaged,
-        "unstaged"
-    );
-    renderFileList(
-        document.querySelectorAll(".git-panel .git-file-list")[1]!,
-        newStatus.staged,
-        "staged"
-    );
+function refreshFileList(newStatus: RepoStatus) {
+    latestStatus = newStatus
+    var lists = document.querySelectorAll(".git-panel .git-file-list")
+    if (lists.length >= 2) {
+        const list0 = lists[0];
+        const list1 = lists[1];
+        if (list0 == null || list1 == null) {
+            return
+        }
+        renderFileList(list0, newStatus.unstaged, "unstaged")
+        renderFileList(list1, newStatus.staged, "staged")
+    }
 
-    hookStageUnstageAll(); // rebind after rendering
+    hookStageUnstageAll()
 }
 
 /* ---------- Stage/Unstage All ---------- */
+let stageAllBtn: HTMLButtonElement | null = null
+let stageRefreshBtn: HTMLButtonElement | null = null
+let unstageAllBtn: HTMLButtonElement | null = null
+let stageHooksInitialized = false
+
 function hookStageUnstageAll() {
-    const stageAllBtn = document.querySelector<HTMLButtonElement>(
-        ".git-panel .btn-stage"
-    )!;
-    const stageRefreshBtn = document.querySelector<HTMLButtonElement>(
-        ".git-panel .btn-refresh"
-    )!;
-    const unstageAllBtn = document.querySelector<HTMLButtonElement>(
-        ".git-panel .btn-unstage"
-    )!;
+    if (stageHooksInitialized) {
+        return
+    }
+    stageHooksInitialized = true
 
-    const updateButtonState = () => {
-        if (!latestStatus) return;
-        stageAllBtn.disabled = latestStatus.unstaged.length === 0;
-        unstageAllBtn.disabled = latestStatus.staged.length === 0;
-    };
+    var stageAllResult = mustQuerySelector<HTMLButtonElement>(".git-panel .btn-stage")
+    if (isErr(stageAllResult)) {
+        logWarning(`hookStageUnstageAll: ${stageAllResult.error}`)
+        return
+    }
+    stageAllBtn = stageAllResult.value
 
-    stageRefreshBtn.onclick = async () => {
-        const result = await getJSONViaJSON("repo.artifacts.refresh");
-        if (isErr(result)) {
-            logError(`Failed to refresh artifacts: ${result.error}`);
-            return;
+    var stageRefreshResult = mustQuerySelector<HTMLButtonElement>(".git-panel .btn-refresh")
+    if (isErr(stageRefreshResult)) {
+        logWarning(`hookStageUnstageAll: ${stageRefreshResult.error}`)
+        return
+    }
+    stageRefreshBtn = stageRefreshResult.value
+
+    var unstageAllResult = mustQuerySelector<HTMLButtonElement>(".git-panel .btn-unstage")
+    if (isErr(unstageAllResult)) {
+        logWarning(`hookStageUnstageAll: ${unstageAllResult.error}`)
+        return
+    }
+    unstageAllBtn = unstageAllResult.value
+
+    var updateButtonState = () => {
+        if (!latestStatus) {
+            return
         }
+        if (stageAllBtn) {
+            stageAllBtn.disabled = latestStatus.unstaged.length === 0
+        }
+        if (unstageAllBtn) {
+            unstageAllBtn.disabled = latestStatus.staged.length === 0
+        }
+    }
 
-        latestStatus = result.value;
-        // Update UI with the new status
-        updateButtonState();
-        refreshFileList(result.value);
-    };
+    if (stageRefreshBtn) {
+        stageRefreshBtn.onclick = async () => {
+            const result = await getJSONViaJSON("repo.artifacts.refresh")
+            if (isErr(result)) {
+                logError(`hookStageUnstageAll: refresh artifacts: ${result.error}`, false)
+                return
+            }
 
-    stageAllBtn.onclick = async () => {
-        if (!latestStatus) return;
-        const paths = latestStatus.unstaged.map((f) => f.path);
-        if (paths.length === 0) return;
+            latestStatus = result.value
+            updateButtonState()
+            refreshFileList(result.value)
+        }
+    }
 
-        await toggleStage(paths, "unstaged");
-        updateButtonState(); // refresh state after action
-    };
+    if (stageAllBtn) {
+        stageAllBtn.onclick = async () => {
+            if (!latestStatus) {
+                return
+            }
+            var paths: string[] = []
+            for (var fileIndex = 0; fileIndex < latestStatus.unstaged.length; fileIndex++) {
+                const f = latestStatus.unstaged[fileIndex];
+                if (f == null) continue;
+                paths.push(f.path)
+            }
+            if (paths.length === 0) {
+                return
+            }
 
-    unstageAllBtn.onclick = async () => {
-        if (!latestStatus) return;
-        const paths = latestStatus.staged.map((f) => f.path);
-        if (paths.length === 0) return;
+            await toggleStage(paths, "unstaged")
+            updateButtonState()
+        }
+    }
 
-        await toggleStage(paths, "staged");
-        updateButtonState(); // refresh state after action
-    };
+    if (unstageAllBtn) {
+        unstageAllBtn.onclick = async () => {
+            if (!latestStatus) {
+                return
+            }
+            var paths: string[] = []
+            for (var fileIndex = 0; fileIndex < latestStatus.staged.length; fileIndex++) {
+                const f = latestStatus.staged[fileIndex];
+                if (f == null) continue;
+                paths.push(f.path)
+            }
+            if (paths.length === 0) {
+                return
+            }
 
-    // initial state
-    updateButtonState();
+            await toggleStage(paths, "staged")
+            updateButtonState()
+        }
+    }
+
+    updateButtonState()
 }
 
 /* ---------- Commit Box ---------- */
 function hookCommitBox() {
-    const textarea = document.getElementById("commit-message") as HTMLTextAreaElement;
-    const commitBtn = document.getElementById("commit-button") as HTMLButtonElement;
-    const commitDeployBtn = document.getElementById("commit-deploy-button") as HTMLButtonElement;
+    var textareaResult = mustElement<HTMLTextAreaElement>(id("commit-message"))
+    if (isErr(textareaResult)) {
+        logWarning(`hookCommitBox: ${textareaResult.error}`)
+        return
+    }
+    var textarea = textareaResult.value
 
-    const updateButtonState = () => {
-        const isEmpty = textarea.value.trim().length === 0;
-        commitBtn.disabled = isEmpty;
-        commitDeployBtn.disabled = isEmpty;
-    };
+    var commitResult = mustElement<HTMLButtonElement>(id("commit-button"))
+    if (isErr(commitResult)) {
+        logWarning(`hookCommitBox: ${commitResult.error}`)
+        return
+    }
+    var commitBtn = commitResult.value
 
-    textarea.addEventListener("input", updateButtonState);
-    updateButtonState(); // set initial state
+    var commitDeployResult = mustElement<HTMLButtonElement>(id("commit-deploy-button"))
+    if (isErr(commitDeployResult)) {
+        logWarning(`hookCommitBox: ${commitDeployResult.error}`)
+        return
+    }
+    var commitDeployBtn = commitDeployResult.value
 
-    const handleCommit = async (redirectToDeploy: boolean) => {
-        const message = textarea.value.trim();
-        if (!message) return;
-
-        const result = await getJSONViaJSON<any, WebRepoCommitInfo>("repo.commit", { message });
-        if (isErr(result)) {
-            logError(`Commit failed: ${result.error}`);
-            return;
-        }
-
-        const commitid = result.value.fullHash;
-
-        if (redirectToDeploy) {
-            const params = new URLSearchParams({
-                commitid: commitid,
-                autorollback: "true"
-            });
-            const deployLink = "/deployments.html?" + params.toString();
-            window.location.href = deployLink;
-            return; // skip refreshes
-        }
-
-        // Only refresh if we're not redirecting
-        textarea.value = "";
-        updateButtonState();
-
-        await refreshStatus();
-        await refreshHistory();
-    };
-
-    commitBtn.addEventListener("click", () => handleCommit(false));
-    commitDeployBtn.addEventListener("click", () => handleCommit(true));
-}
-
-
-/* ---------- History Table ---------- */
-let currentOffset = 0;
-let currentLimit = 10; // default
-
-const rowsSelect = document.getElementById("rows-select") as HTMLSelectElement;
-rowsSelect.addEventListener("change", () => {
-    currentLimit = parseInt(rowsSelect.value, 10);
-    currentOffset = 0; // reset to first page
-    refreshHistory(currentOffset, currentLimit);
-});
-
-const prevBtn = document.querySelector<HTMLButtonElement>(".pagination button:first-child")!;
-const nextBtn = document.querySelector<HTMLButtonElement>(".pagination button:last-child")!;
-
-prevBtn.addEventListener("click", () => {
-    currentOffset = Math.max(0, currentOffset - currentLimit);
-    refreshHistory(currentOffset, currentLimit);
-});
-
-nextBtn.addEventListener("click", () => {
-    currentOffset += currentLimit;
-    refreshHistory(currentOffset, currentLimit);
-});
-
-async function refreshHistory(reqOffset = 0, reqLimit = 10) {
-    const result = await getJSONViaJSON<any, WebRepoCommitInfo[]>("repo.commit.history", { limit: reqLimit, offset: reqOffset });
-    if (isErr(result)) {
-        logError(`Failed to load history: ${result.error}`);
-        return;
+    var updateButtonState = () => {
+        var isEmpty = textarea.value.trim().length === 0
+        commitBtn.disabled = isEmpty
+        commitDeployBtn.disabled = isEmpty
     }
 
-    const commits = result.value;
-    const tbody = document.querySelector<HTMLTableSectionElement>("#commit-history-table tbody");
-    if (!tbody) throw new Error("Commit history table body not found");
-    tbody.innerHTML = "";
+    textarea.addEventListener("input", updateButtonState)
+    updateButtonState()
 
-    // Disable/enable buttons based on offset
-    prevBtn.disabled = reqOffset === 0;
-    nextBtn.disabled = commits.length < reqLimit;
+    var handleCommit = async (redirectToDeploy: boolean) => {
+        var message = textarea.value.trim()
+        if (!message) {
+            return
+        }
 
-    // Update page info (page number only)
-    const pageInfo = document.querySelector<HTMLSpanElement>(".pagination .page-info")!;
-    pageInfo.textContent = `Page ${Math.floor(reqOffset / reqLimit) + 1}`;
+        var result = await getJSONViaJSON<any, RepoCommitInfo>("repo.commit", { message: message })
+        if (isErr(result)) {
+            logError(`handleCommit: ${result.error}`, false)
+            return
+        }
 
-    // Populate table
-    for (let i = 0; i < commits.length; i++) {
-        const commit = commits[i];
-        const prevCommitHash = i < commits.length - 1 ? commits[i + 1].fullHash : "";
+        var commitid = result.value.fullHash
 
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-    <td>${commit.shortHash}</td>
-    <td>${commit.date}</td>
-    <td>${commit.authorName} (${commit.authorEmail})</td>
-    <td>${commit.numberOfChanges}</td>
-    <td>${commit.message}</td>
-    <td>
-        <button class="btn btn-show-files">Show</button>
-        <button class="btn btn-deploy">Deploy</button>
-    </td>
-`;
-        tbody.appendChild(tr);
+        if (redirectToDeploy) {
+            var params = new URLSearchParams({
+                commitid: commitid,
+                autorollback: "true"
+            })
+            var deployLink = `/deployments.html?${params.toString()}`
+            window.location.href = deployLink
+            return
+        }
 
-        const fileTr = document.createElement("tr");
-        fileTr.classList.add("commit-file-row", "hidden");
-        const fileTd = document.createElement("td");
-        fileTd.setAttribute("colspan", "6");
-        const fileListDiv = document.createElement("div");
-        fileListDiv.className = "expanded-file-list";
+        textarea.value = ""
+        updateButtonState()
 
-        for (const fileInfo of commit.filesChanged) {
-            const fileRow = document.createElement("div");
-            fileRow.className = "file-row";
+        await refreshStatus()
+        await refreshHistory()
+    }
 
-            const pathSpan = document.createElement("span");
-            pathSpan.textContent = fileInfo.path;
+    commitBtn.addEventListener("click", () => handleCommit(false))
+    commitDeployBtn.addEventListener("click", () => handleCommit(true))
+}
 
-            const statusContainer = document.createElement("div");
-            const statusSpan = document.createElement("span");
-            statusSpan.className = `file-status status-${fileInfo.status.toLowerCase()}`;
-            statusSpan.textContent = fileInfo.status;
-            statusContainer.appendChild(statusSpan);
+/* ---------- History Table ---------- */
+var currentOffset = 0
+var currentLimit = 10
+var rowsSelectEl: HTMLSelectElement = document.createElement("select")
+var prevBtn: HTMLButtonElement = document.createElement("button")
+var nextBtn: HTMLButtonElement = document.createElement("button")
 
-            const actions = document.createElement("div");
-            actions.className = "file-actions";
+function initPaginationElements() {
+    var rowsSelect = getElement("rows-select")
+    if (rowsSelect instanceof HTMLSelectElement) {
+        rowsSelectEl = rowsSelect
+    }
+    rowsSelectEl.addEventListener("change", () => {
+        currentLimit = parseInt(rowsSelectEl.value, 10)
+        currentOffset = 0
+        refreshHistory(currentOffset, currentLimit)
+    })
 
-            const editBtn = document.createElement("button");
-            editBtn.textContent = "Edit";
-            editBtn.className = "btn";
-            editBtn.onclick = () => {
-                window.location.href = `/file.html?path=${encodeURIComponent(fileInfo.path)}`;
-            };
-            if (fileInfo.status === "deleted") {
-                editBtn.disabled = true;
-                editBtn.classList.add("disabled");
+    var prevBtnResult = mustQuerySelector<HTMLButtonElement>(".pagination button:first-child")
+    if (prevBtnResult.ok) {
+        prevBtn = prevBtnResult.value
+    }
+
+    var nextBtnResult = mustQuerySelector<HTMLButtonElement>(".pagination button:last-child")
+    if (nextBtnResult.ok) {
+        nextBtn = nextBtnResult.value
+    }
+
+    prevBtn.addEventListener("click", () => {
+        currentOffset = Math.max(0, currentOffset - currentLimit)
+        refreshHistory(currentOffset, currentLimit)
+    })
+
+    nextBtn.addEventListener("click", () => {
+        currentOffset += currentLimit
+        refreshHistory(currentOffset, currentLimit)
+    })
+}
+
+async function refreshHistory(reqOffset?: number, reqLimit?: number) {
+    var offset = reqOffset != null ? reqOffset : currentOffset
+    var limit = reqLimit != null ? reqLimit : currentLimit
+    currentOffset = offset
+    currentLimit = limit
+
+    const result = await getJSONViaJSON<any, RepoCommitInfo[]>("repo.commit.history", { limit: limit, offset: offset })
+    if (isErr(result)) {
+        logError(`refreshHistory: ${result.error}`, false)
+        return
+    }
+
+    var commits = result.value
+    var tbodyResult = mustQuerySelector<HTMLTableSectionElement>("#commit-history-table tbody")
+    if (isErr(tbodyResult)) {
+        logError(`refreshHistory: ${tbodyResult.error}`, false)
+        return
+    }
+    var tbody = tbodyResult.value
+    tbody.innerHTML = ""
+
+    prevBtn.disabled = offset === 0
+    nextBtn.disabled = commits.length < limit
+
+    var pageInfoResult = mustQuerySelector<HTMLSpanElement>(".pagination .page-info")
+    if (isErr(pageInfoResult)) {
+        return
+    }
+    pageInfoResult.value.textContent = `Page ${Math.floor(offset / limit) + 1}`
+
+    for (var commitIndex = 0; commitIndex < commits.length; commitIndex++) {
+        const commit = commits[commitIndex];
+        if (commit == null) continue;
+        let prevCommitHash: string
+        if (commitIndex < commits.length - 1) {
+            const nextCommit = commits[commitIndex + 1];
+            if (nextCommit) {
+                prevCommitHash = nextCommit.fullHash
+            } else {
+                prevCommitHash = ""
             }
+        } else {
+            prevCommitHash = ""
+        }
 
-            const diffBtn = document.createElement("button");
-            diffBtn.textContent = "Diff";
-            diffBtn.className = "btn";
+        var tr = document.createElement("tr")
+        const td1 = document.createElement("td")
+        td1.textContent = commit.shortHash
+        tr.appendChild(td1)
+
+        const td2 = document.createElement("td")
+        td2.textContent = commit.date
+        tr.appendChild(td2)
+
+        const td3 = document.createElement("td")
+        td3.textContent = commit.authorName + " (" + commit.authorEmail + ")"
+        tr.appendChild(td3)
+
+        const td4 = document.createElement("td")
+        td4.textContent = commit.numberOfChanges.toString()
+        tr.appendChild(td4)
+
+        const td5 = document.createElement("td")
+        td5.textContent = commit.message
+        tr.appendChild(td5)
+
+        const td6 = document.createElement("td")
+        const showBtnEl = document.createElement("button")
+        showBtnEl.className = "btn btn-show-files"
+        showBtnEl.textContent = "Show"
+        const deployBtnEl = document.createElement("button")
+        deployBtnEl.className = "btn btn-deploy"
+        deployBtnEl.textContent = "Deploy"
+        td6.appendChild(showBtnEl)
+        td6.appendChild(deployBtnEl)
+        tr.appendChild(td6)
+        tbody.appendChild(tr)
+
+        const fileTr = document.createElement("tr")
+        fileTr.classList.add("commit-file-row", "hidden")
+        const fileTd = document.createElement("td")
+        fileTd.setAttribute("colspan", "6")
+        const fileListDiv = document.createElement("div")
+        fileListDiv.className = "expanded-file-list"
+
+        for (var fileIndex = 0; fileIndex < commit.filesChanged.length; fileIndex++) {
+            const fileInfo = commit.filesChanged[fileIndex];
+            if (fileInfo == null) continue;
+            var fileRow = document.createElement("div")
+            fileRow.className = "file-row"
+
+            var pathSpan = document.createElement("span")
+            pathSpan.textContent = fileInfo.path
+            fileRow.appendChild(pathSpan)
+
+            var statusContainer = document.createElement("div")
+            statusContainer.appendChild(createStatusSpan(fileInfo.status))
+            fileRow.appendChild(statusContainer)
+
+            var actions = document.createElement("div")
+            actions.className = "file-actions"
+
+            var editBtn = document.createElement("button")
+            editBtn.textContent = "Edit"
+            editBtn.className = "btn"
+            editBtn.onclick = () => {
+                window.location.href = `/file.html?path=${encodeURIComponent(fileInfo.path)}`
+            }
+            if (fileInfo.status === "deleted") {
+                editBtn.disabled = true
+                editBtn.classList.add("disabled")
+            }
+            actions.appendChild(editBtn)
+
+            var diffBtn = document.createElement("button")
+            diffBtn.textContent = "Diff"
+            diffBtn.className = "btn"
             diffBtn.onclick = async () => {
-                let baseHash = prevCommitHash;
+                var baseHash = prevCommitHash
 
-                // If base commit is missing, fetch it from API
                 if (!baseHash) {
-                    try {
-                        const qoffset = reqLimit + reqOffset;
-                        const res = await getJSONViaJSON<any, WebRepoCommitInfo[]>("repo.commit.history", { limit: 1, offset: qoffset });
-                        if (!isErr(res) && res.value.length > 0) {
-                            baseHash = res.value[0].fullHash;
+                    var queryOffset = offset + limit + 1
+                    var res = await getJSONViaJSON<any, RepoCommitInfo[]>("repo.commit.history", { limit: 1, offset: queryOffset })
+                    if (!isErr(res) && res.value.length > 0) {
+                        const first = res.value[0]
+                        if (first) {
+                            baseHash = first.fullHash
                         } else {
-                            logWarning("No base commit found; diff will be against empty tree");
-                            baseHash = ""; // fallback to empty tree
+                            baseHash = ""
                         }
-                    } catch (err) {
-                        logError("Failed to fetch base commit for diff", false);
-                        return;
+                    } else {
+                        logWarning("refreshHistory: no base commit found")
+                        baseHash = ""
                     }
                 }
 
-                const payload = {
-                    Path: fileInfo.path,
+                var payload = {
+                    path: fileInfo.path,
                     targetCommit: commit.fullHash,
                     baseCommit: baseHash
-                };
-
-                const result = await getJSONViaJSON<any, RepoFileDiffResp>("repo.commit.diff", payload);
-                if (isErr(result)) {
-                    logError(`Failed to fetch diff: ${result.error}`);
-                    return;
                 }
 
-                showDiffModal(result.value.files);
-            };
+                var diffResult = await getJSONViaJSON<any, RepoFileDiffResp>("repo.commit.diff", payload)
+                if (isErr(diffResult)) {
+                    logError(`refreshHistory: fetch diff: ${diffResult.error}`, false)
+                    return
+                }
 
-            actions.appendChild(editBtn);
-            actions.appendChild(diffBtn);
+                showDiffModal(diffResult.value.files)
+            }
+            actions.appendChild(diffBtn)
 
-            fileRow.appendChild(pathSpan);
-            fileRow.appendChild(statusContainer);
-            fileRow.appendChild(actions);
-            fileListDiv.appendChild(fileRow);
+            fileRow.appendChild(actions)
+            fileListDiv.appendChild(fileRow)
         }
 
-        fileTd.appendChild(fileListDiv);
-        fileTr.appendChild(fileTd);
-        tbody.appendChild(fileTr);
+        fileTd.appendChild(fileListDiv)
+        fileTr.appendChild(fileTd)
+        tbody.appendChild(fileTr)
 
-        const deployBtn = tr.querySelector<HTMLButtonElement>(".btn-deploy")!;
-        deployBtn.onclick = () => {
-            window.location.href = `/deployments.html?commitid=${encodeURIComponent(commit.fullHash)}`;
-        };
+        const showBtn = tr.querySelector<HTMLButtonElement>(".btn-show-files")
+        if (showBtn) {
+            const btn = showBtn
+            showBtn.onclick = () => {
+                if (fileTr.classList.contains("hidden")) {
+                    fileTr.classList.remove("hidden")
+                    btn.textContent = "Hide"
+                } else {
+                    fileTr.classList.add("hidden")
+                    btn.textContent = "Show"
+                }
+            }
+        }
 
-        const showBtn = tr.querySelector<HTMLButtonElement>(".btn-show-files")!;
-        showBtn.onclick = () => fileTr.classList.toggle("hidden");
+        var deployBtn = tr.querySelector<HTMLButtonElement>(".btn-deploy")
+        if (deployBtn) {
+            deployBtn.onclick = () => {
+                window.location.href = `/deployments.html?commitid=${encodeURIComponent(commit.fullHash)}`
+            }
+        }
     }
 }
 
 function showDiffModal(diffInfo: DiffFile[]) {
-    // Generate diff text with ±5 lines of context
-    let diffText = "";
+    var diffText = ""
 
-    for (const file of diffInfo) {
-        const fileHeader = `--- ${file.old_path ?? "/dev/null"}\n+++ ${file.new_path ?? "/dev/null"}\n`;
-        diffText += fileHeader;
-
-        if (file.is_binary) {
-            diffText += `Binary file changed: ${file.new_path ?? file.old_path}\n\n`;
-            continue;
+    for (var fileIndex = 0; fileIndex < diffInfo.length; fileIndex++) {
+        var file = diffInfo[fileIndex]
+        if (file == null) continue;
+        var oldPath = "/dev/null"
+        if (file.old_path) {
+            oldPath = file.old_path
+        }
+        var newPath = "/dev/null"
+        if (file.new_path) {
+            newPath = file.new_path
         }
 
-        if (!file.hunks) continue;
+        var fileHeader = `--- ${oldPath}\n+++ ${newPath}\n`
+        diffText += fileHeader
 
-        for (const hunk of file.hunks) {
-            const { changes, old_start_line, new_start_line, old_line_count, new_line_count } = hunk;
+        if (file.is_binary) {
+            var binaryPath = file.old_path
+            if (file.new_path) {
+                binaryPath = file.new_path
+            }
+            diffText += `Binary file changed: ${binaryPath}\n\n`
+            continue
+        }
 
-            const hunkLines: string[] = [];
-            const changeIndexes = changes
-                .map((change, idx) => (change.type !== "context" ? idx : null))
-                .filter((v): v is number => v !== null);
+        if (!file.hunks) {
+            continue
+        }
 
-            const printedIndexes = new Set<number>();
+        for (var hunkIndex = 0; hunkIndex < file.hunks.length; hunkIndex++) {
+            var hunk = file.hunks[hunkIndex]
+            if (hunk == null) continue;
+            var changes = hunk.changes
+            var oldStartLine = hunk.old_start_line
+            var newStartLine = hunk.new_start_line
+            var oldLineCount = hunk.old_line_count
+            var newLineCount = hunk.new_line_count
 
-            for (const idx of changeIndexes) {
-                const start = Math.max(0, idx - 5);
-                const end = Math.min(changes.length, idx + 6);
-
-                // Skip if any index in this range has already been printed
-                let alreadyPrinted = false;
-                for (let i = start; i < end; i++) {
-                    if (printedIndexes.has(i)) {
-                        alreadyPrinted = true;
-                        break;
-                    }
+            // Find change indexes
+            var changeIndexes: number[] = []
+            for (var changeIndex = 0; changeIndex < changes.length; changeIndex++) {
+                const c = changes[changeIndex];
+                if (c == null) continue;
+                if (c.type !== "context") {
+                    changeIndexes.push(changeIndex)
                 }
-                if (alreadyPrinted) continue;
-
-                // Mark these indexes as printed
-                for (let i = start; i < end; i++) {
-                    printedIndexes.add(i);
-                }
-
-                // Add hunk header
-                hunkLines.push(`@@ -${old_start_line},${old_line_count} +${new_start_line},${new_line_count} @@`);
-
-                for (let i = start; i < end; i++) {
-                    const change = changes[i];
-                    const prefix = change.type === "add" ? "+" : change.type === "del" ? "-" : " ";
-                    hunkLines.push(`${prefix}${change.content}`);
-                }
-
-                hunkLines.push(""); // blank line between chunks
             }
 
-            diffText += hunkLines.join("\n") + "\n";
+            var printedIndexes = new Set<number>()
+            var hunkLines: string[] = []
+
+            // Emit hunk header once per hunk
+            hunkLines.push(`@@ -${oldStartLine},${oldLineCount} +${newStartLine},${newLineCount} @@`)
+
+            for (var changeIdx = 0; changeIdx < changeIndexes.length; changeIdx++) {
+                const idx = changeIndexes[changeIdx]
+                if (idx == null) continue
+                var start = Math.max(0, idx - 5)
+                var end = changes.length
+                var calcEnd = idx + 6
+                if (calcEnd < end) {
+                    end = calcEnd
+                }
+
+                var alreadyPrinted = false
+                for (var k = start; k < end; k++) {
+                    if (printedIndexes.has(k)) {
+                        alreadyPrinted = true
+                        break
+                    }
+                }
+                if (alreadyPrinted) {
+                    continue
+                }
+
+                for (var k = start; k < end; k++) {
+                    printedIndexes.add(k)
+                }
+
+                for (var k = start; k < end; k++) {
+                    var change = changes[k]
+                    if (change == null) continue;
+                    var prefix = " "
+                    if (change.type === "add") {
+                        prefix = "+"
+                    } else if (change.type === "del") {
+                        prefix = "-"
+                    }
+                    hunkLines.push(prefix + change.content)
+                }
+
+                hunkLines.push("")
+            }
+
+            diffText += `${hunkLines.join("\n")}\n`
         }
     }
 
-    // --- Modal UI rendering (same as before) ---
-    const overlay = document.createElement("div");
+    var overlay = document.createElement("div")
     Object.assign(overlay.style, {
         position: "fixed",
         top: "0",
@@ -502,10 +645,10 @@ function showDiffModal(diffInfo: DiffFile[]) {
         zIndex: "1000",
         padding: "1rem",
         boxSizing: "border-box",
-    });
+    })
 
-    const modal = document.createElement("div");
-    Object.assign(modal.style, {
+    var modalEl = document.createElement("div")
+    Object.assign(modalEl.style, {
         backgroundColor: "#1f1f1f",
         color: "#fff",
         padding: "1.5rem",
@@ -519,20 +662,20 @@ function showDiffModal(diffInfo: DiffFile[]) {
         textAlign: "left",
         fontFamily: "monospace",
         whiteSpace: "pre",
-    });
+    })
 
-    const textContainer = document.createElement("div");
-    textContainer.textContent = diffText;
+    var textContainer = document.createElement("div")
+    textContainer.textContent = diffText
 
-    const buttons = document.createElement("div");
-    Object.assign(buttons.style, {
+    var buttonsEl = document.createElement("div")
+    Object.assign(buttonsEl.style, {
         display: "flex",
         justifyContent: "center",
         marginTop: "1rem",
-    });
+    })
 
-    const backBtn = document.createElement("button");
-    backBtn.textContent = "Back";
+    var backBtn = document.createElement("button")
+    backBtn.textContent = "Back"
     Object.assign(backBtn.style, {
         padding: "0.3rem 1.2rem",
         fontSize: "1rem",
@@ -542,15 +685,15 @@ function showDiffModal(diffInfo: DiffFile[]) {
         border: "none",
         borderRadius: "0.25rem",
         transition: "background 0.3s",
-    });
+    })
 
-    backBtn.onmouseenter = () => (backBtn.style.backgroundColor = "#444");
-    backBtn.onmouseleave = () => (backBtn.style.backgroundColor = "#333");
-    backBtn.onclick = () => document.body.removeChild(overlay);
+    backBtn.onmouseenter = () => { backBtn.style.backgroundColor = "#444" }
+    backBtn.onmouseleave = () => { backBtn.style.backgroundColor = "#333" }
+    backBtn.onclick = () => document.body.removeChild(overlay)
 
-    buttons.appendChild(backBtn);
-    modal.appendChild(textContainer);
-    modal.appendChild(buttons);
-    overlay.appendChild(modal);
-    document.body.appendChild(overlay);
+    buttonsEl.appendChild(backBtn)
+    modalEl.appendChild(textContainer)
+    modalEl.appendChild(buttonsEl)
+    overlay.appendChild(modalEl)
+    document.body.appendChild(overlay)
 }

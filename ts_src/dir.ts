@@ -1,372 +1,422 @@
-import { logError, isErr, Result, logWarning, getJSONViaJSON, initRepoDropdown, initVersionInfo } from "./helpers.js";
-import { showModal } from "./modal.js";
-
-interface WebPathReq {
-    path: string;
-}
-
-interface WebFileMetadata {
-    path: string;
-    type: "file" | "directory";
-    size?: number;
-    ownerName: string;
-    groupName: string;
-    permissions: string;
-    lastModified?: string;
-}
-
-interface WebFilesList {
-    directory: string;
-    entries: WebFileMetadata[];
-}
-
-interface WebFileOp {
-    path: string;
-    type: "file" | "directory";
-    recursive?: boolean; // for directories
-}
-
-interface WebFileMove {
-    sourcePath: string;
-    destinationPath: string;
-    deleteSource: boolean;
-    overwriteDestination: boolean;
-}
-
-interface SearchReq {
-    path: string;
-    query: string;
-    querytype?: "exact" | "contains" | "prefix" | "suffix";
-    filetype?: "all" | "file" | "directory";
-    depth: number;
-}
-
-interface SearchResults {
-    path: string;
-    query: string;
-    queryType: string;
-    fileType: string;
-    depth: number;
-    matchCount: number;
-    matches: WebFileMetadata[];
-}
+import { isErr } from "./lib/result.js"
+import type { Result } from "./lib/result.js"
+import { getElement, mustQuerySelector } from "./lib/dom/lookup.js"
+import { safeCopyToClipboard } from "./lib/dom/clipboard.js"
+import { getJSONViaJSON } from "./lib/rpc/client.js"
+import { logError, logWarning, logAlert } from "./lib/logging/log.js"
+import { initPage } from "./lib/init/page.js"
+import { createPagination } from "./lib/dom/widgets.js"
+import { showModal } from "./ui/modal.js"
+import type { FileMetadata, FileOp, FileMove, FilePathSearchReq, FilePathSearchResults } from "./types/filesystem.js"
 
 // State
-let currentPath = "/";
-let allFiles: WebFileMetadata[] = [];
-let currentPage = 1;
+var currentPath = "/"
+var allFiles: FileMetadata[] = []
 
-// DOM references
-const tableBody = document.querySelector<HTMLTableSectionElement>("tbody")!;
-const paginationInfo = document.querySelector<HTMLSpanElement>(".page-info")!;
-const paginationDiv = document.querySelector<HTMLDivElement>(".pagination")!;
-const buttons = Array.from(paginationDiv.querySelectorAll<HTMLButtonElement>(".btn"));
-const [prevButton, nextButton] = buttons;
-const pathHeader = document.getElementById("current-path")!;
+// DOM references (initialized in initDirUI)
+var tableBody: HTMLTableSectionElement = document.createElement("tbody")
+var paginationInfo: HTMLSpanElement = document.createElement("span")
+var paginationDiv: HTMLDivElement = document.createElement("div")
+var pathHeader: HTMLElement = document.createElement("div")
+var createBtn: HTMLElement = document.createElement("button")
+var searchInput: HTMLInputElement = document.createElement("input")
+var searchBtn: HTMLButtonElement = document.createElement("button")
+var clearSearchBtn: HTMLButtonElement = document.createElement("button")
+var searchCog: HTMLElement = document.createElement("button")
+var rowSelect: HTMLSelectElement = document.createElement("select")
+var prevButton: HTMLButtonElement = document.createElement("button")
+var nextButton: HTMLButtonElement = document.createElement("button")
+
+var dirPagination: ReturnType<typeof createPagination> | null = null
+
+function initDirUI() {
+    var tableBodyResult = mustQuerySelector<HTMLTableSectionElement>("tbody")
+    if (tableBodyResult.ok) {
+        tableBody = tableBodyResult.value
+    } else {
+        logError(`initDirUI: missing tbody: ${tableBodyResult.error}`, true)
+        return
+    }
+
+    var paginationInfoResult = mustQuerySelector<HTMLSpanElement>(".page-info")
+    if (paginationInfoResult.ok) {
+        paginationInfo = paginationInfoResult.value
+    } else {
+        logError(`initDirUI: missing .page-info: ${paginationInfoResult.error}`, true)
+        return
+    }
+
+    var paginationDivResult = mustQuerySelector<HTMLDivElement>(".pagination")
+    if (paginationDivResult.ok) {
+        paginationDiv = paginationDivResult.value
+    } else {
+        logError(`initDirUI: missing .pagination: ${paginationDivResult.error}`, true)
+        return
+    }
+
+    var buttons = Array.from(paginationDiv.querySelectorAll<HTMLButtonElement>(".btn"))
+    if (buttons.length > 0) {
+        const btn0 = buttons[0]
+        if (btn0) {
+            prevButton = btn0
+        }
+    }
+    if (buttons.length > 1) {
+        const btn1 = buttons[1]
+        if (btn1) {
+            nextButton = btn1
+        }
+    }
+
+    pathHeader = getElement("current-path")
+    createBtn = getElement("create-btn")
+    searchInput = getElement("search-input") as HTMLInputElement
+    searchBtn = getElement("search-btn") as HTMLButtonElement
+    clearSearchBtn = getElement("clear-search-btn") as HTMLButtonElement
+    searchCog = getElement("search-cog")
+    rowSelect = getElement("rows-select") as HTMLSelectElement
+
+    dirPagination = createPagination(
+        () => allFiles.length,
+        rowSelect,
+        prevButton,
+        nextButton,
+        paginationInfo,
+        () => { renderPage() }
+    )
+
+    // Wire up event listeners
+    createBtn.addEventListener("click", () => {
+        showModal({
+            message: "Enter name for new file or directory:",
+            inputPlaceholder: "Name",
+            confirmText: "Create",
+            cancelText: "Cancel",
+            selects: [
+                {
+                    id: "create-type-select",
+                    label: "Type",
+                    options: ["file", "directory"],
+                    default: "file"
+                }
+            ],
+            onConfirm: async (inputValue, _checkboxValues, selectValues) => {
+                if (!inputValue) {
+                    return
+                }
+
+                var type = "file" as "file" | "directory"
+                if (selectValues && selectValues["create-type-select"]) {
+                    type = selectValues["create-type-select"] as "file" | "directory"
+                }
+
+                var nPath = normalizePath(`${currentPath}/${inputValue}`)
+                var res = await getJSONViaJSON("fs.item.new", {
+                    path: nPath,
+                    type: type,
+                    recursive: false,
+                })
+                if (isErr(res)) {
+                    logError(`createEntry: ${type} ${nPath}: ${res.error}`, false)
+                } else {
+                    await refreshDirectoryListing()
+                }
+            }
+        })
+    })
+
+    var refreshBtn = getElement("refresh-btn") as HTMLButtonElement
+    refreshBtn.addEventListener("click", async () => {
+        await refreshDirectoryListing()
+    })
+
+    searchInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+            e.preventDefault()
+            performSearch(searchInput.value)
+        }
+    })
+
+    searchBtn.addEventListener("click", () => {
+        performSearch(searchInput.value)
+    })
+
+    clearSearchBtn.addEventListener("click", async () => {
+        await refreshDirectoryListing()
+        searchInput.value = ""
+    })
+
+    searchCog.addEventListener("click", () => {
+        showModal({
+            message: "Search options",
+            confirmText: "Save",
+            cancelText: "Cancel",
+            selects: [
+                {
+                    id: "select-query-type",
+                    label: "Match Type",
+                    options: ["contains", "exact", "prefix", "suffix"],
+                    default: searchOptions.matchType,
+                },
+                {
+                    id: "select-file-type",
+                    label: "File Type",
+                    options: ["all", "file", "directory"],
+                    default: searchOptions.fileType,
+                }
+            ],
+            inputs: [
+                {
+                    id: "input-depth",
+                    label: "Depth of search",
+                    placeholder: "10",
+                    default: searchOptions.depth.toString(),
+                }
+            ],
+            onConfirm: (_inputValue, _checkboxValues, selectValues, inputValues) => {
+                var matchType = "contains"
+                if (selectValues && selectValues["select-query-type"]) {
+                    matchType = selectValues["select-query-type"]
+                }
+                searchOptions.matchType = matchType
+
+                var fileType = "all"
+                if (selectValues && selectValues["select-file-type"]) {
+                    fileType = selectValues["select-file-type"]
+                }
+                searchOptions.fileType = fileType
+
+                var depthStr = "10"
+                if (inputValues && inputValues["input-depth"]) {
+                    depthStr = inputValues["input-depth"]
+                }
+                var parsedDepth = parseInt(depthStr, 10)
+                if (Number.isNaN(parsedDepth) || parsedDepth < 0) {
+                    logAlert("Depth must be a non-negative number.")
+                    return false
+                }
+                searchOptions.depth = parsedDepth
+                return true
+            }
+        })
+    })
+}
 
 // Helpers
 function normalizePath(path: string): string {
-    if (!path.startsWith("/")) path = "/" + path;
-    return path.replace(/\/+/g, "/");
+    if (!path.startsWith("/")) {
+        path = `/${path}`
+    }
+    return path.replace(/\/+/g, "/")
 }
 
 // Delete a file or directory
-async function deleteEntry(entry: WebFileOp): Promise<Result<void>> {
-    const op: WebFileOp = {
+async function deleteEntry(entry: FileOp): Promise<Result<void>> {
+    const op: FileOp = {
         path: entry.path,
         type: entry.type,
-        recursive: entry.type === "directory", // only recursive for directories
-    };
-    const res = await getJSONViaJSON("fs.item.delete", op);
-    if (isErr(res)) {
-        logError(`Failed to delete ${entry.path}: ${res.error}`, false);
+        recursive: entry.type === "directory",
     }
-    return res;
+    const res = await getJSONViaJSON("fs.item.delete", op)
+    if (isErr(res)) {
+        logError(`deleteEntry: ${entry.path}: ${res.error}`, false)
+    }
+    return res
 }
 
 // Fetch directory listing using helper
-async function fetchFiles(req: WebPathReq): Promise<WebFileMetadata[]> {
-    const res: Result<WebFilesList> = await getJSONViaJSON("fs.directory.list", { path: req.path });
+async function fetchFiles(req: { path: string }): Promise<FileMetadata[]> {
+    const res: Result<FileMetadata[]> = await getJSONViaJSON("fs.directory.list", { path: req.path })
     if (isErr(res)) {
-        logError(`Failed to fetch directory '${req.path}': ${res.error}`, false);
-        return [];
+        logError(`fetchFiles: ${req.path}: ${res.error}`, false)
+        return []
     }
 
-    const entries = Array.isArray(res.value) ? res.value : [];
+    var entries: FileMetadata[] = []
+    if (Array.isArray(res.value)) {
+        entries = res.value
+    }
 
-    // Notify of nothing received, probably error
     if (entries.length === 0) {
-        logError(`No files received for directory '${req.path}'`, false);
+        logWarning(`fetchFiles: directory ${req.path} is empty`)
     }
 
-    return entries;
+    return entries
 }
 
-async function searchFiles(req: SearchReq): Promise<SearchResults> {
-    const params = new URLSearchParams();
+async function refreshDirectoryListing(): Promise<void> {
+    allFiles = await fetchFiles({ path: currentPath })
+    isSearchResults = false
+    if (dirPagination) {
+        dirPagination.setPage(1)
+    }
+    renderPage()
+}
 
-    const res: Result<SearchResults> = await getJSONViaJSON("fs.item.search", {
-        path: req.path,
-        query: req.query,
-        searchType: req.querytype,
-        fileType: req.filetype,
-        depth: req.depth
-    });
+async function searchFiles(req: FilePathSearchReq): Promise<FilePathSearchResults> {
+    const res: Result<FilePathSearchResults> = await getJSONViaJSON("fs.item.search", req)
     if (isErr(res)) {
-        logError(`Failed search`, false);
+        logError(`searchFiles: ${req.query} in ${req.path}: ${res.error}`, false)
         return {
-            path: req.path,
-            query: req.query,
-            queryType: req.querytype ?? "contains",
-            fileType: req.filetype ?? "all",
-            depth: req.depth,
+            orig: req,
             matchCount: 0,
             matches: [],
-        };
+        }
     }
 
     return res.value
 }
 
 // Move a file or directory
-export async function moveEntry(move: WebFileMove): Promise<Result<void>> {
-    const res = await getJSONViaJSON("fs.item.move", move);
+export async function moveEntry(move: FileMove): Promise<Result<void>> {
+    const res = await getJSONViaJSON("fs.item.move", move)
     if (isErr(res)) {
-        logError(`Failed to move '${move.sourcePath}' to '${move.destinationPath}': ${res.error}`, false);
+        logError(`moveEntry: ${move.sourcePath} to ${move.destinationPath}: ${res.error}`, false)
     }
-    return res;
+    return res
 }
-
-const createBtn = document.getElementById("create-btn")!;
-
-createBtn.addEventListener("click", () => {
-    showModal({
-        message: "Enter name for new file or directory:",
-        inputPlaceholder: "Name",
-        confirmText: "Create",
-        cancelText: "Cancel",
-        selects: [
-            {
-                id: "create-type-select",
-                label: "Type",
-                options: ["file", "directory"],
-                default: "file"
-            }
-        ],
-        onConfirm: async (inputValue, _checkboxValues, selectValues) => {
-            if (!inputValue) return;
-
-            const type = (selectValues?.["create-type-select"] ?? "file") as "file" | "directory";
-
-            const nPath = normalizePath(`${currentPath}/${inputValue}`)
-            const res = await getJSONViaJSON("fs.item.new", {
-                path: normalizePath(`${currentPath}/${inputValue}`),
-                type: type,
-                recursive: false,
-            });
-            if (isErr(res)) {
-                logError(`Failed to create ${type} '${nPath}': ${res.error}`, false);
-            } else {
-                allFiles = await fetchFiles({ path: currentPath });
-                renderPage();
-            }
-        }
-    });
-});
 
 // Load directory
 async function loadDirectory(path: string): Promise<void> {
-    currentPage = 1;
-    currentPath = normalizePath(path);
-    allFiles = await fetchFiles({ path: currentPath });
-    isSearchResults = false;
-    renderPage();
+    currentPath = normalizePath(path)
+    await refreshDirectoryListing()
 }
 
-let searchOptions = {
-    matchType: "contains", // contains|exact|prefix|suffix
-    fileType: "all",       // all|file|directory
-    depth: 10              // number >= 0
-};
-let isSearchResults = false;
-const searchInput = document.getElementById("search-input") as HTMLInputElement;
-const searchBtn = document.getElementById("search-btn") as HTMLButtonElement;
-const clearSearchBtn = document.getElementById("clear-search-btn") as HTMLButtonElement;
-const searchCog = document.getElementById("search-cog") as HTMLElement;
+interface SearchOptions {
+    matchType: string
+    fileType: string
+    depth: number
+}
+var searchOptions: SearchOptions = {
+    matchType: "contains",
+    fileType: "all",
+    depth: 10,
+}
+var isSearchResults = false
 
 async function performSearch(query: string) {
-    if (!query.trim()) return;
+    if (!query.trim()) {
+        return
+    }
 
-    const results = await searchFiles({
+    var results = await searchFiles({
         path: currentPath,
-        query,
-        querytype: searchOptions.matchType as any,
-        filetype: searchOptions.fileType as any,
+        query: query,
+        searchType: searchOptions.matchType,
+        fileType: searchOptions.fileType,
         depth: searchOptions.depth,
-    });
+    })
 
-    allFiles = Array.isArray(results.matches) ? results.matches : [];
+    var matches: FileMetadata[] = []
+    if (results.matches && Array.isArray(results.matches)) {
+        matches = results.matches
+    }
+    allFiles = matches
+
     if (allFiles.length === 0) {
-        logWarning(`Search did not return any results`);
+        logWarning(`performSearch: no results for ${query}`)
     }
-    isSearchResults = true;
-    currentPage = 1;
-    renderPage();
+    isSearchResults = true
+    if (dirPagination) {
+        dirPagination.setPage(1)
+    }
+    renderPage()
 }
-
-// Enter key triggers search
-searchInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") {
-        e.preventDefault();
-        performSearch(searchInput.value);
-    }
-});
-
-// Search button click triggers search
-searchBtn.addEventListener("click", () => {
-    performSearch(searchInput.value);
-});
-
-// Clear search resets listing
-clearSearchBtn.addEventListener("click", async () => {
-    allFiles = await fetchFiles({ path: currentPath });
-    isSearchResults = false;
-    currentPage = 1;
-    renderPage();
-    searchInput.value = "";
-});
-
-searchCog.addEventListener("click", () => {
-    showModal({
-        message: "Search options",
-        confirmText: "Save",
-        cancelText: "Cancel",
-        selects: [
-            {
-                id: "select-query-type",
-                label: "Match Type",
-                options: ["contains", "exact", "prefix", "suffix"],
-                default: searchOptions.matchType,
-            },
-            {
-                id: "select-file-type",
-                label: "File Type",
-                options: ["all", "file", "directory"],
-                default: searchOptions.fileType,
-            }
-        ],
-        inputs: [
-            {
-                id: "input-depth",
-                label: "Depth of search",
-                placeholder: "10",
-                default: searchOptions.depth.toString(),
-            }
-        ],
-        onConfirm: (_inputValue, _checkboxValues, selectValues, inputValues) => {
-            // Save selected values globally
-            searchOptions.matchType = (selectValues?.["select-query-type"] ?? "contains") as typeof searchOptions.matchType;
-            searchOptions.fileType = (selectValues?.["select-file-type"] ?? "all") as typeof searchOptions.fileType;
-
-            let parsedDepth = parseInt(inputValues?.["input-depth"] ?? "10", 10);
-            if (isNaN(parsedDepth) || parsedDepth < 0) {
-                alert("Depth must be a non-negative number.");
-                return false; // prevent modal from closing
-            }
-            searchOptions.depth = parsedDepth;
-            return true; // close modal
-        }
-    });
-});
-
-// Add row count dropdown
-const rowSelect = document.getElementById("rows-select") as HTMLSelectElement;
-let pageSize = parseInt(rowSelect.value, 10); // initialize from selection
-
-// Update pageSize when user changes selection
-rowSelect.addEventListener("change", () => {
-    pageSize = parseInt(rowSelect.value, 10);
-    currentPage = 1; // reset to first page
-    renderPage();
-});
-
-// Update your existing pagination prev/next buttons
-prevButton.addEventListener("click", () => {
-    if (currentPage > 1) {
-        currentPage--;
-        renderPage();
-    }
-});
-nextButton.addEventListener("click", () => {
-    const totalPages = Math.ceil(allFiles.length / pageSize);
-    if (currentPage < totalPages) {
-        currentPage++;
-        renderPage();
-    }
-});
-
-const refreshBtn = document.getElementById("refresh-btn") as HTMLButtonElement;
-refreshBtn.addEventListener("click", async () => {
-    // Reload the directory list
-    allFiles = await fetchFiles({ path: currentPath });
-    isSearchResults = false;
-    renderPage();
-});
 
 // Render table page
 function renderPage(): void {
-    tableBody.innerHTML = "";
-    const totalPages = Math.max(1, Math.ceil(allFiles.length / pageSize));
-    if (currentPage > totalPages) currentPage = totalPages;
+    tableBody.innerHTML = ""
+    var currentPage = 1
+    var pageSize = 10
+    if (dirPagination) {
+        currentPage = dirPagination.getPage()
+        pageSize = dirPagination.getPageSize()
+    }
 
-    const pageFiles = allFiles.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+    var pageFiles = allFiles.slice((currentPage - 1) * pageSize, currentPage * pageSize)
 
-    pageFiles.forEach(file => {
-        const row = document.createElement("tr");
+    for (var pageFileIndex = 0; pageFileIndex < pageFiles.length; pageFileIndex++) {
+        const pageFileItem = pageFiles[pageFileIndex];
+        if (pageFileItem == null) {
+            continue
+        }
+        const pageFile = pageFileItem;
+        var row = document.createElement("tr")
 
-        // Name cell
-        const nameCell = document.createElement("td");
-        const isSearchResult = !file.path.startsWith(normalizePath(currentPath + "/"));
-        const displayName = isSearchResults
-            ? file.path            // full path for search results
-            : file.path.split("/").filter(Boolean).pop() || file.path;  // just name for normal listing
+        var nameCell = document.createElement("td")
+        var displayName: string
+        if (isSearchResults) {
+            displayName = pageFile.path
+        } else {
+            var filePathParts = pageFile.path.split("/")
+            var nonEmptyParts: string[] = []
+            for (var filePathPartIndex = 0; filePathPartIndex < filePathParts.length; filePathPartIndex++) {
+                const fp = filePathParts[filePathPartIndex]
+                if (fp) {
+                    nonEmptyParts.push(fp)
+                }
+            }
+            var parts = nonEmptyParts
+            if (parts.length > 0) {
+                const lastPart = parts[parts.length - 1]
+                if (lastPart) {
+                    displayName = lastPart
+                } else {
+                    displayName = pageFile.path
+                }
+            } else {
+                displayName = pageFile.path
+            }
+        }
 
-        const link = document.createElement("span");
-        link.textContent = displayName;
-        link.style.cursor = "pointer";
-        link.classList.add("breadcrumb-segment");
-        if (file.type === "directory") link.classList.add("directory");
+        var link = document.createElement("span")
+        link.textContent = displayName
+        link.style.cursor = "pointer"
+        link.classList.add("breadcrumb-segment")
+        if (pageFile.type === "directory") {
+            link.classList.add("directory")
+        }
 
         link.addEventListener("click", async () => {
-            if (file.type === "directory") {
-                await loadDirectory(normalizePath(file.path));
+            if (pageFile.type === "directory") {
+                await loadDirectory(normalizePath(pageFile.path))
             } else {
-                window.location.href = `/file.html?path=${encodeURIComponent(normalizePath(file.path))}`;
+                window.location.href = `/file.html?path=${encodeURIComponent(normalizePath(pageFile.path))}`
             }
-        });
+        })
 
-        nameCell.appendChild(link);
-        row.appendChild(nameCell);
+        nameCell.appendChild(link)
+        row.appendChild(nameCell)
 
-        // Other cells
-        row.appendChild(createCell(file.permissions));
-        row.appendChild(createCell(file.ownerName));
-        row.appendChild(createCell(file.groupName));
-        row.appendChild(
-            createCell(file.size === 0 || file.size == null ? "-" : file.size.toString())
-        );
-        row.appendChild(createCell(file.lastModified == null ? "-" : file.lastModified))
+        row.appendChild(createCell(pageFile.permissions))
+        row.appendChild(createCell(pageFile.ownerName))
+        row.appendChild(createCell(pageFile.groupName))
 
-        // Actions cell
-        const actionsCell = document.createElement("td");
-        actionsCell.classList.add("actions-cell");
+        var sizeText: string
+        if (pageFile.size === 0 || pageFile.size == null) {
+            sizeText = "-"
+        } else {
+            sizeText = pageFile.size.toString()
+        }
+        row.appendChild(createCell(sizeText))
 
-        const moveBtn = document.createElement("button");
-        moveBtn.textContent = "Move";
-        moveBtn.classList.add("btn", "btn-move");
+        var modifiedText: string
+        if (pageFile.lastModified == null) {
+            modifiedText = "-"
+        } else {
+            modifiedText = pageFile.lastModified
+        }
+        row.appendChild(createCell(modifiedText))
+
+        var actionsCell = document.createElement("td")
+        actionsCell.classList.add("actions-cell")
+
+        var moveBtn = document.createElement("button")
+        moveBtn.textContent = "Move"
+        moveBtn.classList.add("btn", "btn-move")
         moveBtn.onclick = () => {
             showModal({
-                message: `Move/Copy '${file.path}' to:`,
+                message: `Move/Copy '${pageFile.path}' to:`,
                 inputPlaceholder: "Destination path",
                 confirmText: "Submit",
                 cancelText: "Cancel",
@@ -375,149 +425,207 @@ function renderPage(): void {
                     { id: "overwriteDestination", label: "Overwrite destination", default: false }
                 ],
                 onConfirm: async (inputValue, checkboxValues) => {
-                    if (!inputValue) return;
+                    if (!inputValue) {
+                        return
+                    }
+
+                    var deleteSource = false
+                    var overwriteDestination = false
+                    if (checkboxValues) {
+                        if (checkboxValues.deleteSource) {
+                            deleteSource = true
+                        }
+                        if (checkboxValues.overwriteDestination) {
+                            overwriteDestination = true
+                        }
+                    }
 
                     await moveEntry({
-                        sourcePath: file.path,
+                        sourcePath: pageFile.path,
                         destinationPath: inputValue,
-                        deleteSource: checkboxValues?.deleteSource ?? false,
-                        overwriteDestination: checkboxValues?.overwriteDestination ?? false
-                    });
+                        deleteSource: deleteSource,
+                        overwriteDestination: overwriteDestination
+                    })
 
-                    // Refresh directory listing
-                    allFiles = await fetchFiles({ path: currentPath });
-                    renderPage();
+                    await refreshDirectoryListing()
                 }
-            });
-        };
+            })
+        }
 
-        const delBtn = document.createElement("button");
-        delBtn.textContent = "Delete";
-        delBtn.className = "btn";
+        var delBtn = document.createElement("button")
+        delBtn.textContent = "Delete"
+        delBtn.className = "btn"
         delBtn.onclick = () => {
-            const fileName = file.path.split("/").pop()!;
+            var pathParts = pageFile.path.split("/")
+            var fileName = ""
+            if (pathParts.length > 0) {
+                const lastPart = pathParts[pathParts.length - 1]
+                if (lastPart) {
+                    fileName = lastPart
+                }
+            }
+
+            var checkboxes: { id: string; label: string; default: boolean }[] = []
+            if (pageFile.type === "directory") {
+                checkboxes = [{ id: "recursive", label: "Recursive", default: false }]
+            }
 
             showModal({
-                message: `Confirm deletion of '${file.path}':`,
-                inputPlaceholder: `Type '${fileName}' to confirm`, // always require name input
-                checkboxes: file.type === "directory"
-                    ? [{ id: "recursive", label: "Recursive", default: false }]
-                    : [],
+                message: `Confirm deletion of '${pageFile.path}':`,
+                inputPlaceholder: `Type '${fileName}' to confirm`,
+                checkboxes: checkboxes,
                 confirmText: "Delete",
                 cancelText: "Cancel",
                 onConfirm: async (inputValue, checkboxValues) => {
                     if (inputValue !== fileName) {
-                        alert("Name does not match. Deletion cancelled.");
-                        return;
+                        logWarning("Name does not match. Deletion cancelled.")
+                        return
                     }
 
-                    // For this modal, only one checkbox exists (if directory)
-                    const recursive = checkboxValues?.[0] ?? false;
+                    var recursive = false
+                    if (checkboxValues && checkboxValues["recursive"]) {
+                        recursive = true
+                    }
 
-                    const res = await deleteEntry({
-                        path: file.path,
-                        type: file.type,
-                        recursive,
-                    });
+                    var res = await deleteEntry({
+                        path: pageFile.path,
+                        type: pageFile.type,
+                        recursive: recursive,
+                    })
 
                     if (isErr(res)) {
-                        logError(`Failed to delete '${file.path}': ${res.error}`, false);
+                        logError(`renderPage: delete ${pageFile.path}: ${res.error}`, false)
                     } else {
-                        allFiles = allFiles.filter(f => f.path !== file.path);
-                        renderPage();
+                        var filtered: FileMetadata[] = []
+                        for (var fileIndex = 0; fileIndex < allFiles.length; fileIndex++) {
+                            const af = allFiles[fileIndex]
+                            if (af && af.path !== pageFile.path) {
+                                filtered.push(af)
+                            }
+                        }
+                        allFiles = filtered
+                        renderPage()
                     }
                 },
-            });
-        };
+            })
+        }
 
-        actionsCell.appendChild(moveBtn);
-        actionsCell.appendChild(delBtn);
-        row.appendChild(actionsCell);
+        actionsCell.appendChild(moveBtn)
+        actionsCell.appendChild(delBtn)
+        row.appendChild(actionsCell)
 
-        tableBody.appendChild(row);
-    });
+        tableBody.appendChild(row)
+    }
 
-    updatePathHeader();
+    updatePathHeader()
 
-    prevButton.disabled = currentPage === 1;
-    nextButton.disabled = currentPage === totalPages;
-    paginationInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+    if (dirPagination) {
+        dirPagination.refresh()
+    }
 }
 function createCell(content: string): HTMLTableCellElement {
-    const td = document.createElement("td");
-    td.textContent = content;
-    return td;
+    const td = document.createElement("td")
+    td.textContent = content
+    return td
 }
 
 // Breadcrumb
 function updatePathHeader() {
-    pathHeader.innerHTML = "";
-    const segments = currentPath.split("/").filter(Boolean);
+    pathHeader.innerHTML = ""
+    var pathSegments = currentPath.split("/")
+    var segments: string[] = []
+    for (var segmentIndex = 0; segmentIndex < pathSegments.length; segmentIndex++) {
+        const segItem = pathSegments[segmentIndex]
+        if (segItem) {
+            segments.push(segItem)
+        }
+    }
 
-    const rootLink = document.createElement("span");
-    rootLink.textContent = "/";
-    rootLink.classList.add("breadcrumb-segment");
-    rootLink.addEventListener("click", async () => await loadDirectory("/"));
-    pathHeader.appendChild(rootLink);
+    var rootLink = document.createElement("span")
+    rootLink.textContent = "/"
+    rootLink.classList.add("breadcrumb-segment")
+    rootLink.addEventListener("click", async () => {
+        try {
+            await loadDirectory("/")
+        } catch (err) {
+            logError(`updatePathHeader: loadDirectory '/': ${(err as Error).message}`, false)
+        }
+    })
+    pathHeader.appendChild(rootLink)
 
-    let builtPath = "";
-    segments.forEach((seg, idx) => {
-        const sep = document.createElement("span");
-        sep.textContent = idx > 0 ? " / " : " ";
-        sep.classList.add("breadcrumb-separator");
-        pathHeader.appendChild(sep);
+    var builtPath = ""
+    for (var segIndex = 0; segIndex < segments.length; segIndex++) {
+        const segItem = segments[segIndex];
+        if (segItem == null) {
+            continue
+        }
+        const seg = segItem;
+        const segPath = normalizePath(`${builtPath}/${seg}`);
+        var sep = document.createElement("span")
+        if (segIndex > 0) {
+            sep.textContent = " / "
+        } else {
+            sep.textContent = " "
+        }
+        sep.classList.add("breadcrumb-separator")
+        pathHeader.appendChild(sep)
 
-        const segLink = document.createElement("span");
-        segLink.textContent = seg;
-        segLink.classList.add("breadcrumb-segment");
+        var segLink = document.createElement("span")
+        segLink.textContent = seg
+        segLink.classList.add("breadcrumb-segment")
 
-        const segPath = normalizePath(builtPath + "/" + seg);
-        segLink.addEventListener("click", async () => await loadDirectory(segPath));
+        segLink.addEventListener("click", async () => {
+            try {
+                await loadDirectory(segPath)
+            } catch (err) {
+                logError(`updatePathHeader: loadDirectory '${segPath}': ${(err as Error).message}`, false)
+            }
+        })
 
-        pathHeader.appendChild(segLink);
+        pathHeader.appendChild(segLink)
 
-        builtPath += "/" + seg;
-    });
+        builtPath += `/${seg}`
+    }
 
-    const copyBtn = document.createElement("button");
-    copyBtn.textContent = "📋";
-    copyBtn.classList.add("btn");
-    copyBtn.title = "Copy full path";
+    var copyBtn = document.createElement("button")
+    copyBtn.textContent = "📋"
+    copyBtn.classList.add("btn")
+    copyBtn.title = "Copy full path"
 
     copyBtn.addEventListener("click", async (e) => {
-        try {
-            await navigator.clipboard.writeText(currentPath);
-
-            // Copy success feedback
-            const check = document.createElement("span");
-            check.textContent = "✔";
-            check.style.position = "fixed";
-            check.style.left = `${e.clientX}px`;
-            check.style.top = `${e.clientY}px`;
-            check.style.transform = "translate(-50%, -50%)";
-            check.style.color = "#4caf50";
-            check.style.fontSize = "1.6rem";
-            check.style.pointerEvents = "none";
-            check.style.opacity = "1";
-            check.style.transition = "opacity 0.5s ease, transform 0.5s ease";
-            document.body.appendChild(check);
-
-            // Animate: float up and fade out
-            requestAnimationFrame(() => {
-                check.style.transform = "translate(-50%, -80%)";
-                check.style.opacity = "0";
-            });
-
-            // Remove after animation
-            setTimeout(() => check.remove(), 1000);
-        } catch (err) {
-            logError("Failed to copy path to clipboard: " + err, false)
+        var copyResult = await safeCopyToClipboard(currentPath)
+        if (isErr(copyResult)) {
+            logError(`updatePath: copy path: ${copyResult.error}`, false)
+            return
         }
-    });
-    pathHeader.appendChild(copyBtn);
+
+        var check = document.createElement("span")
+        check.textContent = "✔"
+        check.style.position = "fixed"
+        check.style.left = `${e.clientX}px`
+        check.style.top = `${e.clientY}px`
+        check.style.transform = "translate(-50%, -50%)"
+        check.style.color = "#4caf50"
+        check.style.fontSize = "1.6rem"
+        check.style.pointerEvents = "none"
+        check.style.opacity = "1"
+        check.style.transition = "opacity 0.5s ease, transform 0.5s ease"
+        document.body.appendChild(check)
+
+        // Animate: float up and fade out
+        requestAnimationFrame(() => {
+            check.style.transform = "translate(-50%, -80%)"
+            check.style.opacity = "0"
+        })
+
+        setTimeout(() => check.remove(), 1000)
+    })
+    pathHeader.appendChild(copyBtn)
 }
 
 // Init
-initVersionInfo();
-initRepoDropdown();
-loadDirectory(currentPath);
+window.addEventListener("DOMContentLoaded", () => {
+    initDirUI()
+    initPage()
+    loadDirectory(currentPath)
+})

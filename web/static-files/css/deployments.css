@@ -89,7 +89,8 @@
   gap: 1.5rem;
 }
 
-.deploy-inputs label {
+.deploy-inputs label,
+.deploy-inputs div {
   font-size: 0.95rem;
   display: flex;
   flex-direction: column;

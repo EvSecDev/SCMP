@@ -359,7 +359,9 @@ This distribution includes third-party software components.
 			fmt.Fprintf(&licenseSection, "[License ID: %s]\n", hash)
 		} else {
 			licenseSection.WriteString("License text identical to:\n")
-			licenseSection.WriteString("  " + seenModule + "\n")
+			licenseSection.WriteString("  ")
+			licenseSection.WriteString(seenModule)
+			licenseSection.WriteString("\n")
 			fmt.Fprintf(&licenseSection, "[License ID: %s]\n", hash)
 		}
 
