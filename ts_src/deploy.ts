@@ -14,6 +14,18 @@ function escapeHtml(s: string): string {
     return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;")
 }
 
+function resetDeploymentSummary() {
+    var summaryEl = document.getElementById("deploy-summary")
+    if (summaryEl) {
+        summaryEl.classList.add("hidden")
+    }
+
+    var outputEl = document.querySelector(".deploy-output") as HTMLElement | null
+    if (outputEl) {
+        outputEl.textContent = "Loading deployment output..."
+    }
+}
+
 async function handleDeployClick() {
     var result: Result<void>
     var deployBtnResult = mustQuerySelector<HTMLButtonElement>(".deploy-final-btn")
@@ -34,6 +46,9 @@ async function handleDeployClick() {
 
     deployBtn.disabled = true
     spinner.classList.remove("hidden")
+
+    // Reset stale summary from previous deployment to initial page-load state
+    resetDeploymentSummary()
 
     var errorOccurred = false
 

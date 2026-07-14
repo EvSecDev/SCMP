@@ -200,9 +200,11 @@ export async function showModal(options: ModalOptions) {
         confirmBtn.classList.add("single-confirm");
     }
 
-    modal.classList.remove("hidden");
+    // Remove old keyboard handler if present, then attach new one
+    modal.removeEventListener("keydown", modalKeydownHandler)
+    modal.addEventListener("keydown", modalKeydownHandler as EventListener)
 
-    confirmBtn.onclick = () => {
+    var handleConfirm = () => {
         var inputValue: string | undefined
         if (inputElem && !inputElem.classList.contains("hidden")) {
             inputValue = inputElem.value.trim()
@@ -267,10 +269,35 @@ export async function showModal(options: ModalOptions) {
         }
     };
 
-    cancelBtn.onclick = () => {
+    var handleCancel = () => {
         if (options.onCanceled) {
             options.onCanceled();
         }
         modal.classList.add("hidden");
     };
+
+    confirmBtn.onclick = handleConfirm;
+    cancelBtn.onclick = handleCancel;
+
+    modal.classList.remove("hidden");
+
+    if (inputElem && !inputElem.classList.contains("hidden")) {
+        inputElem.focus();
+    }
+}
+
+function modalKeydownHandler(e: KeyboardEvent) {
+    if (e.key === "Enter") {
+        e.preventDefault();
+        var confirmBtn = document.getElementById("modal-confirm")
+        if (confirmBtn) {
+            confirmBtn.click();
+        }
+    } else if (e.key === "Escape") {
+        e.preventDefault();
+        var cancelBtn = document.getElementById("modal-cancel")
+        if (cancelBtn && !cancelBtn.classList.contains("hidden")) {
+            cancelBtn.click();
+        }
+    }
 }
