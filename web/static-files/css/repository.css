@@ -33,6 +33,25 @@
   text-align: left;
 }
 
+.unstaged-panel,
+.staged-panel {
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.unstaged-panel .git-file-list,
+.staged-panel .git-file-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.unstaged-panel .btn,
+.staged-panel .btn {
+  width: max-content;
+}
+
 /* ---------- File List ---------- */
 .git-file-list,
 .file-list {
