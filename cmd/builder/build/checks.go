@@ -221,6 +221,7 @@ func runStaticAnalysis(ctx *context) (err error) {
 			return
 		}
 	}
+	fmt.Printf("    [+] Passed Lint Check 'staticcheck'\n")
 
 	// Lint 2
 	cmd = exec.Command("go", "vet", "./...")
@@ -229,6 +230,7 @@ func runStaticAnalysis(ctx *context) (err error) {
 		err = fmt.Errorf("go vet: %w\n%s", err, string(out))
 		return
 	}
+	fmt.Printf("    [+] Passed Lint Check 'go vet'\n")
 
 	// Lint 3
 	cmd = exec.Command("golangci-lint", "run", "--allow-parallel-runners")
@@ -237,6 +239,7 @@ func runStaticAnalysis(ctx *context) (err error) {
 		err = fmt.Errorf("golangci-lint: %w\n%s", err, string(out))
 		return
 	}
+	fmt.Printf("    [+] Passed Lint Check 'golangci-lint'\n")
 
 	// Typescript Lint
 	err = lintTypeScript(ctx)
@@ -244,6 +247,15 @@ func runStaticAnalysis(ctx *context) (err error) {
 		err = fmt.Errorf("typescript lint: %w\n%s", err, string(out))
 		return
 	}
+	fmt.Printf("    [+] Passed Lint Check 'typescript'\n")
+
+	// Lint 4 - CSS and HTML
+	err = lintCSSAndHTML(ctx)
+	if err != nil {
+		err = fmt.Errorf("css/html lint: %w\n%s", err, string(out))
+		return
+	}
+	fmt.Printf("    [+] Passed Lint Check 'css/html'\n")
 
 	printSuccess(0, "Done")
 	return

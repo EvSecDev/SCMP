@@ -119,8 +119,11 @@ function renderTree(
         } else {
             label.className = "tree-branch"
         }
+        row.appendChild(label);
+
         if (isLeaf && node.fullPath) {
-            label.onclick = () => {
+            row.className += " tree-leaf-row"
+            row.onclick = () => {
                 var apiPath = node.fullPath
                 if (apiPath == null) {
                     apiPath = getFullPath(node)
@@ -130,8 +133,13 @@ function renderTree(
                     showDetails(api, detailsEl)
                 }
             }
+        } else if (hasChildren) {
+            row.className += " tree-branch-row"
+            row.onclick = () => {
+                node.expanded = !node.expanded
+                renderTree(container, detailsEl, filter)
+            }
         }
-        row.appendChild(label);
 
         li.appendChild(row);
 

@@ -1,71 +1,85 @@
-body {
-  font-family: Arial, sans-serif;
-  background-color: #121212;
-  color: #fff;
-  display: flex;
-  overflow: hidden;
-  margin: 0;
-  height: 100vh;
-}
-
-.sidebar {
+/* Sidebar overrides for API browser (main.css provides base) */
+.api-sidebar {
   width: 200px;
   background-color: #1f1f1f;
   height: 100vh;
-  padding: 20px 10px;
   box-shadow: 2px 0 5px rgba(0, 0, 0, 0.5);
   flex-shrink: 0;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  padding: 1rem 0.5rem;
+  justify-content: flex-start;
 }
 
-.sidebar h3 {
-  margin: 0 0 1em 0;
+.api-sidebar h3 {
+  margin: 0;
   color: #bbb;
   font-size: 18px;
+  padding: 0.5rem 0;
 }
 
-.sidebar ul {
+.api-sidebar > ul {
   list-style: none;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  margin: 0;
   padding: 0;
+  gap: 1px;
+}
+
+.api-sidebar ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
   margin: 0;
 }
 
-.sidebar li {
-  margin: 0.5em 0;
-  cursor: pointer;
-  padding: 0.4em;
-  border-radius: 4px;
-  color: #bbb;
-  font-size: 16px;
+.api-sidebar ul ul {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 0 0 0.5em;
+  border-left: 1px solid #333;
+  gap: 1px;
 }
 
-.sidebar li:hover {
+.api-sidebar li {
+  margin: 0;
+  padding: 0;
+  color: #bbb;
+  font-size: 15px;
+}
+
+.api-sidebar li:hover {
   background-color: #2a2a2a;
   color: #fff;
 }
 
 .details {
-  padding: 1em 2em;
+  padding: 2rem;
   flex: 1;
   overflow-y: auto;
+  max-height: 100vh;
 }
 
-.panel {
-  background-color: #1e1e1e;
-  border: 1px solid #333;
-  border-radius: 6px;
-  padding: 1em;
-  margin-bottom: 1.5em;
+.details > * {
+  margin-bottom: 1rem;
+}
+
+.api-panel {
+  margin-bottom: 2rem;
   box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
+  padding: 1rem 1.5rem;
+  background-color: #1f1f1f;
+  border-radius: 0.5rem;
 }
 
-.panel h4 {
+.api-panel h4 {
   color: #ddd;
   border-bottom: 1px solid #333;
-  padding-bottom: 0.3em;
-  margin-bottom: 0.8em;
+  padding-bottom: 0.5em;
+  margin-bottom: 1em;
 }
 
 .method-header {
@@ -77,12 +91,8 @@ body {
 }
 
 .search {
-  margin-bottom: 10px;
-  background: #2a2a2a;
-  border: 1px solid #444;
-  color: #fff;
-  padding: 6px;
-  border-radius: 4px;
+  width: 100%;
+  margin-bottom: 1rem;
 }
 
 textarea {
@@ -92,35 +102,34 @@ textarea {
   border: 1px solid #444;
   padding: 0.6em;
   font-family: monospace;
-  resize: vertical;
   border-radius: 4px;
   box-sizing: border-box;
   min-height: 10em;
-  max-height: 40em;
+  max-height: var(--text-area-max-height);
   overflow-y: auto;
   resize: none;
 }
 
-table {
+.details table {
   width: 100%;
   border-collapse: collapse;
   margin-bottom: 1em;
 }
 
-table th,
-table td {
+.details table th,
+.details table td {
   border: 1px solid #333;
   padding: 0.5em;
   font-size: 0.95em;
   text-align: left;
 }
 
-table th {
+.details table th {
   background-color: #2c2c2c;
   color: #ccc;
 }
 
-table td {
+.details table td {
   background-color: #1a1a1a;
   color: #eee;
 }
@@ -134,47 +143,45 @@ h2 {
   color: #ffffff;
   border-bottom: 1px solid #333;
   padding-bottom: 0.4em;
+  margin-top: 1.5em;
+  margin-bottom: 1em;
 }
 
 em {
   color: #aaaaaa;
 }
 
-.sidebar ul {
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-.sidebar li {
-  margin: 0.2em 0;
-  padding: 0.2em 0.4em;
-  color: #bbb;
-  font-size: 15px;
-}
-
-.sidebar li:hover {
-  background-color: #2a2a2a;
-  color: #fff;
-}
-
-.sidebar ul ul {
-  padding-left: 0.5em;
-  border-left: 1px solid #333;
-}
-
 .tree-row {
   display: flex;
   align-items: center;
-  padding: 2px 4px;
-  gap: 6px;
+  padding: 4px 5px;
+  gap: 4px;
+  border-radius: 3px;
+  transition: background-color 0.2s;
+  cursor: default;
+  user-select: none;
   color: #bbb;
 }
 
-.tree-row:hover {
+.tree-row.tree-leaf-row {
+  cursor: pointer;
+}
+
+.tree-row.tree-branch-row {
+  cursor: pointer;
+}
+
+.tree-row:hover,
+.tree-row.tree-leaf-row:focus-visible,
+.tree-row.tree-branch-row:focus-visible {
   background-color: #2a2a2a;
   color: #fff;
+}
+
+.tree-row:focus-visible,
+.tree-toggle:focus-visible {
+  outline: 2px solid #4ea1f3;
+  outline-offset: -1px;
 }
 
 .tree-toggle {
@@ -188,7 +195,7 @@ em {
 }
 
 .tree-leaf {
-  cursor: pointer;
+  cursor: default;
 }
 
 .tree-branch {
@@ -196,36 +203,15 @@ em {
 }
 
 .sidebar-return {
-  margin-bottom: 1rem;
+  margin-bottom: 0;
 }
 
-.sidebar a {
+.api-sidebar a {
   color: #dddddd;
   text-decoration: none;
   font-size: 14px;
 }
 
-.sidebar a:hover {
-  color: #fff;
-}
-
-.sidebar-footer {
-  padding: 15px 20px;
-  font-size: 12px;
-  color: #777;
-  border-top: 1px solid #333;
-}
-
-.sidebar-footer div {
-  margin-bottom: 6px;
-}
-
-.sidebar-footer a {
-  color: #888;
-  text-decoration: none;
-  font-size: 12px;
-}
-
-.sidebar-footer a:hover {
+.api-sidebar a:hover {
   color: #fff;
 }

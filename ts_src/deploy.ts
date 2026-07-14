@@ -1,6 +1,6 @@
 import { isErr } from "./lib/result.js"
 import type { Result } from "./lib/result.js"
-import { getElement, mustQuerySelector } from "./lib/dom/lookup.js"
+import { getElement } from "./lib/dom/lookup.js"
 import { getJSONViaJSON } from "./lib/rpc/client.js"
 import { logError, logWarning } from "./lib/logging/log.js"
 import { initPage } from "./lib/init/page.js"
@@ -20,7 +20,7 @@ function resetDeploymentSummary() {
         summaryEl.classList.add("hidden")
     }
 
-    var outputEl = document.querySelector(".deploy-output") as HTMLElement | null
+    var outputEl = getElement("deploy-output") as HTMLElement | null
     if (outputEl) {
         outputEl.textContent = "Loading deployment output..."
     }
@@ -28,21 +28,17 @@ function resetDeploymentSummary() {
 
 async function handleDeployClick() {
     var result: Result<void>
-    var deployBtnResult = mustQuerySelector<HTMLButtonElement>(".deploy-final-btn")
-    if (isErr(deployBtnResult)) {
-        logError(`handleDeploy: ${deployBtnResult.error}`, false)
-        result = { ok: false, error: deployBtnResult.error }
+    var deployBtn = getElement("deploy-btn") as HTMLButtonElement | null
+    if (!deployBtn) {
+        result = { ok: false, error: "handleDeploy: deploy-btn not found" }
         return result
     }
-    var deployBtn = deployBtnResult.value
 
-    const spinnerResult = mustQuerySelector<HTMLDivElement>(".deploy-btn-wrapper .spinner")
-    if (isErr(spinnerResult)) {
-        logError(`handleDeploy: ${spinnerResult.error}`, false)
-        result = { ok: false, error: spinnerResult.error }
+    var spinner = getElement("deploy-spinner") as HTMLDivElement | null
+    if (!spinner) {
+        result = { ok: false, error: "handleDeploy: deploy-spinner not found" }
         return result
     }
-    var spinner = spinnerResult.value
 
     deployBtn.disabled = true
     spinner.classList.remove("hidden")
@@ -122,13 +118,11 @@ async function handleDeployClick() {
 
 async function pollDeploymentStatus(reqID: string): Promise<Result<void>> {
     var result: Result<void>
-    var abortBtnResult = mustQuerySelector<HTMLButtonElement>(".deploy-abort-btn")
-    if (isErr(abortBtnResult)) {
-        logError(`pollDeploymentStatus: ${abortBtnResult.error}`, false)
-        result = { ok: false, error: abortBtnResult.error }
+    var abortBtn = getElement("deploy-abort-btn") as HTMLButtonElement | null
+    if (!abortBtn) {
+        result = { ok: false, error: "pollDeploymentStatus: deploy-abort-btn not found" }
         return result
     }
-    var abortBtn = abortBtnResult.value
     var aborted = false
     var abortHandler = async () => {
         var res = await getJSONViaJSON<DeployAbort, NilSuccess>("deployment.abort", { deploymentID: reqID, stopRequested: true })
@@ -145,6 +139,10 @@ async function pollDeploymentStatus(reqID: string): Promise<Result<void>> {
 
     return new Promise<Result<void>>((resolve) => {
         var poll = async () => {
+            if (!abortBtn) {
+                resolve({ ok: false, error: "pollDeploymentStatus: abortBtn lost" })
+                return
+            }
             if (aborted) {
                 abortBtn.setAttribute("disabled", "")
                 abortBtn.removeEventListener("click", abortHandler)
@@ -279,7 +277,7 @@ async function askUser(prompts: PromptReq[]): Promise<string> {
 
 async function fetchDeploymentOutput(reqID: string): Promise<Result<void>> {
     var result: Result<void>
-    var outputEl = document.querySelector(".deploy-output") as HTMLElement | null
+    var outputEl = getElement("deploy-output") as HTMLElement | null
     if (!outputEl) {
         result = { ok: false, error: "fetchDeploymentOutput: .deploy-output not found" }
         return result
@@ -456,8 +454,8 @@ window.addEventListener("DOMContentLoaded", () => {
 
     setupOverrideHostsDropdown()
 
-    const deployFinalBtn = document.querySelector(".deploy-final-btn")
-    if (deployFinalBtn instanceof HTMLButtonElement) {
+    const deployFinalBtn = getElement("deploy-btn") as HTMLButtonElement | null
+    if (deployFinalBtn) {
         deployFinalBtn.addEventListener("click", handleDeployClick)
     }
 })

@@ -38,7 +38,6 @@
 }
 
 .box-btn-group {
-  display: flex;
   gap: 10px;
   margin-left: auto;
 }
@@ -126,21 +125,6 @@
   overflow: auto;
 }
 
-/* Base button styling */
-.edit-btn {
-  user-select: none;
-  padding: 0.4rem 0.8rem;
-  border-radius: 0.25rem;
-  font-weight: bold;
-  text-decoration: none;
-  cursor: pointer;
-  border: none;
-  font-size: 0.9rem;
-  transition: background-color 0.2s, color 0.2s;
-  color: #fff;
-}
-
-/* Edit mode (blue) */
 .edit-btn.edit-mode {
   background-color: #3a76f0;
 }
@@ -149,7 +133,6 @@
   background-color: #5591f5;
 }
 
-/* Save mode (green) */
 .edit-btn.save-mode {
   background-color: #3ac47d;
 }
@@ -158,22 +141,10 @@
   background-color: #55d191;
 }
 
-.edit-btn.edit-mode,
-.edit-btn.save-mode {
-  border: 1px solid #555;
-}
-
 .cancel-btn {
-  user-select: none;
-  padding: 0.4rem 0.8rem;
-  border-radius: 0.25rem;
-  font-weight: bold;
-  font-size: 0.9rem;
-  cursor: pointer;
   background-color: transparent;
   color: #ccc;
   border: 1px solid #555;
-  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
 }
 
 .cancel-btn:hover {

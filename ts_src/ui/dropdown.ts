@@ -10,8 +10,7 @@ import type { RepoList, HostList } from "../types/settings.js"
 export async function initRepoDropdown() {
     const selectResult = mustElement<HTMLSelectElement>(id("repo-select"))
     if (isErr(selectResult)) {
-        logError(`initRepoDropdown: ${selectResult.error}`, false)
-        return
+        return;
     }
     const repoSelect = selectResult.value
 

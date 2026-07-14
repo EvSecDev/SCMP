@@ -36,10 +36,10 @@
       <div id="version-info">Loading...</div>
       <div id="platform-info">Loading...</div>
       <div id="api-browser">
-        <a href="#" target="_blank">API Browser</a>
+        <a href="/" target="_blank">API Browser</a>
       </div>
       <div id="github-link">
-        <a href="#" target="_blank">GitHub Project Page</a>
+        <a href="/" target="_blank">GitHub Project Page</a>
       </div>
     </div>
   </div>
@@ -50,8 +50,8 @@
     <!-- Setup Panel -->
     <div class="panel-box">
       <h3>Connection Setup</h3>
-      <div class="seed-setup-vertical">
-        <div class="input-group">
+      <div class="seed-setup-vertical flex-col gap-4 mt-2">
+        <div class="input-group flex-col gap-2">
           <label for="host">Host:</label>
 
           <div class="dropdown-multiselect-container">
@@ -63,14 +63,14 @@
 
         </div>
 
-        <div class="input-group">
+        <div class="input-group flex-col gap-2">
           <label for="start-path">Start Path:</label>
           <input type="text" id="start-path" class="modal-input" placeholder="/">
         </div>
 
-        <div class="button-group">
-          <button id="start-btn" class="btn btn-lg">Start</button>
-          <button id="cancel-btn" class="btn btn-lg">Cancel</button>
+        <div class="button-group flex-row gap-2 justify-start">
+          <button id="start-btn" class="btn btn-lg" type="button">Start</button>
+          <button id="cancel-btn" class="btn btn-lg" type="button">Cancel</button>
         </div>
       </div>
     </div>
@@ -87,9 +87,9 @@
         <h3>Staged Selections</h3>
         <ul id="staged-files" class="file-list">
         </ul>
-        <div class="staging-controls">
-          <button id="clear-btn" class="btn">Clear All</button>
-          <button id="submit-btn" class="btn">Submit</button>
+        <div class="staging-controls mt-auto flex-row justify-between pt-1">
+          <button id="clear-btn" class="btn" type="button">Clear All</button>
+          <button id="submit-btn" class="btn" type="button">Submit</button>
         </div>
       </div>
     </div>

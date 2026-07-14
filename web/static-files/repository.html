@@ -36,54 +36,54 @@
       <div id="version-info">Loading...</div>
       <div id="platform-info">Loading...</div>
       <div id="api-browser">
-        <a href="#" target="_blank">API Browser</a>
+        <a href="/" target="_blank">API Browser</a>
       </div>
       <div id="github-link">
-        <a href="#" target="_blank">GitHub Project Page</a>
+        <a href="/" target="_blank">GitHub Project Page</a>
       </div>
     </div>
   </div>
 
   <div class="content">
-    <div class="git-ui-container">
+    <div class="git-ui-container flex-col gap-8">
       <h1>Repository Status</h1>
 
-      <div class="git-panels">
+      <div class="git-panels flex-row flex-wrap gap-8">
         <!-- Unstaged Panel -->
-        <div class="git-panel unstaged-panel">
+        <div class="git-panel card-panel unstaged-panel">
           <h2 class="panel-title">Unstaged Changes</h2>
-          <div class="btn-row">
-            <button class="btn small btn-stage">Stage All</button>
-            <button class="btn small btn-refresh">Refresh</button>
+          <div class="btn-row flex-row justify-between align-center mb-4">
+            <button id="btn-stage-all" class="btn small btn-stage" type="button">Stage All</button>
+            <button id="btn-stage-refresh" class="btn small btn-refresh" type="button">Refresh</button>
           </div>
-          <ul class="git-file-list">
+          <ul id="unstaged-list" class="git-file-list">
             <!-- Dynamic -->
           </ul>
         </div>
 
         <!-- Staged Panel -->
-        <div class="git-panel staged-panel">
+        <div class="git-panel card-panel staged-panel">
           <h2 class="panel-title">Staged Changes</h2>
-          <button class="btn small btn-unstage">Unstage All</button>
-          <ul class="git-file-list">
+          <button id="btn-unstage-all" class="btn small btn-unstage" type="button">Unstage All</button>
+          <ul id="staged-list" class="git-file-list">
             <!-- Dynamic -->
           </ul>
         </div>
       </div>
 
       <!-- Commit Box -->
-      <div class="git-panel commit-box">
+      <div class="git-panel card-panel commit-box">
         <h2 class="panel-title">Create Commit</h2>
         <label for="commit-message" class="commit-label">Commit Message:</label>
-        <textarea id="commit-message" class="commit-textarea" placeholder="Describe your changes..."></textarea>
-        <div class="commit-actions">
-          <button id="commit-button" class="btn" disabled>Commit</button>
-          <button id="commit-deploy-button" class="btn" disabled>Commit and Deploy</button>
+        <textarea id="commit-message" class="commit-textarea input-field" placeholder="Describe your changes..."></textarea>
+        <div class="commit-actions flex-row gap-4">
+          <button id="commit-button" class="btn" type="button" disabled>Commit</button>
+          <button id="commit-deploy-button" class="btn" type="button" disabled>Commit and Deploy</button>
         </div>
       </div>
 
       <!-- Commit History Table -->
-      <div id="commit-history-table" class="table-container">
+      <div id="commit-history-table" class="table-container card-panel">
         <h2 class="table-header">
           <p>Past Commits</p>
 
@@ -115,9 +115,9 @@
 
         <!-- Pagination controls -->
         <div class="pagination">
-          <button class="btn" disabled>&laquo; Prev</button>
+          <button id="pagination-prev" class="btn" type="button" disabled>&laquo; Prev</button>
           <span class="page-info">Page 1 of 1</span>
-          <button class="btn">Next &raquo;</button>
+          <button id="pagination-next" class="btn" type="button">Next &raquo;</button>
         </div>
       </div>
     </div>

@@ -400,7 +400,7 @@ async function init() {
 
     initPage()
 
-    var backBtn = document.querySelector<HTMLAnchorElement>("#file-header .btn")
+    var backBtn = document.querySelector<HTMLButtonElement>("#file-header .btn")
     if (backBtn) {
         backBtn.addEventListener("click", (event) => {
             event.preventDefault()

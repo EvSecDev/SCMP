@@ -1,14 +1,4 @@
-/* Path header / breadcrumbs */
-.path-header {
-  font-weight: bold;
-  margin-bottom: 0.5rem;
-  padding: 0.5rem;
-  background-color: #2a2a2a;
-  border-radius: 0.25rem;
-  color: #fff;
-  font-size: 1rem;
-}
-
+/* Breadcrumbs */
 #current-path {
   font-size: 1.125rem;
   margin-bottom: 0.5rem;
@@ -31,7 +21,8 @@
 }
 
 /* Hover effect */
-.breadcrumb-segment:hover {
+.breadcrumb-segment:hover,
+.breadcrumb-segment:focus-visible {
   background-color: rgba(255, 255, 255, 0.1);
 }
 
@@ -42,18 +33,7 @@
 
 .table-controls {
   flex: 0 0 auto;
-  display: flex;
   gap: 0.5rem;
-}
-
-.deploy-btn-wrapper {
-  position: relative;
-  display: inline-block;
-}
-
-#deploy-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .search-group {
@@ -65,11 +45,6 @@
   gap: 0.5rem;
 }
 
-.search-buttons {
-  display: flex;
-  gap: 0.5rem;
-}
-
 .search-input-wrapper {
   position: relative;
   width: 15vw;
@@ -77,14 +52,9 @@
 
 .search-input {
   width: 100%;
-  padding-right: 2rem;
-  /* room for cog */
-  border-radius: 0.25rem;
-  border: 1px solid #444;
-  background-color: #2a2a2a;
-  color: #fff;
   font-size: 1rem;
   padding: 0.5rem 0.75rem;
+  padding-right: 2rem;
 }
 
 .search-cog {

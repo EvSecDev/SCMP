@@ -1,4 +1,4 @@
-<!DOCTYPE HTML>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -37,10 +37,10 @@
       <div id="version-info">Loading...</div>
       <div id="platform-info">Loading...</div>
       <div id="api-browser">
-        <a href="#" target="_blank">API Browser</a>
+        <a href="/" target="_blank">API Browser</a>
       </div>
       <div id="github-link">
-        <a href="#" target="_blank">GitHub Project Page</a>
+        <a href="/" target="_blank">GitHub Project Page</a>
       </div>
     </div>
   </div>
@@ -48,9 +48,9 @@
   <div class="content">
     <h1>Deploy Configuration</h1>
 
-    <div class="deploy-panel">
+    <div class="deploy-panel card-panel">
       <h2>Deployment Mode</h2>
-      <div class="deploy-mode">
+      <div class="deploy-mode flex-row flex-wrap">
         <input type="radio" name="deploy-mode" id="mode-diff" checked hidden>
         <label for="mode-diff" class="btn toggle-btn">Deploy Changes</label>
 
@@ -62,29 +62,29 @@
       </div>
     </div>
 
-    <div class="deploy-panel">
-      <div class="deploy-options">
-        <div class="deploy-optbox">
-          <div class="optbox-header">
+    <div class="deploy-panel card-panel">
+      <div class="deploy-options flex-row flex-wrap justify-start">
+        <div class="deploy-optbox flex-col">
+          <div class="optbox-header flex-row align-center">
             <h2>Deployment Type</h2>
           </div>
-          <div class="optbox-content">
+          <div class="optbox-content flex-row align-center flex-wrap gap-3">
             <input type="radio" name="opt-type" id="type-preview" checked hidden>
-            <label for="type-preview" class="btn toggle-btn" style="flex-direction: column;">Preview</label>
+            <label for="type-preview" class="btn toggle-btn toggle-btn-col">Preview</label>
 
             <input type="radio" name="opt-type" id="type-test" hidden>
-            <label for="type-test" class="btn toggle-btn" style="flex-direction: column;">Test</label>
+            <label for="type-test" class="btn toggle-btn toggle-btn-col">Test</label>
 
             <input type="radio" name="opt-type" id="type-live" hidden>
-            <label for="type-live" class="btn toggle-btn" style="flex-direction: column;">Live</label>
+            <label for="type-live" class="btn toggle-btn toggle-btn-col">Live</label>
           </div>
         </div>
 
-        <div class="deploy-optbox">
-          <div class="optbox-header">
+        <div class="deploy-optbox flex-col">
+          <div class="optbox-header flex-row align-center">
             <h2>Deployment Options</h2>
           </div>
-          <div class="optbox-content">
+          <div class="optbox-content flex-row align-center flex-wrap gap-3">
             <input type="checkbox" id="opt-allow-deletions" hidden>
             <label for="opt-allow-deletions" class="btn toggle-btn">Allow Deletions</label>
 
@@ -110,14 +110,14 @@
       </div>
     </div>
 
-    <div class="deploy-panel">
+    <div class="deploy-panel card-panel">
       <h2>Configuration Parameters</h2>
-      <div class="deploy-inputs">
+      <div class="deploy-inputs flex-row flex-wrap">
         <label>Commit ID<br>
-          <input id="commitid" type="text" placeholder="e.g. abc123">
+          <input id="commitid" type="text" class="input-field" placeholder="e.g. abc123">
         </label>
         <label>Override Files<br>
-          <input id="overridefiles" type="text" placeholder="e.g. file1,file2">
+          <input id="overridefiles" type="text" class="input-field" placeholder="e.g. file1,file2">
         </label>
         <div>Override Hosts<br>
           <div class="dropdown-multiselect-container">
@@ -128,34 +128,34 @@
           </div>
         </div>
         <label>Run As User<br>
-          <input id="runasuser" type="text" value="root">
+          <input id="runasuser" type="text" class="input-field" value="root">
         </label>
         <label>Max SSH Connections<br>
-          <input id="maxsshconns" type="number" value="10">
+          <input id="maxsshconns" type="number" class="input-field" value="10">
         </label>
         <label>Max SSH Channels<br>
-          <input id="maxsshchan" type="number" value="5">
+          <input id="maxsshchan" type="number" class="input-field" value="5">
         </label>
         <label>Max Command Runtime (sec)<br>
-          <input id="cmdtimeout" type="number" value="180">
+          <input id="cmdtimeout" type="number" class="input-field" value="180">
         </label>
         <label>Verbosity Level (0-5)<br>
-          <input id="verbosity" type="number" value="1" min="0" max="5">
+          <input id="verbosity" type="number" class="input-field" value="1" min="0" max="5">
         </label>
       </div>
     </div>
 
-    <div class="deploy-panel">
-      <div class="deploy-actions">
+    <div class="deploy-panel card-panel">
+      <div class="deploy-actions flex-row">
         <div class="deploy-btn-wrapper">
-          <button class="btn deploy-final-btn">Deploy</button>
+          <button id="deploy-btn" class="btn deploy-final-btn" type="button">Deploy</button>
           <div class="spinner hidden" id="deploy-spinner"></div>
         </div>
-        <button class="btn deploy-abort-btn" disabled="">Abort</button>
+        <button id="deploy-abort-btn" class="btn deploy-abort-btn" type="button" disabled="">Abort</button>
       </div>
     </div>
 
-    <div class="deploy-panel">
+    <div class="deploy-panel card-panel">
       <h2>Deployment Result</h2>
 
       <!-- Summary Block -->
@@ -187,15 +187,15 @@
         </div>
 
         <!-- Host list area (will be dynamically populated) -->
-        <div class="host-list" id="host-list">
+        <div class="host-list flex-col" id="host-list">
           <!-- Dynamically injected host <details> will go here -->
         </div>
       </div>
 
       <!-- Full raw output -->
       <details>
-        <summary style="cursor: pointer;">View Full Output</summary>
-        <pre class="deploy-output" id="deploy-output">Loading deployment output...</pre>
+        <summary class="summary-toggle">View Full Output</summary>
+        <pre id="deploy-output" class="deploy-output">>Loading deployment output...</pre>
       </details>
     </div>
   </div>

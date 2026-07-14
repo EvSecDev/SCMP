@@ -1,4 +1,4 @@
-<!DOCTYPE HTML>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -35,40 +35,40 @@
       <div id="version-info">Loading...</div>
       <div id="platform-info">Loading...</div>
       <div id="api-browser">
-        <a href="#" target="_blank">API Browser</a>
+        <a href="/" target="_blank">API Browser</a>
       </div>
       <div id="github-link">
-        <a href="#" target="_blank">GitHub Project Page</a>
+        <a href="/" target="_blank">GitHub Project Page</a>
       </div>
     </div>
   </div>
 
   <div class="content">
     <div id="file-header" class="content-header">
-      <a href="#" class="btn">Back</a>
+       <button class="btn" type="button">Back</button>
       <span id="file-path" class="file-path-inline">Loading path...</span>
     </div>
     <div id="file-wrapper">
       <div class="box content-box">
         <div class="box-header">
           <h2>Content</h2>
-          <div class="box-btn-group">
-            <a id="content-edit-btn" class="edit-btn edit-mode">Edit</a>
-            <a id="content-cancel-btn" class="cancel-btn">Cancel</a>
-          </div>
-        </div>
-        <div class="box-body">
+<div class="box-btn-group flex-row">
+              <button id="content-edit-btn" class="btn edit-btn edit-mode" type="button">Edit</button>
+              <button id="content-cancel-btn" class="btn cancel-btn" type="button">Cancel</button>
+            </div>
+         </div>
+         <div class="box-body">
           <div id="file-container">Loading file...</div>
-          <textarea id="file-editor" class="file-editor hidden"></textarea>
+          <textarea id="file-editor" class="hidden"></textarea>
         </div>
       </div>
       <div class="box metadata-box">
         <div class="box-header">
           <h2>Metadata</h2>
-          <div class="box-btn-group">
-            <a id="metadata-edit-btn" class="edit-btn edit-mode">Edit</a>
-            <a id="metadata-cancel-btn" class="cancel-btn">Cancel</a>
-          </div>
+<div class="box-btn-group flex-row">
+              <button id="metadata-edit-btn" class="btn edit-btn edit-mode" type="button">Edit</button>
+              <button id="metadata-cancel-btn" class="btn cancel-btn" type="button">Cancel</button>
+            </div>
         </div>
         <div id="file-metadata" class="box-body">
           <div id="metaOwner" class="metadata-field hidden">

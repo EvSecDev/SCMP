@@ -1,4 +1,4 @@
-<!DOCTYPE HTML>
+<!DOCTYPE html>
 <html lang="en">
 
 <head>
@@ -36,10 +36,10 @@
             <div id="version-info">Loading...</div>
             <div id="platform-info">Loading...</div>
             <div id="api-browser">
-                <a href="#" target="_blank">API Browser</a>
+                <a href="/" target="_blank">API Browser</a>
             </div>
             <div id="github-link">
-                <a href="#" target="_blank">GitHub Project Page</a>
+                <a href="/" target="_blank">GitHub Project Page</a>
             </div>
         </div>
     </div>
@@ -48,24 +48,24 @@
         <h1>Files</h1>
 
         <!-- Table wrapper -->
-        <div class="table-container">
-            <h3 class="table-header">
+        <div class="table-container card-panel">
+            <div class="table-header">
                 <span id="current-path">Path: /</span>
 
                 <div class="search-group">
                     <div class="search-input-wrapper">
-                        <input id="search-input" type="text" placeholder="Search..." class="search-input" />
-                        <span id="search-cog" class="search-cog" role="button" tabindex="0"
-                            title="Search options">⚙️</span>
+                        <input id="search-input" type="text" placeholder="Search..." class="search-input input-field" />
+                        <button id="search-cog" class="search-cog" type="button"
+                            title="Search options">⚙️</button>
                     </div>
-                    <button id="search-btn" class="btn">Search</button>
-                    <button id="clear-search-btn" class="btn">Clear</button>
+                    <button id="search-btn" class="btn" type="button">Search</button>
+                    <button id="clear-search-btn" class="btn" type="button">Clear</button>
                 </div>
 
                 <!-- Control button/dropdown -->
-                <div class="table-controls">
-                    <button id="create-btn" class="btn">Create</button>
-                    <button id="refresh-btn" class="btn">Refresh</button>
+                <div class="table-controls flex-row">
+                    <button id="create-btn" class="btn" type="button">Create</button>
+                    <button id="refresh-btn" class="btn" type="button">Refresh</button>
                     <div class="rows-per-page">
                         <label for="rows-select">Rows</label>
                         <select id="rows-select" class="btn">
@@ -76,8 +76,7 @@
                         </select>
                     </div>
                 </div>
-            </h3>
-            <br>
+            </div>
             <table>
                 <thead>
                     <tr>
@@ -90,16 +89,16 @@
                         <th>Actions</th>
                     </tr>
                 </thead>
-                <tbody>
+                <tbody id="file-tbody">
                     <!-- Dynamic content will be inserted here -->
                 </tbody>
             </table>
 
             <!-- Pagination controls -->
-            <div class="pagination">
-                <button class="btn" disabled>&laquo; Prev</button>
-                <span class="page-info">Page 1 of 1</span>
-                <button class="btn">Next &raquo;</button>
+            <div id="pagination" class="pagination">
+                <button id="pagination-prev" class="btn" type="button" disabled>&laquo; Prev</button>
+                <span id="pagination-info" class="page-info">Page 1 of 1</span>
+                <button id="pagination-next" class="btn" type="button">Next &raquo;</button>
             </div>
         </div>
     </div>

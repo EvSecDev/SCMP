@@ -1,6 +1,6 @@
 import { isErr } from "./lib/result.js"
 import type { Result } from "./lib/result.js"
-import { getElement, mustQuerySelector } from "./lib/dom/lookup.js"
+import { getElement } from "./lib/dom/lookup.js"
 import { safeCopyToClipboard } from "./lib/dom/clipboard.js"
 import { getJSONViaJSON } from "./lib/rpc/client.js"
 import { logError, logWarning, logAlert } from "./lib/logging/log.js"
@@ -16,7 +16,6 @@ var allFiles: FileMetadata[] = []
 // DOM references (initialized in initDirUI)
 var tableBody: HTMLTableSectionElement = document.createElement("tbody")
 var paginationInfo: HTMLSpanElement = document.createElement("span")
-var paginationDiv: HTMLDivElement = document.createElement("div")
 var pathHeader: HTMLElement = document.createElement("div")
 var createBtn: HTMLElement = document.createElement("button")
 var searchInput: HTMLInputElement = document.createElement("input")
@@ -30,42 +29,25 @@ var nextButton: HTMLButtonElement = document.createElement("button")
 var dirPagination: ReturnType<typeof createPagination> | null = null
 
 function initDirUI() {
-    var tableBodyResult = mustQuerySelector<HTMLTableSectionElement>("tbody")
-    if (tableBodyResult.ok) {
-        tableBody = tableBodyResult.value
-    } else {
-        logError(`initDirUI: missing tbody: ${tableBodyResult.error}`, true)
+    var tableBodyResult = getElement("file-tbody") as HTMLTableSectionElement | null
+    if (!tableBodyResult) {
+        logError(`initDirUI: missing file-tbody`, true)
         return
     }
+    tableBody = tableBodyResult
 
-    var paginationInfoResult = mustQuerySelector<HTMLSpanElement>(".page-info")
-    if (paginationInfoResult.ok) {
-        paginationInfo = paginationInfoResult.value
-    } else {
-        logError(`initDirUI: missing .page-info: ${paginationInfoResult.error}`, true)
+    var paginationInfoResult = getElement("pagination-info") as HTMLSpanElement | null
+    if (!paginationInfoResult) {
+        logError(`initDirUI: missing pagination-info`, true)
         return
     }
+    paginationInfo = paginationInfoResult
 
-    var paginationDivResult = mustQuerySelector<HTMLDivElement>(".pagination")
-    if (paginationDivResult.ok) {
-        paginationDiv = paginationDivResult.value
-    } else {
-        logError(`initDirUI: missing .pagination: ${paginationDivResult.error}`, true)
+    prevButton = getElement("pagination-prev") as HTMLButtonElement
+    nextButton = getElement("pagination-next") as HTMLButtonElement
+    if (!prevButton || !nextButton) {
+        logError(`initDirUI: missing pagination buttons`, true)
         return
-    }
-
-    var buttons = Array.from(paginationDiv.querySelectorAll<HTMLButtonElement>(".btn"))
-    if (buttons.length > 0) {
-        const btn0 = buttons[0]
-        if (btn0) {
-            prevButton = btn0
-        }
-    }
-    if (buttons.length > 1) {
-        const btn1 = buttons[1]
-        if (btn1) {
-            nextButton = btn1
-        }
     }
 
     pathHeader = getElement("current-path")

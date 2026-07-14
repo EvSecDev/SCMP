@@ -41,7 +41,6 @@
 }
 
 /* Each row in the dropdown */
-.dropdown-multiselect .host-row,
 .host-row {
   padding: 0.5rem 0.75rem;
   cursor: pointer;
@@ -50,21 +49,20 @@
 }
 
 /* Hover effect for rows */
-.dropdown-multiselect .host-row:hover,
-.host-row:hover {
+.host-row:hover,
+.host-row:focus-visible {
   background-color: #3a3a3a;
 }
 
+.host-row:focus-visible {
+  outline: 2px solid #4ea1f3;
+  outline-offset: -1px;
+}
+
 /* Selected row highlight */
-.dropdown-multiselect .host-row.selected,
 .host-row.selected {
   background-color: rgba(0, 137, 251, 0.31);
   color: #fff;
-}
-
-/* Utility class to hide elements */
-.hidden {
-  display: none !important;
 }
 
 /* Search input row at top of dropdown */

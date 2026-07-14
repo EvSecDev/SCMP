@@ -1,5 +1,5 @@
 import { isErr, id } from "./lib/result.js"
-import { getElement, mustElement, mustQuerySelector } from "./lib/dom/lookup.js"
+import { getElement, mustElement } from "./lib/dom/lookup.js"
 import { createStatusSpan } from "./lib/dom/widgets.js"
 import { getJSONViaJSON } from "./lib/rpc/client.js"
 import { logError, logWarning } from "./lib/logging/log.js"
@@ -51,15 +51,11 @@ async function refreshStatus() {
 
     latestStatus = result.value
 
-    var lists = document.querySelectorAll(".git-panel .git-file-list")
-    if (lists.length >= 2) {
-        const list0 = lists[0];
-        const list1 = lists[1];
-        if (list0 == null || list1 == null) {
-            return
-        }
-        renderFileList(list0, result.value.unstaged, "unstaged")
-        renderFileList(list1, result.value.staged, "staged")
+    var unstagedList = getElement("unstaged-list")
+    var stagedList = getElement("staged-list")
+    if (unstagedList && stagedList) {
+        renderFileList(unstagedList, result.value.unstaged, "unstaged")
+        renderFileList(stagedList, result.value.staged, "staged")
     }
 
     hookStageUnstageAll()
@@ -126,15 +122,11 @@ async function toggleStage(paths: string[], type: "staged" | "unstaged") {
 
 function refreshFileList(newStatus: RepoStatus) {
     latestStatus = newStatus
-    var lists = document.querySelectorAll(".git-panel .git-file-list")
-    if (lists.length >= 2) {
-        const list0 = lists[0];
-        const list1 = lists[1];
-        if (list0 == null || list1 == null) {
-            return
-        }
-        renderFileList(list0, newStatus.unstaged, "unstaged")
-        renderFileList(list1, newStatus.staged, "staged")
+    var unstagedList = getElement("unstaged-list")
+    var stagedList = getElement("staged-list")
+    if (unstagedList && stagedList) {
+        renderFileList(unstagedList, newStatus.unstaged, "unstaged")
+        renderFileList(stagedList, newStatus.staged, "staged")
     }
 
     hookStageUnstageAll()
@@ -152,26 +144,23 @@ function hookStageUnstageAll() {
     }
     stageHooksInitialized = true
 
-    var stageAllResult = mustQuerySelector<HTMLButtonElement>(".git-panel .btn-stage")
-    if (isErr(stageAllResult)) {
-        logWarning(`hookStageUnstageAll: ${stageAllResult.error}`)
+    stageAllBtn = getElement("btn-stage-all") as HTMLButtonElement
+    if (!stageAllBtn) {
+        logWarning(`hookStageUnstageAll: btn-stage-all not found`)
         return
     }
-    stageAllBtn = stageAllResult.value
 
-    var stageRefreshResult = mustQuerySelector<HTMLButtonElement>(".git-panel .btn-refresh")
-    if (isErr(stageRefreshResult)) {
-        logWarning(`hookStageUnstageAll: ${stageRefreshResult.error}`)
+    stageRefreshBtn = getElement("btn-stage-refresh") as HTMLButtonElement
+    if (!stageRefreshBtn) {
+        logWarning(`hookStageUnstageAll: btn-stage-refresh not found`)
         return
     }
-    stageRefreshBtn = stageRefreshResult.value
 
-    var unstageAllResult = mustQuerySelector<HTMLButtonElement>(".git-panel .btn-unstage")
-    if (isErr(unstageAllResult)) {
-        logWarning(`hookStageUnstageAll: ${unstageAllResult.error}`)
+    unstageAllBtn = getElement("btn-unstage-all") as HTMLButtonElement
+    if (!unstageAllBtn) {
+        logWarning(`hookStageUnstageAll: btn-unstage-all not found`)
         return
     }
-    unstageAllBtn = unstageAllResult.value
 
     var updateButtonState = () => {
         if (!latestStatus) {
@@ -317,9 +306,10 @@ var prevBtn: HTMLButtonElement = document.createElement("button")
 var nextBtn: HTMLButtonElement = document.createElement("button")
 
 function initPaginationElements() {
-    var rowsSelect = getElement("rows-select")
-    if (rowsSelect instanceof HTMLSelectElement) {
-        rowsSelectEl = rowsSelect
+    rowsSelectEl = getElement("rows-select") as HTMLSelectElement
+    if (!rowsSelectEl) {
+        logWarning(`initPaginationElements: rows-select not found`)
+        return
     }
     rowsSelectEl.addEventListener("change", () => {
         currentLimit = parseInt(rowsSelectEl.value, 10)
@@ -327,15 +317,8 @@ function initPaginationElements() {
         refreshHistory(currentOffset, currentLimit)
     })
 
-    var prevBtnResult = mustQuerySelector<HTMLButtonElement>(".pagination button:first-child")
-    if (prevBtnResult.ok) {
-        prevBtn = prevBtnResult.value
-    }
-
-    var nextBtnResult = mustQuerySelector<HTMLButtonElement>(".pagination button:last-child")
-    if (nextBtnResult.ok) {
-        nextBtn = nextBtnResult.value
-    }
+    prevBtn = getElement("pagination-prev") as HTMLButtonElement
+    nextBtn = getElement("pagination-next") as HTMLButtonElement
 
     prevBtn.addEventListener("click", () => {
         currentOffset = Math.max(0, currentOffset - currentLimit)
@@ -361,22 +344,23 @@ async function refreshHistory(reqOffset?: number, reqLimit?: number) {
     }
 
     var commits = result.value
-    var tbodyResult = mustQuerySelector<HTMLTableSectionElement>("#commit-history-table tbody")
-    if (isErr(tbodyResult)) {
-        logError(`refreshHistory: ${tbodyResult.error}`, false)
+    var tableEl = getElement("commit-history-table")
+    var tbody = tableEl.querySelector("tbody") as HTMLTableSectionElement
+    if (!tbody) {
+        logError(`refreshHistory: tbody in commit-history-table not found`, false)
         return
     }
-    var tbody = tbodyResult.value
     tbody.innerHTML = ""
 
     prevBtn.disabled = offset === 0
     nextBtn.disabled = commits.length < limit
 
-    var pageInfoResult = mustQuerySelector<HTMLSpanElement>(".pagination .page-info")
-    if (isErr(pageInfoResult)) {
+    var pageInfo = tableEl.querySelector(".page-info") as HTMLSpanElement
+    if (!pageInfo) {
+        logError(`refreshHistory: page-info not found`, false)
         return
     }
-    pageInfoResult.value.textContent = `Page ${Math.floor(offset / limit) + 1}`
+    pageInfo.textContent = `Page ${Math.floor(offset / limit) + 1}`
 
     for (var commitIndex = 0; commitIndex < commits.length; commitIndex++) {
         const commit = commits[commitIndex];
@@ -508,25 +492,18 @@ async function refreshHistory(reqOffset?: number, reqLimit?: number) {
         fileTr.appendChild(fileTd)
         tbody.appendChild(fileTr)
 
-        const showBtn = tr.querySelector<HTMLButtonElement>(".btn-show-files")
-        if (showBtn) {
-            const btn = showBtn
-            showBtn.onclick = () => {
-                if (fileTr.classList.contains("hidden")) {
-                    fileTr.classList.remove("hidden")
-                    btn.textContent = "Hide"
-                } else {
-                    fileTr.classList.add("hidden")
-                    btn.textContent = "Show"
-                }
+        showBtnEl.onclick = () => {
+            if (fileTr.classList.contains("hidden")) {
+                fileTr.classList.remove("hidden")
+                showBtnEl.textContent = "Hide"
+            } else {
+                fileTr.classList.add("hidden")
+                showBtnEl.textContent = "Show"
             }
         }
 
-        var deployBtn = tr.querySelector<HTMLButtonElement>(".btn-deploy")
-        if (deployBtn) {
-            deployBtn.onclick = () => {
-                window.location.href = `/deployments.html?commitid=${encodeURIComponent(commit.fullHash)}`
-            }
+        deployBtnEl.onclick = () => {
+            window.location.href = `/deployments.html?commitid=${encodeURIComponent(commit.fullHash)}`
         }
     }
 }
