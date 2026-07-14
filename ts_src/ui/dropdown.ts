@@ -76,16 +76,25 @@ export const selectedHosts: Set<string> = new Set()
 let hostsDropdownSetup = false
 let hostsClickHandler: ((e: MouseEvent) => void) | null = null
 
+export function resetHostsDropdownState() {
+    selectedHosts.clear()
+    hostsDropdownSetup = false
+}
+
 export async function setupOverrideHostsDropdown() {
     if (hostsDropdownSetup) return
     hostsDropdownSetup = true
+
+    // Clear stale state from previous page load / refresh
+    selectedHosts.clear()
+
     const inputResult = mustElement<HTMLInputElement>(id("overridehosts-input"))
     if (isErr(inputResult)) {
         logError(`setupOverrideHostsDropdown: ${inputResult.error}`, false)
         return
     }
     const inputEl = inputResult.value
-
+    inputEl.value = ""
     const dropdownResult = mustElement<HTMLDivElement>(id("overridehosts-dropdown"))
     if (isErr(dropdownResult)) {
         logError(`setupOverrideHostsDropdown: ${dropdownResult.error}`, false)

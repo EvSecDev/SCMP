@@ -5,7 +5,7 @@ import { getJSONViaJSON } from "./lib/rpc/client.js"
 import { logError, logWarning } from "./lib/logging/log.js"
 import { initPage } from "./lib/init/page.js"
 import { readCheckboxValue, readInputValue, parseIntOrZero } from "./lib/dom/form.js"
-import { setupOverrideHostsDropdown, selectedHosts } from "./ui/dropdown.js"
+import { setupOverrideHostsDropdown, selectedHosts, resetHostsDropdownState } from "./ui/dropdown.js"
 import { showModal } from "./ui/modal.js"
 import type { DeployStart, DeployStatus, DeployAbort, PromptReq, PromptAnswer, DeployOutput } from "./types/deployment.js"
 import type { NilSuccess } from "./types/common.js"
@@ -421,6 +421,17 @@ async function fetchDeploymentOutput(reqID: string): Promise<Result<void>> {
     result = { ok: true, value: undefined }
     return result
 }
+
+// Reset host override dropdown state on bfcache restore
+window.addEventListener("pageshow", (event) => {
+    if (event.persisted) {
+        resetHostsDropdownState()
+        var inputEl = document.getElementById("overridehosts-input")
+        if (inputEl instanceof HTMLInputElement) {
+            inputEl.value = ""
+        }
+    }
+})
 
 window.addEventListener("DOMContentLoaded", () => {
     initPage()
