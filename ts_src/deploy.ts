@@ -125,13 +125,26 @@ async function pollDeploymentStatus(reqID: string): Promise<Result<void>> {
     }
     var aborted = false
     var abortHandler = async () => {
-        var res = await getJSONViaJSON<DeployAbort, NilSuccess>("deployment.abort", { deploymentID: reqID, stopRequested: true })
+        await new Promise<void>((resolve) => {
+            showModal({
+                message: "Are you sure you want to abort this deployment?",
+                confirmText: "Abort",
+                cancelText: "Cancel",
+                onConfirm: async () => {
+                    var res = await getJSONViaJSON<DeployAbort, NilSuccess>("deployment.abort", { deploymentID: reqID, stopRequested: true })
 
-        if (isErr(res)) {
-            logError(`pollDeploymentStatus: abort: ${res.error}`, false)
-            return
-        }
-        aborted = true
+                    if (isErr(res)) {
+                        logError(`pollDeploymentStatus: abort: ${res.error}`, false)
+                        return
+                    }
+                    aborted = true
+                    resolve()
+                },
+                onCanceled: () => {
+                    resolve()
+                },
+            })
+        })
     }
 
     abortBtn.addEventListener("click", abortHandler)
