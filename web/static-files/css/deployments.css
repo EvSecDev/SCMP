@@ -203,6 +203,10 @@ input[type="checkbox"]:checked+.toggle-btn {
   color: #64ff64;
 }
 
+.status.preview {
+  color: #f7c948;
+}
+
 .status.error {
   color: #ff6464;
 }

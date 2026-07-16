@@ -98,7 +98,7 @@ async function handleDeployClick() {
             var deploymentID = deployRes.value.deploymentID
 
             // Step 5: Poll for status
-            var pollResult = await pollDeploymentStatus(deploymentID)
+            var pollResult = await pollDeploymentStatus(deploymentID, type)
             if (isErr(pollResult)) {
                 errorOccurred = true
             }
@@ -116,7 +116,7 @@ async function handleDeployClick() {
     return result
 }
 
-async function pollDeploymentStatus(reqID: string): Promise<Result<void>> {
+async function pollDeploymentStatus(reqID: string, deployType: string): Promise<Result<void>> {
     var result: Result<void>
     var abortBtn = getElement("deploy-abort-btn") as HTMLButtonElement | null
     if (!abortBtn) {
@@ -177,7 +177,7 @@ async function pollDeploymentStatus(reqID: string): Promise<Result<void>> {
             var status = statusRes.value.status
 
             if (status === "finished") {
-                var outputResult = await fetchDeploymentOutput(reqID)
+                var outputResult = await fetchDeploymentOutput(reqID, deployType)
                 abortBtn.setAttribute("disabled", "")
                 abortBtn.removeEventListener("click", abortHandler)
                 if (isErr(outputResult)) {
@@ -288,7 +288,7 @@ async function askUser(prompts: PromptReq[]): Promise<string> {
     }
 }
 
-async function fetchDeploymentOutput(reqID: string): Promise<Result<void>> {
+async function fetchDeploymentOutput(reqID: string, deployType: string): Promise<Result<void>> {
     var result: Result<void>
     var outputEl = getElement("deploy-output") as HTMLElement | null
     if (!outputEl) {
@@ -318,11 +318,31 @@ async function fetchDeploymentOutput(reqID: string): Promise<Result<void>> {
         result = { ok: false, error: "fetchDeploymentOutput: no summary data" }
         return result
     }
+    var isPreview = deployType === "preview"
+    var isWetRun = deployType === "test"
 
     // Fill in top status block
     var statusTextEl = document.querySelector('[data-field="status-text"]')
     if (statusTextEl) {
-        statusTextEl.textContent = summary.Status
+        var displayStatus = summary.Status
+        if (isPreview) {
+            if (summary.Status === "Deployed") {
+                displayStatus = "Pending Changes (Preview)"
+            } else if (summary.Status === "Partial") {
+                displayStatus = "Partial (Preview)"
+            } else if (summary.Status === "UpToDate") {
+                displayStatus = "No Changes (Preview)"
+            }
+        } else if (isWetRun) {
+            if (summary.Status === "Deployed") {
+                displayStatus = "Pending Changes (Test)"
+            } else if (summary.Status === "Partial") {
+                displayStatus = "Partial (Test)"
+            } else if (summary.Status === "UpToDate") {
+                displayStatus = "No Changes (Test)"
+            }
+        }
+        statusTextEl.textContent = displayStatus
     }
 
     var startTimeEl = document.querySelector('[data-field="start-time"]')
@@ -404,8 +424,13 @@ async function fetchDeploymentOutput(reqID: string): Promise<Result<void>> {
             var statusIcon = "✗"
             var statusClass = "Failed"
             if (host.Status === "Deployed") {
-                statusIcon = "✓"
-                statusClass = "Deployed"
+                if (isPreview || isWetRun) {
+                    statusIcon = "◇"
+                    statusClass = "preview"
+                } else {
+                    statusIcon = "✓"
+                    statusClass = "Deployed"
+                }
             }
 
             var hostMetaHtml = "<div class=\"host-meta\">"
@@ -430,8 +455,13 @@ async function fetchDeploymentOutput(reqID: string): Promise<Result<void>> {
                     var itemStatusText = ""
                     var itemStatusClass = ""
                     if (item.Status === "Deployed") {
-                        itemStatusText = "✓ Deployed"
-                        itemStatusClass = "status success"
+                        if (isPreview || isWetRun) {
+                            itemStatusText = "◇ Pending Changes"
+                            itemStatusClass = "status preview"
+                        } else {
+                            itemStatusText = "✓ Deployed"
+                            itemStatusClass = "status success"
+                        }
                     } else {
                         itemStatusText = "✗ Failed"
                         itemStatusClass = "status error"
