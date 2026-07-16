@@ -420,9 +420,38 @@ async function fetchDeploymentOutput(reqID: string): Promise<Result<void>> {
             }
             hostMetaHtml += "</div>"
 
-            detailsEl.innerHTML = "<summary>" + escapeHtml(host.Name) +
-                '<span class="status ' + statusClass + '">' + statusIcon + '</span></summary> ' +
-                hostMetaHtml
+            var itemsTableHtml = ""
+            if (host.Items && host.Items.length > 0) {
+                itemsTableHtml = "<table class=\"host-items\"><tbody>"
+                for (var itemIndex = 0; itemIndex < host.Items.length; itemIndex++) {
+                    const item = host.Items[itemIndex]
+                    if (item == null) continue;
+
+                    var itemStatusText = ""
+                    var itemStatusClass = ""
+                    if (item.Status === "Deployed") {
+                        itemStatusText = "✓ Deployed"
+                        itemStatusClass = "status success"
+                    } else {
+                        itemStatusText = "✗ Failed"
+                        itemStatusClass = "status error"
+                    }
+                    var itemAction = item["Deployment-Action"] != null ? escapeHtml(String(item["Deployment-Action"])) : ""
+
+                    itemsTableHtml += "<tr>"
+                    itemsTableHtml += "<td><span class=\"" + itemStatusClass + "\">" + itemStatusText + "</span></td>"
+                    itemsTableHtml += "<td class=\"item-action\">" + itemAction + "</td>"
+                    itemsTableHtml += "<td class=\"item-name\"><a href=\"/file.html?path=" + encodeURIComponent(item.Name) + "\">" + escapeHtml(item.Name) + "</a></td>"
+                    itemsTableHtml += "</tr>"
+                }
+                itemsTableHtml += "</tbody></table>"
+            }
+
+            detailsEl.innerHTML = "<summary>" +
+                '<span class="status ' + statusClass + '">' + statusIcon + '</span> ' +
+                escapeHtml(host.Name) +
+                '</summary> ' +
+                hostMetaHtml + itemsTableHtml
             hostListEl.appendChild(detailsEl)
         }
     }
